@@ -60,9 +60,10 @@ def create_app(projects_folder=None):
     def api_project(project_id):
         """Everything the project card needs. stamp = note.md's version, sent back on save."""
         folder = folder_or_404(project_id)
+        stamp = notes.note_stamp(folder)     # before reading: a change in between = a warning, not a lost edit
         project = notes.dashboard([notes.read_project(folder)], datetime.now())[0]
         text = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
-        return jsonify(project=project, text=text, stamp=notes.note_stamp(folder),
+        return jsonify(project=project, text=text, stamp=stamp,
                        history=notes.read_history(text))
 
     def save(folder, make_text):
@@ -105,7 +106,8 @@ def create_app(projects_folder=None):
         if not said:
             return jsonify(error="Write something first."), 400
         today = datetime.now().strftime("%Y-%m-%d")
-        return save(folder, lambda text: notes.add_history(text, said, today))
+        # set_fields(..., {}) adds an empty --- block if the note has none, so the save is accepted
+        return save(folder, lambda text: notes.set_fields(notes.add_history(text, said, today), {}))
 
     return app
 

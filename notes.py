@@ -123,12 +123,14 @@ def set_fields(text, changes):
     if end is None:
         lines, end = ["---\n", "---\n"] + lines, 1
 
+    seen = set()
     for i in range(1, end):
         key = lines[i].partition(":")[0].strip()
-        if key in changes:
-            value = changes.pop(key)
+        if key in changes:         # every copy, because parse_note reads the last one
+            value = changes[key]
             lines[i] = f"{key}: {value}\n" if value else f"{key}:\n"
-    new = [f"{k}: {v}\n" for k, v in changes.items() if v]
+            seen.add(key)
+    new = [f"{k}: {v}\n" for k, v in changes.items() if v and k not in seen]
     return "".join(lines[:end] + new + lines[end:])
 
 
@@ -137,7 +139,7 @@ def history_lines(lines):
     for i, line in enumerate(lines):
         if line.strip() == HISTORY_HEADING:
             end = i + 1
-            while end < len(lines) and not lines[end].startswith("## "):
+            while end < len(lines) and not lines[end].startswith(("# ", "## ")):
                 end += 1
             return i + 1, end
     return None
@@ -183,8 +185,12 @@ def find_project(projects_folder, project_id):
 
 
 def note_stamp(folder):
-    """note.md's last-changed time, as text. If it differs later, someone else saved the file."""
-    return str((Path(folder) / NOTE_FILE).stat().st_mtime_ns)
+    """note.md's last-changed time and size, as text. If it differs later, someone else saved the file.
+
+    Size too, because some disks round the time to 1-2 seconds.
+    """
+    info = (Path(folder) / NOTE_FILE).stat()
+    return f"{info.st_mtime_ns}-{info.st_size}"
 
 
 def archive_copy(path, folder, now):

@@ -286,3 +286,25 @@ def test_write_note_refuses_text_without_fields_block(tmp_path):
     with pytest.raises(ValueError):
         notes.write_note(folder, "fields block deleted\n", notes.note_stamp(folder), NOW)
     assert (folder / "note.md").read_text(encoding="utf-8") == NOTE
+
+
+# ---------- review fixes ----------
+
+def test_set_fields_updates_every_copy_of_a_duplicated_key():
+    text = notes.set_fields("---\nnext: a\nnext: b\n---\n", {"next": "c"})
+    assert text == "---\nnext: c\nnext: c\n---\n"
+
+
+def test_read_history_stops_at_a_top_level_heading():
+    text = "## History\n- 2026-10-15 · you · real\n# Notes\n- not history\n"
+    assert [h["text"] for h in notes.read_history(text)] == ["real"]
+
+
+def test_note_stamp_changes_with_size_even_if_time_is_the_same(tmp_path):
+    folder = make_project(tmp_path, "P")
+    note = folder / "note.md"
+    os.utime(note, ns=(5_000_000_000, 5_000_000_000))
+    before = notes.note_stamp(folder)
+    note.write_text(NOTE + "more\n", encoding="utf-8")
+    os.utime(note, ns=(5_000_000_000, 5_000_000_000))   # coarse clock: same time
+    assert notes.note_stamp(folder) != before

@@ -75,8 +75,11 @@ function drawView() {
   const p = card.project;
   const input = (key, label, cls = "", hint = "") =>
     `<label class="${cls}">${label}<input id="f-${key}" value="${esc(p[key])}">${hint}</label>`;
-  const select = (key, label, options, hint = "") =>
-    `<label>${label}<select id="f-${key}">${options.map(o => `<option ${p[key] === o ? "selected" : ""}>${o}</option>`).join("")}</select>${hint}</label>`;
+  // A value the note has but the list doesn't (e.g. "Active") stays shown, so saving never changes it silently.
+  const select = (key, label, options, hint = "") => {
+    const all = options.includes(p[key]) ? options : [p[key], ...options];
+    return `<label>${label}<select id="f-${key}">${all.map(o => `<option ${p[key] === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>${hint}</label>`;
+  };
   $("m-view").innerHTML = `<div class="v-head"><h3>Overview & fields</h3><span class="meta">stored at the top of note.md</span></div>
     <div class="grid">
       ${input("title", "Project name", "wide")}
@@ -112,6 +115,14 @@ function showAlert(html) {
 // Send one save to Flask. On 409 show the conflict choice; "Save mine anyway" resends with force.
 async function save(path, body, done, force = false) {
   showAlert("");
+  try {
+    await send(path, body, done, force);
+  } catch (err) {
+    showAlert(`<span class="err">Could not save: ${esc(err.message)}. Is the app still running in the terminal?</span>`);
+  }
+}
+
+async function send(path, body, done, force) {
   const response = await fetch(`/api/projects/${encodeURIComponent(card.id)}/${path}`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},

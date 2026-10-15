@@ -161,3 +161,12 @@ def test_add_history_line(tmp_path, client):
     first = open_card(client)["history"][0]
     assert (first["who"], first["text"]) == ("you", "Senior said: Northeast only")
     assert first["date"] == time.strftime("%Y-%m-%d")
+
+
+def test_add_history_line_to_note_without_fields_block(tmp_path, client):
+    (tmp_path / "loose").mkdir()
+    (tmp_path / "loose" / "note.md").write_text("just text\n", encoding="utf-8")
+    stamp = open_card(client, "loose")["stamp"]
+    response = client.post("/api/projects/loose/history", json={"text": "first", "stamp": stamp})
+    assert response.status_code == 200
+    assert open_card(client, "loose")["history"][0]["text"] == "first"
