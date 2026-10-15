@@ -176,13 +176,17 @@ def add_history(text, said, date, who="you"):
 
 # ---------- finding and saving a project safely ----------
 
+def plain_name(name):
+    """True for a plain, visible file or folder name: no "../", no slashes, no leading dot."""
+    return bool(name) and name == Path(name).name and not name.startswith(".")
+
+
 def find_project(projects_folder, project_id):
     """The folder of this project, or None if the ID is not a plain, open project.
 
     Stops IDs like "../x" from reaching files outside the projects folder.
     """
-    if (not project_id or project_id != Path(project_id).name
-            or project_id.startswith(".") or project_id == ARCHIVE_FOLDER):
+    if not plain_name(project_id) or project_id == ARCHIVE_FOLDER:
         return None
     folder = Path(projects_folder) / project_id
     return folder if (folder / NOTE_FILE).is_file() else None
@@ -201,15 +205,19 @@ def note_stamp(folder):
     return file_stamp(Path(folder) / NOTE_FILE)
 
 
-def free_name(target_dir, name, now):
-    """The path for name in target_dir, with a time suffix if it is taken: "a (2026-10-15 10-42).txt"."""
+def free_name(target_dir, name, now, folder=False):
+    """The path for name in target_dir, with a time suffix if it is taken: "a (2026-10-15 10-42).txt".
+
+    folder=True: the suffix goes at the very end ("v1.2 tool (...)"), as folders have no extension.
+    """
     name = Path(name)
+    stem, ext = (name.name, "") if folder else (name.stem, name.suffix)
     target = Path(target_dir) / name
     suffix = now.strftime(" (%Y-%m-%d %H-%M)")
     count = 1
     while target.exists():
         extra = suffix if count == 1 else f"{suffix[:-1]} {count})"
-        target = Path(target_dir) / f"{name.stem}{extra}{name.suffix}"
+        target = Path(target_dir) / f"{stem}{extra}{ext}"
         count += 1
     return target
 
@@ -263,7 +271,7 @@ def file_path(folder, dir, name):
 
     Like find_project: stops names like "../note.md" from reaching other files.
     """
-    if dir not in FILE_DIRS or not name or name != Path(name).name or name.startswith("."):
+    if dir not in FILE_DIRS or not plain_name(name):
         return None
     return Path(folder) / dir / name
 
@@ -325,3 +333,84 @@ def save_upload(folder, name, data, now):
     target = free_name(target_dir, name, now)
     target.write_bytes(data)
     return target.name
+
+
+# ---------- Archive page: archived projects, deleted files, restore (slice 5) ----------
+
+def mark(folder, status, said, now):
+    """Set the project's status and add a history line, e.g. when it is archived or restored."""
+    note = Path(folder) / NOTE_FILE
+    text = set_fields(note.read_text(encoding="utf-8-sig"), {"status": status})
+    note.write_text(add_history(text, said, now.strftime("%Y-%m-%d")), encoding="utf-8")
+
+
+def archive_project(projects_folder, folder, now):
+    """"Mark done & archive": move the whole project folder into _archive, then mark it done.
+
+    Moved first, so a locked folder (a file open in Excel on Windows) changes nothing at all.
+    """
+    archive = Path(projects_folder) / ARCHIVE_FOLDER
+    archive.mkdir(exist_ok=True)
+    target = free_name(archive, Path(folder).name, now, folder=True)
+    os.rename(folder, target)
+    mark(target, "done", "Marked done and archived", now)
+    return target
+
+
+def restore_project(projects_folder, archived, now):
+    """Move an archived project back to the projects folder as active. Returns its (maybe suffixed) ID."""
+    target = free_name(projects_folder, Path(archived).name, now, folder=True)
+    os.rename(archived, target)
+    mark(target, "active", "Restored from archive", now)
+    return target.name
+
+
+def find_archived(projects_folder, project_id):
+    """The folder of this archived project, or None. Same safety checks as find_project."""
+    if not plain_name(project_id):
+        return None
+    folder = Path(projects_folder) / ARCHIVE_FOLDER / project_id
+    return folder if (folder / NOTE_FILE).is_file() else None
+
+
+def archived_file_path(folder, dir, name):
+    """folder/archive/dir/name, or None. dir "" = the archive folder itself (old note.md copies)."""
+    if dir not in ("",) + FILE_DIRS or not plain_name(name):
+        return None
+    return Path(folder) / FILE_ARCHIVE / dir / name
+
+
+def restore_file(folder, dir, name, now):
+    """Move an archived file back. Returns where it went, e.g. "raw/a.txt".
+
+    An old note.md copy goes to raw\\, so it never replaces the live note.md. A taken name gets a suffix.
+    """
+    back = dir or UPLOAD_DIR
+    target_dir = Path(folder) / back
+    target_dir.mkdir(exist_ok=True)
+    target = free_name(target_dir, name, now)
+    os.rename(Path(folder) / FILE_ARCHIVE / dir / name, target)
+    return f"{back}/{target.name}"
+
+
+def list_archive(projects_folder):
+    """What the Archive page shows: archived projects (last finished first) and the deleted files of open projects."""
+    projects = []
+    archive = Path(projects_folder) / ARCHIVE_FOLDER
+    for folder in sorted(archive.iterdir()) if archive.is_dir() else []:
+        if folder.is_dir() and plain_name(folder.name) and (folder / NOTE_FILE).is_file():
+            project = read_project(folder)
+            del project["body"]
+            project["finished"] = datetime.fromtimestamp(project["updated"]).strftime("%Y-%m-%d")
+            project["files"] = sum(len(files) for _, _, files in os.walk(folder))
+            projects.append(project)
+
+    files = []
+    for project in list_projects(projects_folder):
+        for dir in ("",) + FILE_DIRS:
+            path = Path(projects_folder) / project["id"] / FILE_ARCHIVE / dir
+            found = sorted(path.iterdir(), reverse=True) if path.is_dir() else []
+            files += [{"project": project["id"], "title": project["title"], "dir": dir,
+                       "name": f.name, "size": f.stat().st_size}
+                      for f in found if f.is_file() and plain_name(f.name)]
+    return {"projects": sorted(projects, key=lambda p: -p["updated"]), "files": files}

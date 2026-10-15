@@ -424,3 +424,115 @@ def test_archive_file_removes_its_copy_when_the_file_is_locked(tmp_path, monkeyp
         notes.archive_file(path, folder, NOW)
     assert path.exists()
     assert list((folder / "archive" / "raw").iterdir()) == []
+
+
+# ---------- slice 5: archive projects, list the archive, restore ----------
+
+def test_archive_project_moves_folder_marks_done_and_adds_history(tmp_path):
+    folder = make_project(tmp_path, "DEMO-1111")
+    target = notes.archive_project(tmp_path, folder, NOW)
+    assert target == tmp_path / "_archive" / "DEMO-1111"
+    assert not folder.exists()
+    text = (target / "note.md").read_text(encoding="utf-8")
+    assert notes.parse_note(text)[0]["status"] == "done"
+    assert notes.read_history(text)[0]["text"] == "Marked done and archived"
+    assert notes.list_projects(tmp_path) == []
+
+
+def test_archive_project_never_overwrites_an_archived_one(tmp_path):
+    (tmp_path / "_archive").mkdir()
+    make_project(tmp_path / "_archive", "P", "---\ntitle: old\n---\n")
+    target = notes.archive_project(tmp_path, make_project(tmp_path, "P"), datetime(2026, 10, 15, 10, 42))
+    assert target.name == "P (2026-10-15 10-42)"
+    assert "title: old" in (tmp_path / "_archive" / "P" / "note.md").read_text(encoding="utf-8")
+
+
+def test_archive_project_folder_name_with_a_dot_gets_suffix_at_the_end(tmp_path):
+    (tmp_path / "_archive").mkdir()
+    make_project(tmp_path / "_archive", "v1.2 tool")
+    target = notes.archive_project(tmp_path, make_project(tmp_path, "v1.2 tool"), datetime(2026, 10, 15, 10, 42))
+    assert target.name == "v1.2 tool (2026-10-15 10-42)"
+
+
+def test_archive_project_locked_folder_changes_nothing(tmp_path, monkeypatch):
+    """Windows: a file open in Excel blocks moving the folder. Then the note must stay untouched too."""
+    folder = make_project(tmp_path, "P")
+    def locked(*args):
+        raise PermissionError("in use")
+    monkeypatch.setattr(notes.os, "rename", locked)
+    with pytest.raises(PermissionError):
+        notes.archive_project(tmp_path, folder, NOW)
+    assert (folder / "note.md").read_text(encoding="utf-8") == NOTE
+
+
+def test_list_archive_projects_and_deleted_files(tmp_path):
+    notes.archive_project(tmp_path, make_project(tmp_path, "OLD-1"), NOW)
+    open_one = make_project(tmp_path, "P")
+    notes.archive_file(add_file(open_one, "raw", "a.txt", b"abc"), open_one, NOW)
+    notes.archive_file(add_file(open_one, "sessions", "s.md", b"x"), open_one, NOW)
+    notes.archive_copy(open_one / "note.md", open_one, NOW)     # a "Save mine anyway" copy
+    (open_one / "archive" / "junk").mkdir()                      # unknown sub-folders are not listed
+
+    archive = notes.list_archive(tmp_path)
+
+    [old] = archive["projects"]
+    assert (old["id"], old["title"], old["status"], old["files"]) == ("OLD-1", "Fix the RAN alarms", "done", 1)
+    assert "body" not in old
+    found = {(f["project"], f["dir"], f["name"]) for f in archive["files"]}
+    assert found == {("P", "raw", "a.txt"), ("P", "sessions", "s.md"), ("P", "", "note.md")}
+    assert next(f for f in archive["files"] if f["name"] == "a.txt")["size"] == 3
+
+
+def test_list_archive_without_any_archive_is_empty(tmp_path):
+    make_project(tmp_path, "P")
+    assert notes.list_archive(tmp_path) == {"projects": [], "files": []}
+
+
+def test_find_archived_only_plain_names_inside_archive(tmp_path):
+    notes.archive_project(tmp_path, make_project(tmp_path, "P"), NOW)
+    make_project(tmp_path, "OPEN")
+    assert notes.find_archived(tmp_path, "P") == tmp_path / "_archive" / "P"
+    for bad in ["OPEN", "../OPEN", "", ".hidden", "nope"]:
+        assert notes.find_archived(tmp_path, bad) is None
+
+
+def test_restore_project_sets_active_adds_history_and_never_overwrites(tmp_path):
+    notes.archive_project(tmp_path, make_project(tmp_path, "P"), NOW)
+    make_project(tmp_path, "P", "---\ntitle: new one\n---\n")    # a new project took the name meanwhile
+    when = datetime(2026, 10, 15, 10, 42)
+
+    new_id = notes.restore_project(tmp_path, tmp_path / "_archive" / "P", when)
+
+    assert new_id == "P (2026-10-15 10-42)"
+    text = (tmp_path / new_id / "note.md").read_text(encoding="utf-8")
+    assert notes.parse_note(text)[0]["status"] == "active"
+    assert notes.read_history(text)[0]["text"] == "Restored from archive"
+    assert "title: new one" in (tmp_path / "P" / "note.md").read_text(encoding="utf-8")
+    assert notes.list_archive(tmp_path)["projects"] == []
+
+
+def test_restore_file_back_to_its_folder_with_suffix_when_taken(tmp_path):
+    folder = make_project(tmp_path, "P")
+    notes.archive_file(add_file(folder, "raw", "a.txt", b"old"), folder, NOW)
+    add_file(folder, "raw", "a.txt", b"new")
+    assert notes.restore_file(folder, "raw", "a.txt", datetime(2026, 10, 15, 10, 42)) == "raw/a (2026-10-15 10-42).txt"
+    assert (folder / "raw" / "a.txt").read_bytes() == b"new"
+    assert (folder / "raw" / "a (2026-10-15 10-42).txt").read_bytes() == b"old"
+    assert notes.list_archive(tmp_path)["files"] == []
+
+
+def test_restore_note_copy_goes_to_raw_and_never_touches_the_live_note(tmp_path):
+    folder = make_project(tmp_path, "P")
+    notes.archive_copy(folder / "note.md", folder, NOW)
+    (folder / "note.md").write_text("---\ntitle: live\n---\n", encoding="utf-8")
+    assert notes.restore_file(folder, "", "note.md", NOW) == "raw/note.md"
+    assert (folder / "raw" / "note.md").read_text(encoding="utf-8") == NOTE
+    assert "live" in (folder / "note.md").read_text(encoding="utf-8")
+
+
+def test_archived_file_path_only_plain_names_in_known_places(tmp_path):
+    folder = make_project(tmp_path, "P")
+    assert notes.archived_file_path(folder, "raw", "a.txt") == folder / "archive" / "raw" / "a.txt"
+    assert notes.archived_file_path(folder, "", "note.md") == folder / "archive" / "note.md"
+    for dir, name in [("junk", "a.txt"), ("raw", "../a.txt"), ("raw", ".x"), ("raw", ""), ("..", "a.txt")]:
+        assert notes.archived_file_path(folder, dir, name) is None

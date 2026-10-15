@@ -185,3 +185,8 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .alert.bad{background:var(--crit-soft);border-color:rgba(255,90,95,.35)}
 .alert.bad b{color:var(--crit)}
 .btn.danger.solid{background:var(--crit);color:var(--ink);border-color:var(--crit);font-weight:600}
+
+/* Archive page: rows are not clickable, only their Restore buttons */
+.list.plain tbody tr{cursor:default}
+.list.plain tbody tr:hover{background:none}
+.sec{margin:6px 0 8px}

@@ -69,6 +69,20 @@ $("tabs").addEventListener("click", e => {
   load();
 });
 
+// Sidebar: Dashboard / Archive. Each switch re-reads from disk.
+document.querySelector(".side").addEventListener("click", e => {
+  const button = e.target.closest("[data-page]");
+  if (button) showPage(button.dataset.page);
+});
+
+function showPage(page) {
+  document.querySelectorAll(".nav[data-page]").forEach(n =>
+    n.dataset.page === page ? n.setAttribute("aria-current", "page") : n.removeAttribute("aria-current"));
+  $("page-dash").hidden = page !== "dash";
+  $("page-archive").hidden = page !== "archive";
+  page === "dash" ? load() : loadArchive();
+}
+
 // Click a row = open that project's card (card.js).
 $("list").addEventListener("click", e => {
   const row = e.target.closest("[data-open]");

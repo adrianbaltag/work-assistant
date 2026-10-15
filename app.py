@@ -215,6 +215,47 @@ def create_app(projects_folder=None):
                  for f in request.files.getlist("files")]
         return jsonify(names=names)
 
+    # ---------- Archive page: Mark done & archive, Restore ----------
+
+    @app.post("/api/projects/<project_id>/archive")
+    def api_archive_project(project_id):
+        folder = folder_or_404(project_id)
+        try:
+            notes.archive_project(projects_folder, folder, datetime.now())
+        except OSError:
+            return jsonify(error=LOCKED.format("the project folder")), 400
+        return jsonify(ok=True)
+
+    @app.get("/api/archive")
+    def api_archive():
+        return jsonify(notes.list_archive(projects_folder))
+
+    @app.post("/api/archive/projects/<project_id>/restore")
+    def api_restore_project(project_id):
+        archived = notes.find_archived(projects_folder, project_id)
+        if archived is None:
+            abort(404)
+        try:
+            new_id = notes.restore_project(projects_folder, archived, datetime.now())
+        except OSError:
+            return jsonify(error=LOCKED.format("the project folder")), 400
+        return jsonify(id=new_id)
+
+    @app.post("/api/archive/files/restore")
+    def api_restore_file():
+        """JSON body {project, dir, name}: dir can be "" (old note.md copies), which a URL can't hold."""
+        data = request.get_json()
+        folder = folder_or_404(str(data.get("project", "")))
+        dir, name = str(data.get("dir", "")), str(data.get("name", ""))
+        path = notes.archived_file_path(folder, dir, name)
+        if path is None or not path.is_file():
+            abort(404)
+        try:
+            where = notes.restore_file(folder, dir, name, datetime.now())
+        except OSError:
+            return jsonify(error=LOCKED.format(path.name)), 400
+        return jsonify(where=where)
+
     return app
 
 

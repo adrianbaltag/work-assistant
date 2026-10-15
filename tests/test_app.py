@@ -294,3 +294,65 @@ def test_locked_file_gives_a_clear_error(tmp_path, client, monkeypatch):
     for path, body in [("delete", None), ("rename", {"name": "b.txt"})]:
         response = client.post(f"{URL}/raw/a.txt/{path}", json=body)
         assert response.status_code == 400 and "open in another program" in response.json["error"], path
+
+
+# ---------- slice 5: Archive page, Mark done & archive, Restore ----------
+
+def test_archive_project_then_archive_page_then_restore(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old work", "status": "pending"})
+
+    assert client.post("/api/projects/DEMO-1111/archive").status_code == 200
+    assert client.get("/api/projects").json["projects"] == []
+    assert client.get("/api/projects/DEMO-1111").status_code == 404
+    [row] = client.get("/api/archive").json["projects"]
+    assert (row["id"], row["title"], row["status"]) == ("DEMO-1111", "Old work", "done")
+
+    restored = client.post("/api/archive/projects/DEMO-1111/restore")
+    assert restored.json == {"id": "DEMO-1111"}
+    card = open_card(client)
+    assert card["project"]["status"] == "active"
+    assert [h["text"] for h in card["history"]] == ["Restored from archive", "Marked done and archived"]
+    assert client.get("/api/archive").json["projects"] == []
+
+
+def test_archive_page_lists_and_restores_deleted_files(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "raw", "a.txt")
+    client.post(f"{URL}/raw/a.txt/delete")
+    [row] = client.get("/api/archive").json["files"]
+    assert (row["project"], row["title"], row["dir"], row["name"]) == ("DEMO-1111", "P", "raw", "a.txt")
+
+    restored = client.post("/api/archive/files/restore", json={"project": "DEMO-1111", "dir": "raw", "name": "a.txt"})
+    assert restored.json == {"where": "raw/a.txt"}
+    assert (tmp_path / "DEMO-1111" / "raw" / "a.txt").is_file()
+    assert client.get("/api/archive").json["files"] == []
+
+
+def test_restore_unknown_or_unsafe_targets_is_404(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    assert client.post("/api/archive/projects/DEMO-1111/restore").status_code == 404   # open, not archived
+    assert client.post("/api/archive/projects/nope/restore").status_code == 404
+    assert client.post("/api/projects/nope/archive").status_code == 404
+    for body in [{"project": "DEMO-1111", "dir": "raw", "name": "missing.txt"},
+                 {"project": "DEMO-1111", "dir": "raw", "name": "../note.md"},
+                 {"project": "../x", "dir": "raw", "name": "a.txt"},
+                 {"project": "DEMO-1111", "dir": "junk", "name": "a.txt"}]:
+        assert client.post("/api/archive/files/restore", json=body).status_code == 404, body
+
+
+def test_archive_and_restore_locked_give_a_clear_error(tmp_path, client, monkeypatch):
+    import notes
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    def locked(*args, **kwargs):
+        raise PermissionError("in use")
+    monkeypatch.setattr(notes.os, "rename", locked)
+    response = client.post("/api/projects/DEMO-1111/archive")
+    assert response.status_code == 400 and "open in another program" in response.json["error"]
+    assert client.get("/api/projects").json["projects"][0]["status"] == "active"
+
+
+def test_archive_requests_from_other_websites_are_refused(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    evil = client.post("/api/projects/DEMO-1111/archive", headers={"Origin": "https://evil.example"})
+    assert evil.status_code == 403
+    assert (tmp_path / "DEMO-1111" / "note.md").is_file()

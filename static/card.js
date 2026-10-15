@@ -51,7 +51,10 @@ async function openCard(id) {
 }
 
 function closeCard() {
-  if (!okToLeave()) return;
+  if (okToLeave()) hideCard();
+}
+
+function hideCard() {
   $("ov").hidden = true;
   document.body.style.overflow = "";
   card = null;
@@ -143,7 +146,7 @@ function drawOverview() {
       <div class="row" style="margin-top:8px"><button class="btn sm" id="v-addline">Add line</button></div>
       <div id="v-log"></div></div>
     <div id="v-alert"></div>
-    <div class="foot"><button class="btn primary" id="v-save">Save changes</button><span class="sp"></span><button class="btn danger" disabled title="Coming soon">Mark done & archive</button></div>`;
+    <div class="foot"><button class="btn primary" id="v-save">Save changes</button><span class="sp"></span><button class="btn danger" id="v-arch">Mark done & archive</button></div>`;
   drawLog();
 }
 
@@ -360,6 +363,19 @@ const doDelete = () => {
   });
 };
 
+// Mark done & archive: Flask moves the whole folder to projects\_archive\ and sets status: done.
+const askArchive = () => showAlert(`<div class="alert bad"><b>Mark done and archive this project?</b> The whole folder moves to
+  <span class="mono">_archive\\</span>. Nothing is deleted: Restore on the Archive page brings it back.
+  <div class="row"><button class="btn danger solid sm" id="v-arch-yes">Yes, archive</button><button class="btn sm" id="v-arch-no">Cancel</button></div></div>`);
+const doArchive = () => {
+  if (!okToLeave()) return;
+  const title = card.project.title;
+  act("archive", {}, async () => {
+    hideCard();
+    toast(`${title} archived. Restore it from the Archive page.`);
+  });
+};
+
 // Upload button, drag-and-drop and pasted screenshots all end here. Flask saves them in raw\ and never overwrites.
 function upload(files, names = files.map(f => f.name)) {
   if (files.reduce((sum, f) => sum + f.size, 0) > UPLOAD_LIMIT_MB * 1024 * 1024) {
@@ -390,6 +406,7 @@ const ACTIONS = {
   "t-new": () => toggleNew(true), "nf-cancel": () => toggleNew(false), "nf-ok": createFile,
   "v-renamebtn": startRename, "v-rename-ok": doRename, "v-rename-no": cancelRename,
   "v-del": askDelete, "v-del-yes": doDelete, "v-del-no": cancelDelete,
+  "v-arch": askArchive, "v-arch-yes": doArchive, "v-arch-no": () => showAlert(""),
 };
 
 $("ov").addEventListener("click", e => {
@@ -408,6 +425,7 @@ document.addEventListener("keydown", e => {
   else if (card.renaming) cancelRename();          // Esc closes the small thing first, then the card
   else if (card.confirmDel) cancelDelete();
   else if (card.newOpen) toggleNew(false);
+  else if ($("v-arch-yes")) showAlert("");
   else closeCard();
 });
 
