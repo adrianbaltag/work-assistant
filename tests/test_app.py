@@ -263,3 +263,34 @@ def test_upload_too_big_gives_a_clear_error(tmp_path):
     response = app.test_client().post("/api/projects/DEMO-1111/upload", content_type="multipart/form-data",
                                       data={"files": [(io.BytesIO(b"x" * 100), "big.bin")]})
     assert response.status_code == 413 and "too big" in response.json["error"]
+
+
+# ---------- slice 4 review fixes ----------
+
+def test_requests_from_other_websites_are_refused(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "raw", "a.txt")
+    evil = client.post(f"{URL}/raw/a.txt/delete", headers={"Origin": "https://evil.example"})
+    assert evil.status_code == 403
+    assert (tmp_path / "DEMO-1111" / "raw" / "a.txt").is_file()
+    ours = client.post(f"{URL}/raw/a.txt/delete", headers={"Origin": "http://localhost"})
+    assert ours.status_code == 200
+
+
+def test_bytes_only_serves_images(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "raw", "page.html", b"<script>alert(1)</script>")
+    assert client.get(f"{URL}/raw/page.html/bytes").status_code == 404
+
+
+def test_locked_file_gives_a_clear_error(tmp_path, client, monkeypatch):
+    import notes
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "raw", "a.txt")
+    def locked(*args, **kwargs):
+        raise PermissionError("in use")
+    monkeypatch.setattr(notes, "archive_file", locked)
+    monkeypatch.setattr(notes, "rename_file", locked)
+    for path, body in [("delete", None), ("rename", {"name": "b.txt"})]:
+        response = client.post(f"{URL}/raw/a.txt/{path}", json=body)
+        assert response.status_code == 400 and "open in another program" in response.json["error"], path

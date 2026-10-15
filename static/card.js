@@ -5,6 +5,7 @@
 // Uses $, esc, ago and load from app.js.
 
 const FIELDS = ["title", "status", "priority", "next", "blocked_by", "jira", "folder"];
+const UPLOAD_LIMIT_MB = 50;     // same as app.py
 let card = null;    // what Flask sent (project, text, stamp, history, files) + id + sel (which view is shown)
                     // + file (the open sessions\ or raw\ file) + renaming / confirmDel / newOpen (small UI states)
 
@@ -233,7 +234,9 @@ async function act(path, body, done, fail = message => showAlert(`<span class="e
 }
 
 // After a note.md save, re-read the whole card: fields, history and "updated" all come from note.md.
+// The new stamp is kept first, so if the re-read fails the next save still isn't a false conflict.
 async function reread(data) {
+  card.stamp = data.stamp;
   Object.assign(card, await fetchCard(card.id), {stamp: data.stamp});
 }
 
@@ -299,9 +302,10 @@ async function pick(key) {
 const saveFile = () => {
   const {dir, name} = card.file, text = $("v-text").value;
   save(fileApi(dir, name), {text, stamp: card.file.stamp}, async data => {
+    Object.assign(card.file, {text, stamp: data.stamp});
     await refreshFiles();
     const listed = card.files[dir].find(f => f.name === name);
-    Object.assign(card.file, {text, stamp: data.stamp, size: listed ? listed.size : card.file.size});
+    if (listed) card.file.size = listed.size;
     drawHead();
     drawTree();
     drawView();
@@ -358,6 +362,9 @@ const doDelete = () => {
 
 // Upload button, drag-and-drop and pasted screenshots all end here. Flask saves them in raw\ and never overwrites.
 function upload(files, names = files.map(f => f.name)) {
+  if (files.reduce((sum, f) => sum + f.size, 0) > UPLOAD_LIMIT_MB * 1024 * 1024) {
+    return showAlert(`<span class="err">Upload too big (${UPLOAD_LIMIT_MB} MB max at once).</span>`);
+  }
   const form = new FormData();
   files.forEach((f, i) => form.append("files", f, names[i]));
   act("upload", form, async data => {
@@ -397,8 +404,11 @@ document.addEventListener("keydown", e => {
   if (!card) return;
   if (e.key === "Enter" && e.target.id === "v-rename") doRename();
   else if (e.key === "Enter" && e.target.id === "nf-name") createFile();
-  else if (e.key === "Escape" && card.renaming) cancelRename();
-  else if (e.key === "Escape") closeCard();
+  else if (e.key !== "Escape") return;
+  else if (card.renaming) cancelRename();          // Esc closes the small thing first, then the card
+  else if (card.confirmDel) cancelDelete();
+  else if (card.newOpen) toggleNew(false);
+  else closeCard();
 });
 
 $("m-tree").addEventListener("change", e => {
@@ -415,8 +425,9 @@ $("m-tree").addEventListener("drop", e => {
   if (e.dataTransfer.files.length) upload([...e.dataTransfer.files]);
 });
 // A file dropped anywhere else would make the browser open it and leave the app, losing typed edits.
-window.addEventListener("dragover", e => e.preventDefault());
-window.addEventListener("drop", e => e.preventDefault());
+const isFileDrag = e => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+window.addEventListener("dragover", e => { if (isFileDrag(e)) e.preventDefault(); });
+window.addEventListener("drop", e => { if (isFileDrag(e)) e.preventDefault(); });
 
 document.addEventListener("paste", e => {
   if (!card) return;

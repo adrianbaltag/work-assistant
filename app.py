@@ -5,6 +5,7 @@ Run it:   python app.py      then open http://127.0.0.1:5050
 import configparser
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
@@ -17,6 +18,7 @@ PORT = 5050         # not 5000: macOS AirPlay Receiver uses that port
 CHOICES = {"status": ["active", "pending", "idea"], "priority": ["critical", "high", "normal"]}
 FORM_FIELDS = ["title", "status", "priority", "next", "blocked_by", "jira", "folder"]
 UPLOAD_LIMIT_MB = 50
+LOCKED = "Could not change {}. Is it open in another program (e.g. Excel)? Close it and try again."
 
 
 def load_settings(path=SETTINGS_FILE):
@@ -40,6 +42,13 @@ def create_app(projects_folder=None):
         projects_folder = load_settings()["projects_folder"]
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
+
+    @app.before_request
+    def same_site_only():
+        """Refuse saves sent by other websites open in the same browser (they could upload or archive files)."""
+        origin = request.headers.get("Origin")
+        if request.method == "POST" and origin and urlparse(origin).netloc != request.host:
+            return jsonify(error="Refused: this request came from another website."), 403
 
     @app.errorhandler(413)
     def too_big(_):
@@ -138,8 +147,11 @@ def create_app(projects_folder=None):
 
     @app.get("/api/projects/<project_id>/files/<dir>/<name>/bytes")
     def api_file_bytes(project_id, dir, name):
-        """The file itself, for the image preview."""
-        return send_file(file_or_404(project_id, dir, name)[1], max_age=0)
+        """The file itself, for the image preview. Images only: an .html file shown here could run scripts."""
+        _, path = file_or_404(project_id, dir, name)
+        if path.suffix.lower() not in notes.IMAGE_TYPES:
+            abort(404)
+        return send_file(path, max_age=0)
 
     @app.post("/api/projects/<project_id>/files/<dir>")
     def api_new_file(project_id, dir):
@@ -167,6 +179,8 @@ def create_app(projects_folder=None):
                                      datetime.now(), force=data.get("force", False))
         except notes.StaleNote:
             return jsonify(error="This file changed since you opened it."), 409
+        except OSError:
+            return jsonify(error=LOCKED.format(name)), 400
         return jsonify(stamp=stamp)
 
     @app.post("/api/projects/<project_id>/files/<dir>/<name>/rename")
@@ -179,12 +193,17 @@ def create_app(projects_folder=None):
             notes.rename_file(path, new_name)
         except FileExistsError:
             return jsonify(error=f"{dir}\\{new_name} already exists."), 400
+        except OSError:
+            return jsonify(error=LOCKED.format(name)), 400
         return jsonify(name=new_name)
 
     @app.post("/api/projects/<project_id>/files/<dir>/<name>/delete")
     def api_delete_file(project_id, dir, name):
         folder, path = file_or_404(project_id, dir, name)
-        notes.archive_file(path, folder, datetime.now())
+        try:
+            notes.archive_file(path, folder, datetime.now())
+        except OSError:
+            return jsonify(error=LOCKED.format(name)), 400
         return jsonify(ok=True)
 
     @app.post("/api/projects/<project_id>/upload")

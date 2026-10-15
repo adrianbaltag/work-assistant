@@ -310,7 +310,11 @@ def rename_file(path, new_name):
 def archive_file(path, folder, now):
     """"Delete" = move the file to the project's archive folder. Nothing is ever really deleted."""
     target = archive_copy(path, folder, now)
-    Path(path).unlink()
+    try:
+        Path(path).unlink()
+    except OSError:
+        target.unlink()     # still there (e.g. open in Excel on Windows): take the copy back, change nothing
+        raise
     return target
 
 

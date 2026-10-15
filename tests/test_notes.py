@@ -406,3 +406,21 @@ def test_save_upload_goes_to_raw_and_gets_a_suffix_when_taken(tmp_path):
     assert notes.save_upload(folder, "shot.png", b"two", when) == "shot (2026-10-15 14-30).png"
     assert notes.save_upload(folder, "shot.png", b"three", when) == "shot (2026-10-15 14-30 2).png"
     assert (folder / "raw" / "shot.png").read_bytes() == b"one"
+
+
+# ---------- slice 4 review fixes ----------
+
+def test_archive_file_removes_its_copy_when_the_file_is_locked(tmp_path, monkeypatch):
+    """Windows: a file open in Excel can't be deleted. Then nothing changes, and no stray copy is left."""
+    folder = make_project(tmp_path, "P")
+    path = add_file(folder, "raw", "report.xlsx", b"x")
+    def locked(self, *args, **kwargs):
+        if self.name == "report.xlsx" and self.parent.name == "raw" and self.parent.parent == folder:
+            raise PermissionError("in use")
+        return real_unlink(self, *args, **kwargs)
+    real_unlink = type(path).unlink
+    monkeypatch.setattr(type(path), "unlink", locked)
+    with pytest.raises(PermissionError):
+        notes.archive_file(path, folder, NOW)
+    assert path.exists()
+    assert list((folder / "archive" / "raw").iterdir()) == []
