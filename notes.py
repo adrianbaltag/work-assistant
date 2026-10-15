@@ -9,12 +9,14 @@ Each project is a folder (named after its ticket ID) holding a note.md:
     # Notes ...
 """
 import os
+from datetime import datetime
 from pathlib import Path
 
 NOTE_FILE = "note.md"
 ARCHIVE_FOLDER = "_archive"     # archived projects, inside the projects folder
 FILE_ARCHIVE = "archive"        # archived files, inside one project folder
 DEFAULTS = {"status": "active", "priority": "normal"}
+QUIET_DAYS = 7               # untouched this long = "gone quiet"
 
 
 def parse_note(text):
@@ -71,3 +73,15 @@ def list_projects(projects_folder):
                 and (folder / NOTE_FILE).is_file()):
             projects.append(read_project(folder))
     return projects
+
+
+def dashboard(projects, now):
+    """Add days_ago and quiet to each project, sorted for the dashboard.
+
+    Critical projects first, then the longest-untouched. Ideas never go quiet.
+    """
+    for p in projects:
+        last = datetime.fromtimestamp(p["updated"]).date()
+        p["days_ago"] = (now.date() - last).days
+        p["quiet"] = p["status"] != "idea" and p["days_ago"] >= QUIET_DAYS
+    return sorted(projects, key=lambda p: (p["priority"] != "critical", -p["days_ago"]))

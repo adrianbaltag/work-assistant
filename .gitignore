@@ -4,3 +4,4 @@ __pycache__/
 .claude/settings.local.json
 .claude/.last-tested
 SKIP_STOP_HOOK
+settings.ini

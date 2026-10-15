@@ -1,5 +1,6 @@
 """Slice 1: reading project notes and listing projects (notes.py, no Flask)."""
 import os
+from datetime import datetime, timedelta
 
 import notes
 
@@ -106,3 +107,39 @@ def test_list_projects_skips_archive_hidden_loose_files_and_no_note(tmp_path):
     (tmp_path / "empty-folder").mkdir()          # no note.md = not a project
     ids = [p["id"] for p in notes.list_projects(tmp_path)]
     assert ids == ["DEMO-1111"]
+
+
+# ---------- dashboard: projects + today -> sorted rows with days_ago, quiet ----------
+
+NOW = datetime(2026, 10, 15, 12, 0)
+
+
+def row(id, days, status="active", priority="normal"):
+    """A project dict as list_projects returns it, last touched `days` ago."""
+    updated = (NOW - timedelta(days=days)).timestamp()
+    return {"id": id, "status": status, "priority": priority, "updated": updated}
+
+
+def test_dashboard_counts_days_since_last_change():
+    rows = notes.dashboard([row("A", 0), row("B", 3)], NOW)
+    assert {r["id"]: r["days_ago"] for r in rows} == {"A": 0, "B": 3}
+
+
+def test_dashboard_gone_quiet_after_7_days():
+    rows = notes.dashboard([row("A", 6), row("B", 7)], NOW)
+    assert {r["id"]: r["quiet"] for r in rows} == {"A": False, "B": True}
+
+
+def test_dashboard_ideas_never_go_quiet():
+    rows = notes.dashboard([row("A", 30, status="idea")], NOW)
+    assert rows[0]["quiet"] is False
+
+
+def test_dashboard_sorts_critical_first_then_longest_untouched():
+    rows = notes.dashboard([
+        row("new", 1),
+        row("old", 9),
+        row("crit-new", 0, priority="critical"),
+        row("crit-old", 5, priority="critical"),
+    ], NOW)
+    assert [r["id"] for r in rows] == ["crit-old", "crit-new", "old", "new"]
