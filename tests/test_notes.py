@@ -2,6 +2,8 @@
 import os
 from datetime import datetime, timedelta
 
+import pytest
+
 import notes
 
 NOTE = """---
@@ -143,3 +145,144 @@ def test_dashboard_sorts_critical_first_then_longest_untouched():
         row("crit-old", 5, priority="critical"),
     ], NOW)
     assert [r["id"] for r in rows] == ["crit-old", "crit-new", "old", "new"]
+
+
+# ---------- slice 3: editing note.md ----------
+
+def test_set_fields_changes_values_in_place_and_keeps_the_rest():
+    text = notes.set_fields(NOTE, {"next": "send report", "status": "active"})
+    fields, body = notes.parse_note(text)
+    assert fields["next"] == "send report"
+    assert fields["status"] == "active"
+    assert fields["owner"] == "me"                       # unknown key kept
+    assert list(fields) == list(notes.parse_note(NOTE)[0])  # same order
+    assert body == "# Notes\n\nSome text.\n"
+
+
+def test_set_fields_adds_new_keys_but_not_new_empty_ones():
+    text = notes.set_fields("---\ntitle: X\n---\nbody\n", {"jira": "DEMO-9", "folder": ""})
+    assert text == "---\ntitle: X\njira: DEMO-9\n---\nbody\n"
+
+
+def test_set_fields_empty_value_keeps_the_key():
+    fields, _ = notes.parse_note(notes.set_fields(NOTE, {"jira": ""}))
+    assert fields["jira"] == ""
+
+
+def test_set_fields_turns_newlines_into_spaces():
+    fields, _ = notes.parse_note(notes.set_fields(NOTE, {"next": "line one\nline two"}))
+    assert fields["next"] == "line one line two"
+
+
+def test_set_fields_creates_the_block_when_note_has_none():
+    assert notes.set_fields("just text\n", {"title": "X"}) == "---\ntitle: X\n---\njust text\n"
+
+
+def test_has_fields_block():
+    assert notes.has_fields_block(NOTE)
+    assert notes.has_fields_block("---\n---\n")
+    assert not notes.has_fields_block("just text\n")
+    assert not notes.has_fields_block("---\ntitle: X\nno closing line\n")
+
+
+HISTORY_NOTE = """---
+title: X
+---
+## Goal
+Something.
+
+## History
+- 2026-10-14 · Claude Code · Wrote gap questions
+- 2026-10-13 · you · Ticket assigned
+"""
+
+
+def test_read_history_reads_lines_newest_first():
+    assert notes.read_history(HISTORY_NOTE) == [
+        {"date": "2026-10-14", "who": "Claude Code", "text": "Wrote gap questions"},
+        {"date": "2026-10-13", "who": "you", "text": "Ticket assigned"},
+    ]
+
+
+def test_read_history_stops_at_the_next_heading_and_keeps_odd_lines():
+    text = "## History\n- typed by hand\n\n## Later\n- 2026-01-01 · you · not history\n"
+    assert notes.read_history(text) == [{"date": "", "who": "", "text": "typed by hand"}]
+
+
+def test_read_history_none_when_no_section():
+    assert notes.read_history(NOTE) == []
+
+
+def test_add_history_puts_the_new_line_first():
+    text = notes.add_history(HISTORY_NOTE, "Senior said: Northeast only", "2026-10-15")
+    assert notes.read_history(text)[0] == {"date": "2026-10-15", "who": "you",
+                                           "text": "Senior said: Northeast only"}
+    assert len(notes.read_history(text)) == 3
+
+
+def test_add_history_creates_the_section_at_the_bottom():
+    text = notes.add_history(NOTE, "first line", "2026-10-15")
+    assert text.endswith("Some text.\n\n## History\n- 2026-10-15 · you · first line\n")
+
+
+# ---------- slice 3: finding and saving a project safely ----------
+
+def test_find_project_accepts_a_real_project_only(tmp_path):
+    make_project(tmp_path, "DEMO-1111")
+    make_project(tmp_path, ".hidden")
+    (tmp_path / "_archive").mkdir()
+    (tmp_path / "no-note").mkdir()
+    assert notes.find_project(tmp_path, "DEMO-1111") == tmp_path / "DEMO-1111"
+    for bad in ["../DEMO-1111", "DEMO-1111/sessions", ".hidden", "_archive", "no-note", "missing", ""]:
+        assert notes.find_project(tmp_path, bad) is None, bad
+
+
+def test_write_note_saves_when_nobody_else_changed_it(tmp_path):
+    folder = make_project(tmp_path, "P")
+    stamp = notes.note_stamp(folder)
+    new_stamp = notes.write_note(folder, "---\ntitle: New\n---\n", stamp, NOW)
+    assert (folder / "note.md").read_text(encoding="utf-8") == "---\ntitle: New\n---\n"
+    assert new_stamp == notes.note_stamp(folder)
+
+
+def changed_by_someone_else(folder):
+    """Simulate Claude Code saving note.md after the card was opened."""
+    note = folder / "note.md"
+    note.write_text("---\ntitle: Theirs\n---\n", encoding="utf-8")
+    os.utime(note, ns=(5_000_000_000, 5_000_000_000))
+
+
+def test_write_note_refuses_when_the_file_changed_meanwhile(tmp_path):
+    folder = make_project(tmp_path, "P")
+    stamp = notes.note_stamp(folder)
+    changed_by_someone_else(folder)
+    with pytest.raises(notes.StaleNote):
+        notes.write_note(folder, "---\ntitle: Mine\n---\n", stamp, NOW)
+    assert "Theirs" in (folder / "note.md").read_text(encoding="utf-8")
+
+
+def test_write_note_force_archives_their_version_first(tmp_path):
+    folder = make_project(tmp_path, "P")
+    stamp = notes.note_stamp(folder)
+    changed_by_someone_else(folder)
+    notes.write_note(folder, "---\ntitle: Mine\n---\n", stamp, NOW, force=True)
+    assert "Mine" in (folder / "note.md").read_text(encoding="utf-8")
+    assert "Theirs" in (folder / "archive" / "note.md").read_text(encoding="utf-8")
+
+
+def test_write_note_force_never_overwrites_an_archived_copy(tmp_path):
+    folder = make_project(tmp_path, "P")
+    (folder / "archive").mkdir()
+    (folder / "archive" / "note.md").write_text("older copy", encoding="utf-8")
+    stamp = notes.note_stamp(folder)
+    changed_by_someone_else(folder)
+    notes.write_note(folder, "---\ntitle: Mine\n---\n", stamp, datetime(2026, 10, 15, 10, 42), force=True)
+    assert (folder / "archive" / "note.md").read_text(encoding="utf-8") == "older copy"
+    assert "Theirs" in (folder / "archive" / "note (2026-10-15 10-42).md").read_text(encoding="utf-8")
+
+
+def test_write_note_refuses_text_without_fields_block(tmp_path):
+    folder = make_project(tmp_path, "P")
+    with pytest.raises(ValueError):
+        notes.write_note(folder, "fields block deleted\n", notes.note_stamp(folder), NOW)
+    assert (folder / "note.md").read_text(encoding="utf-8") == NOTE

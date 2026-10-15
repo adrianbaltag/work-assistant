@@ -69,3 +69,95 @@ def test_load_settings_reads_windows_path_without_section_header(tmp_path):
 def test_load_settings_missing_file_explains_what_to_do(tmp_path):
     with pytest.raises(SystemExit, match="settings.ini.example"):
         load_settings(tmp_path / "settings.ini")
+
+
+# ---------- slice 3: one project card ----------
+
+def open_card(client, project_id="DEMO-1111"):
+    return client.get(f"/api/projects/{project_id}").json
+
+
+FORM = {"title": "Fix alarms", "status": "pending", "priority": "high", "next": "call vendor",
+        "blocked_by": "IT", "jira": "DEMO-1111", "folder": ""}
+
+
+def test_api_project_returns_fields_text_stamp_and_history(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Fix alarms", "status": "pending"}, days_ago=2)
+    card = open_card(client)
+    assert card["project"]["title"] == "Fix alarms"
+    assert card["project"]["days_ago"] == 2
+    assert card["text"].startswith("---\ntitle: Fix alarms\n")
+    assert card["stamp"]
+    assert card["history"] == []
+
+
+def test_api_project_unknown_or_unsafe_id_is_404(tmp_path, client):
+    (tmp_path / "_archive").mkdir()
+    for bad in ["missing", "_archive", "..", ".hidden"]:
+        assert client.get(f"/api/projects/{bad}").status_code == 404, bad
+
+
+def test_save_fields_writes_note_and_dashboard_sees_it(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old"})
+    stamp = open_card(client)["stamp"]
+    response = client.post("/api/projects/DEMO-1111/fields", json={"fields": FORM, "stamp": stamp})
+    assert response.status_code == 200
+    assert response.json["stamp"] != stamp
+    row = client.get("/api/projects").json["projects"][0]
+    assert (row["title"], row["next"], row["blocked_by"]) == ("Fix alarms", "call vendor", "IT")
+
+
+def test_save_fields_needs_a_title_and_known_choices(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old"})
+    stamp = open_card(client)["stamp"]
+    for bad in [{"title": "  "}, {"status": "done"}, {"priority": "urgent"}]:
+        response = client.post("/api/projects/DEMO-1111/fields",
+                               json={"fields": {**FORM, **bad}, "stamp": stamp})
+        assert response.status_code == 400, bad
+        assert response.json["error"]
+
+
+def test_save_fields_conflict_then_save_mine_anyway(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old"})
+    stamp = open_card(client)["stamp"]
+    note = tmp_path / "DEMO-1111" / "note.md"
+    note.write_text("---\ntitle: Claude's\n---\n", encoding="utf-8")
+    os.utime(note, ns=(5_000_000_000, 5_000_000_000))
+
+    first = client.post("/api/projects/DEMO-1111/fields", json={"fields": FORM, "stamp": stamp})
+    assert first.status_code == 409
+    assert "Claude's" in note.read_text(encoding="utf-8")       # nothing written yet
+
+    forced = client.post("/api/projects/DEMO-1111/fields",
+                         json={"fields": FORM, "stamp": stamp, "force": True})
+    assert forced.status_code == 200
+    assert "title: Fix alarms" in note.read_text(encoding="utf-8")
+    assert (tmp_path / "DEMO-1111" / "archive" / "note.md").is_file()
+
+
+def test_save_raw_note(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old"})
+    stamp = open_card(client)["stamp"]
+    response = client.post("/api/projects/DEMO-1111/note",
+                           json={"text": "---\ntitle: Raw edit\n---\nnew body\n", "stamp": stamp})
+    assert response.status_code == 200
+    assert open_card(client)["project"]["title"] == "Raw edit"
+
+
+def test_save_raw_note_without_fields_block_is_refused(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old"})
+    stamp = open_card(client)["stamp"]
+    response = client.post("/api/projects/DEMO-1111/note", json={"text": "oops\n", "stamp": stamp})
+    assert response.status_code == 400
+    assert open_card(client)["project"]["title"] == "Old"
+
+
+def test_add_history_line(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old"})
+    stamp = open_card(client)["stamp"]
+    response = client.post("/api/projects/DEMO-1111/history",
+                           json={"text": "Senior said: Northeast only", "stamp": stamp})
+    assert response.status_code == 200
+    first = open_card(client)["history"][0]
+    assert (first["who"], first["text"]) == ("you", "Senior said: Northeast only")
+    assert first["date"] == time.strftime("%Y-%m-%d")

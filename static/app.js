@@ -52,7 +52,7 @@ function draw() {
   $("list").innerHTML = `<div class="list"><table>
     <thead><tr><th>Project</th><th>Status</th><th>Priority</th><th>Next step</th><th>Blocked by</th><th>Updated</th></tr></thead>
     <tbody>${rows.map((p, i) => `
-      <tr style="--stripe:${stripe(p)};animation-delay:${i * 40}ms" title="Project card coming soon">
+      <tr data-open="${esc(p.id)}" style="--stripe:${stripe(p)};animation-delay:${i * 40}ms">
         <td><span class="pname">${esc(p.title)}</span><span class="pjira">${p.jira ? esc(p.jira) : "no Jira"}</span></td>
         <td><span class="pill st-${esc(p.status)}">${esc(p.status)}</span></td>
         <td><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span></td>
@@ -67,6 +67,12 @@ $("tabs").addEventListener("click", e => {
   if (!button) return;
   tab = button.dataset.tab;
   load();
+});
+
+// Click a row = open that project's card (card.js).
+$("list").addEventListener("click", e => {
+  const row = e.target.closest("[data-open]");
+  if (row) openCard(row.dataset.open);
 });
 
 load();
