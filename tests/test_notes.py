@@ -308,3 +308,101 @@ def test_note_stamp_changes_with_size_even_if_time_is_the_same(tmp_path):
     note.write_text(NOTE + "more\n", encoding="utf-8")
     os.utime(note, ns=(5_000_000_000, 5_000_000_000))   # coarse clock: same time
     assert notes.note_stamp(folder) != before
+
+
+# ---------- slice 4: sessions\ and raw\ files ----------
+
+def add_file(folder, dir, name, data=b"hello\n"):
+    """Create folder/dir/name with these bytes and return its path."""
+    path = folder / dir / name
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+def test_list_files_newest_name_first_and_skips_folders_and_hidden(tmp_path):
+    folder = make_project(tmp_path, "P")
+    add_file(folder, "sessions", "2026-10-14.md")
+    add_file(folder, "sessions", "2026-10-15.md", b"abc")
+    add_file(folder, "sessions", ".DS_Store")
+    (folder / "sessions" / "sub").mkdir()
+    files = notes.list_files(folder)
+    assert files["sessions"] == [{"name": "2026-10-15.md", "size": 3}, {"name": "2026-10-14.md", "size": 6}]
+    assert files["raw"] == []       # missing folder = empty, not an error
+
+
+def test_file_path_only_plain_names_in_sessions_or_raw(tmp_path):
+    folder = make_project(tmp_path, "P")
+    assert notes.file_path(folder, "raw", "a.txt") == folder / "raw" / "a.txt"
+    assert notes.file_path(folder, "sessions", "a b (1).md") == folder / "sessions" / "a b (1).md"
+    for dir, name in [("raw", "../note.md"), ("raw", "x/y.txt"), ("raw", ".hidden"), ("raw", ""),
+                      ("raw", ".."), ("archive", "a.txt"), ("..", "a.txt"), ("", "note.md")]:
+        assert notes.file_path(folder, dir, name) is None, (dir, name)
+
+
+def test_read_file_kinds(tmp_path):
+    folder = make_project(tmp_path, "P")
+    assert notes.read_file(add_file(folder, "raw", "a.txt", "café\n".encode())) == {"kind": "text", "text": "café\n"}
+    assert notes.read_file(add_file(folder, "raw", "b.md", b"\xef\xbb\xbfbom\n"))["text"] == "bom\n"
+    assert notes.read_file(add_file(folder, "raw", "shot.PNG", b"\x89PNG"))["kind"] == "image"
+    assert notes.read_file(add_file(folder, "raw", "c.bin", b"a\x00b"))["kind"] == "other"
+    assert notes.read_file(add_file(folder, "raw", "d.xlsx", b"\xff\xfe\xfa"))["kind"] == "other"
+    big = add_file(folder, "raw", "huge.log", b"x" * (notes.TEXT_LIMIT + 1))
+    assert notes.read_file(big)["kind"] == "other"
+
+
+def test_write_file_saves_refuses_stale_and_force_archives_theirs(tmp_path):
+    folder = make_project(tmp_path, "P")
+    path = add_file(folder, "sessions", "s.md", b"old\n")
+    stamp = notes.file_stamp(path)
+    stamp = notes.write_file(path, folder, "mine 1\n", stamp, NOW)
+    assert path.read_text(encoding="utf-8") == "mine 1\n"
+
+    path.write_text("theirs\n", encoding="utf-8")
+    os.utime(path, ns=(5_000_000_000, 5_000_000_000))
+    with pytest.raises(notes.StaleNote):
+        notes.write_file(path, folder, "mine 2\n", stamp, NOW)
+    notes.write_file(path, folder, "mine 2\n", stamp, NOW, force=True)
+    assert path.read_text(encoding="utf-8") == "mine 2\n"
+    assert (folder / "archive" / "sessions" / "s.md").read_text(encoding="utf-8") == "theirs\n"
+
+
+def test_new_file_creates_folder_and_empty_file_but_never_overwrites(tmp_path):
+    folder = make_project(tmp_path, "P")
+    path = notes.new_file(folder, "sessions", "2026-10-15.md")
+    assert path.read_bytes() == b""
+    path.write_text("keep me", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        notes.new_file(folder, "sessions", "2026-10-15.md")
+    assert path.read_text(encoding="utf-8") == "keep me"
+
+
+def test_rename_file_refuses_a_taken_name_but_allows_a_case_change(tmp_path):
+    folder = make_project(tmp_path, "P")
+    a = add_file(folder, "raw", "a.txt", b"A")
+    add_file(folder, "raw", "b.txt", b"B")
+    with pytest.raises(FileExistsError):
+        notes.rename_file(a, "b.txt")
+    assert (folder / "raw" / "b.txt").read_bytes() == b"B"
+    c = notes.rename_file(a, "c.txt")
+    assert c.read_bytes() == b"A" and not a.exists()
+    assert notes.rename_file(c, "C.txt").name == "C.txt"
+    assert [f["name"] for f in notes.list_files(folder)["raw"]] == ["b.txt", "C.txt"]
+
+
+def test_archive_file_moves_it_and_never_overwrites(tmp_path):
+    folder = make_project(tmp_path, "P")
+    notes.archive_file(add_file(folder, "raw", "a.txt", b"first"), folder, NOW)
+    notes.archive_file(add_file(folder, "raw", "a.txt", b"second"), folder, datetime(2026, 10, 15, 10, 42))
+    assert not (folder / "raw" / "a.txt").exists()
+    assert (folder / "archive" / "raw" / "a.txt").read_bytes() == b"first"
+    assert (folder / "archive" / "raw" / "a (2026-10-15 10-42).txt").read_bytes() == b"second"
+
+
+def test_save_upload_goes_to_raw_and_gets_a_suffix_when_taken(tmp_path):
+    folder = make_project(tmp_path, "P")
+    when = datetime(2026, 10, 15, 14, 30)
+    assert notes.save_upload(folder, "shot.png", b"one", when) == "shot.png"
+    assert notes.save_upload(folder, "shot.png", b"two", when) == "shot (2026-10-15 14-30).png"
+    assert notes.save_upload(folder, "shot.png", b"three", when) == "shot (2026-10-15 14-30 2).png"
+    assert (folder / "raw" / "shot.png").read_bytes() == b"one"

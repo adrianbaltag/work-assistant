@@ -170,3 +170,96 @@ def test_add_history_line_to_note_without_fields_block(tmp_path, client):
     response = client.post("/api/projects/loose/history", json={"text": "first", "stamp": stamp})
     assert response.status_code == 200
     assert open_card(client, "loose")["history"][0]["text"] == "first"
+
+
+# ---------- slice 4: sessions\ and raw\ files ----------
+
+def make_file(root, dir, name, data=b"hello\n"):
+    path = root / "DEMO-1111" / dir / name
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+URL = "/api/projects/DEMO-1111/files"
+
+
+def test_card_lists_session_and_raw_files(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "sessions", "2026-10-15.md")
+    assert open_card(client)["files"] == {"sessions": [{"name": "2026-10-15.md", "size": 6}], "raw": []}
+
+
+def test_open_text_file_image_bytes_and_bad_paths(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "raw", "a b.txt", b"text\n")
+    make_file(tmp_path, "raw", "shot.png", b"\x89PNG")
+    opened = client.get(f"{URL}/raw/a%20b.txt").json
+    assert (opened["kind"], opened["text"]) == ("text", "text\n") and opened["stamp"]
+    assert client.get(f"{URL}/raw/shot.png").json["kind"] == "image"
+    assert client.get(f"{URL}/raw/shot.png/bytes").data == b"\x89PNG"
+    for bad in ["raw/missing.txt", "archive/a%20b.txt", "raw/..%2Fnote.md", "raw/.hidden"]:
+        assert client.get(f"{URL}/{bad}").status_code == 404, bad
+
+
+def test_new_file_cleans_the_name_and_refuses_a_taken_one(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    response = client.post(f"{URL}/sessions", json={"name": "my notes?.md"})
+    assert response.json["name"] == "my_notes.md"
+    assert (tmp_path / "DEMO-1111" / "sessions" / "my_notes.md").is_file()
+    assert client.post(f"{URL}/sessions", json={"name": "my notes?.md"}).status_code == 400
+    assert client.post(f"{URL}/sessions", json={"name": ".."}).status_code == 400
+    assert client.post(f"{URL}/archive", json={"name": "x.md"}).status_code == 404
+
+
+def test_save_file_conflict_then_save_mine_anyway(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    path = make_file(tmp_path, "sessions", "s.md", b"old\n")
+    stamp = client.get(f"{URL}/sessions/s.md").json["stamp"]
+    path.write_text("theirs\n", encoding="utf-8")
+    os.utime(path, ns=(5_000_000_000, 5_000_000_000))
+    assert client.post(f"{URL}/sessions/s.md", json={"text": "mine\n", "stamp": stamp}).status_code == 409
+    forced = client.post(f"{URL}/sessions/s.md", json={"text": "mine\n", "stamp": stamp, "force": True})
+    assert forced.status_code == 200 and forced.json["stamp"]
+    assert path.read_text(encoding="utf-8") == "mine\n"
+
+
+def test_save_refuses_a_file_that_is_not_text(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    path = make_file(tmp_path, "raw", "shot.png", b"\x89PNG")
+    stamp = client.get(f"{URL}/raw/shot.png").json["stamp"]
+    assert client.post(f"{URL}/raw/shot.png", json={"text": "oops", "stamp": stamp}).status_code == 400
+    assert path.read_bytes() == b"\x89PNG"
+
+
+def test_rename_and_delete_file(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "raw", "a.txt")
+    make_file(tmp_path, "raw", "b.txt")
+    assert client.post(f"{URL}/raw/a.txt/rename", json={"name": "b.txt"}).status_code == 400
+    assert client.post(f"{URL}/raw/a.txt/rename", json={"name": "c d.txt"}).json["name"] == "c_d.txt"
+    assert client.post(f"{URL}/raw/c_d.txt/delete").status_code == 200
+    project = tmp_path / "DEMO-1111"
+    assert (project / "archive" / "raw" / "c_d.txt").is_file()
+    assert [f["name"] for f in open_card(client)["files"]["raw"]] == ["b.txt"]
+
+
+def test_upload_goes_to_raw_and_never_overwrites(tmp_path, client):
+    import io
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    make_file(tmp_path, "raw", "shot.png", b"old")
+    response = client.post("/api/projects/DEMO-1111/upload", content_type="multipart/form-data",
+                           data={"files": [(io.BytesIO(b"new"), "shot.png"), (io.BytesIO(b"t"), "my log.txt")]})
+    names = response.json["names"]
+    assert names[0].startswith("shot (") and names[1] == "my_log.txt"
+    assert (tmp_path / "DEMO-1111" / "raw" / "shot.png").read_bytes() == b"old"
+
+
+def test_upload_too_big_gives_a_clear_error(tmp_path):
+    import io
+    app = create_app(tmp_path)
+    app.config.update(TESTING=True, MAX_CONTENT_LENGTH=10)
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    response = app.test_client().post("/api/projects/DEMO-1111/upload", content_type="multipart/form-data",
+                                      data={"files": [(io.BytesIO(b"x" * 100), "big.bin")]})
+    assert response.status_code == 413 and "too big" in response.json["error"]

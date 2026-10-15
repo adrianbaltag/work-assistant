@@ -173,3 +173,15 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;background:var(--fg);color:var(--ink);padding:10px 16px;border-radius:12px;font-size:.85rem;font-weight:500;box-shadow:0 12px 40px rgba(0,0,0,.6);max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion:no-preference){.toast:not([hidden]){animation:pop .25s ease-out}}
+
+/* Slice 4: files in sessions\ and raw\ (ported from GUI v6) */
+.tree-actions{display:flex;gap:6px;margin-bottom:10px}
+.tree-actions .btn{flex:1;text-align:center;cursor:pointer}
+.newfile{background:var(--raised);border:1px solid var(--line-2);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
+.drop{margin-top:auto;border:1.5px dashed var(--line-2);border-radius:10px;padding:12px;text-align:center;font-size:.76rem;color:var(--dim);transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--fg);background:var(--raised)}
+.imgprev{border:1px solid var(--line);border-radius:var(--r);min-height:300px;display:grid;place-items:center;background:repeating-conic-gradient(var(--raised) 0 25%,var(--surface) 0 50%) 0 0/22px 22px;overflow:hidden}
+.imgprev img{max-width:100%;max-height:520px;object-fit:contain}
+.alert.bad{background:var(--crit-soft);border-color:rgba(255,90,95,.35)}
+.alert.bad b{color:var(--crit)}
+.btn.danger.solid{background:var(--crit);color:var(--ink);border-color:var(--crit);font-weight:600}
