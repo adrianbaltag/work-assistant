@@ -178,6 +178,15 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .msg.claude{align-self:flex-start;background:var(--surface);border:1px solid var(--line)}
 .msg.wait{color:var(--dim);font-style:italic}
 .msg.err{align-self:flex-start;background:var(--crit-soft);border:1px solid rgba(255,90,95,.35)}
+.msg.proposal{align-self:stretch;max-width:none;white-space:normal;background:var(--claude-soft);border:1px solid rgba(224,138,104,.35)}
+.msg.proposal b{color:var(--claude)}
+.msg.proposal ul{margin:6px 0 10px;padding-left:16px;display:flex;flex-direction:column;gap:4px}
+.msg.proposal .k{font-family:var(--mono);font-size:.74rem;color:var(--dim);margin-right:4px}
+.msg.proposal s{color:var(--dim)}
+.msg.proposal summary{cursor:pointer}
+.msg.proposal pre{white-space:pre-wrap;font-family:var(--mono);font-size:.74rem;margin:6px 0 0;color:var(--fg)}
+.msg.proposal .p-said{font-size:.78rem;color:var(--dim)}
+.msg.proposal .p-said:empty{display:none}
 .msg.skip{align-self:flex-start;padding:0 2px;font-size:.72rem;color:var(--dim)}
 .c-foot{padding:10px 16px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}

@@ -18,6 +18,7 @@ NOTE_FILE = "note.md"
 ARCHIVE_FOLDER = "_archive"     # archived projects, inside the projects folder
 FILE_ARCHIVE = "archive"        # archived files, inside one project folder
 DEFAULTS = {"status": "active", "priority": "normal"}
+STATUSES = ("active", "pending", "idea")     # "done" = archived, not a status
 QUIET_DAYS = 7               # untouched this long = "gone quiet"
 HISTORY_HEADING = "## History"
 HISTORY_LINE = re.compile(r"(\d{4}-\d{2}-\d{2}) · (.+?) · (.*)")    # 2026-10-14 · you · text

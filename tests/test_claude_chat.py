@@ -103,12 +103,14 @@ def test_context_marks_its_last_block_for_caching(tmp_path):
 class FakeClaude:
     """Stands in for anthropic.Anthropic(). Remembers the request, returns a canned answer or raises."""
 
-    def __init__(self, text="Next: ask the vendor.", stop_reason="end_turn", error=None):
+    def __init__(self, text="Next: ask the vendor.", stop_reason="end_turn", error=None, proposal=None):
         self.request = None
         self.messages = self
-        self.reply = SimpleNamespace(content=[SimpleNamespace(type="thinking", thinking=""),
-                                              SimpleNamespace(type="text", text=text)],
-                                     stop_reason=stop_reason)
+        content = [SimpleNamespace(type="thinking", thinking=""), SimpleNamespace(type="text", text=text)]
+        if proposal is not None:         # Claude calls the propose_changes tool
+            content.append(SimpleNamespace(type="tool_use", id="t1", name="propose_changes", input=proposal))
+            stop_reason = "tool_use"
+        self.reply = SimpleNamespace(content=content, stop_reason=stop_reason)
         self.error = error
 
     def create(self, **request):
@@ -123,8 +125,9 @@ CONTEXT = [{"type": "text", "text": "the project"}]
 
 def test_ask_sends_context_and_question_and_returns_the_text():
     fake = FakeClaude()
-    answer = claude_chat.ask(fake, "claude-sonnet-5-5", CONTEXT, [], "What's next?")
+    answer, proposal = claude_chat.ask(fake, "claude-sonnet-5-5", CONTEXT, [], "What's next?")
     assert answer == "Next: ask the vendor."
+    assert proposal is None
     assert fake.request["model"] == "claude-sonnet-5-5"
     assert fake.request["messages"] == [
         {"role": "user", "content": CONTEXT + [{"type": "text", "text": "What's next?"}]}]
@@ -142,13 +145,77 @@ def test_ask_sends_the_earlier_chat_after_the_context():
 
 
 def test_ask_explains_a_refusal():
-    answer = claude_chat.ask(FakeClaude(text="", stop_reason="refusal"), "m", CONTEXT, [], "q")
+    answer, _ = claude_chat.ask(FakeClaude(text="", stop_reason="refusal"), "m", CONTEXT, [], "q")
     assert "declined" in answer
 
 
 def test_ask_says_when_the_answer_was_cut_short():
-    answer = claude_chat.ask(FakeClaude(text="Part one", stop_reason="max_tokens"), "m", CONTEXT, [], "q")
+    answer, _ = claude_chat.ask(FakeClaude(text="Part one", stop_reason="max_tokens"), "m", CONTEXT, [], "q")
     assert answer.startswith("Part one") and "cut short" in answer
+
+
+# ---------- proposals: Claude suggests, the person approves ----------
+
+PROPOSAL = {"fields": [{"field": "next", "value": "send the  report\n to Mike"}, {"field": "blocked_by", "value": ""}],
+            "history_line": "Vendor  replied:\nonly Northeast", "session_note": "  ## 2026-10-16\nRead the reply.\n  "}
+
+
+def test_ask_offers_the_propose_tool_only_when_allowed():
+    fake = FakeClaude()
+    claude_chat.ask(fake, "m", CONTEXT, [], "q")
+    assert "tools" not in fake.request
+    claude_chat.ask(fake, "m", CONTEXT, [], "q", can_propose=True)
+    tool = fake.request["tools"][0]
+    assert tool["name"] == "propose_changes"
+    allowed = tool["input_schema"]["properties"]["fields"]["items"]["properties"]["field"]["enum"]
+    assert "priority" not in allowed and "next" in allowed       # priority is only ever set by the person
+    assert "propose_changes" in fake.request["system"]
+
+
+def test_ask_returns_claudes_proposal_cleaned_up():
+    answer, proposal = claude_chat.ask(FakeClaude(text="Here is my update.", proposal=PROPOSAL),
+                                       "m", CONTEXT, [], "q", can_propose=True)
+    assert answer == "Here is my update."
+    assert proposal == {"fields": [{"field": "next", "value": "send the report to Mike"},
+                                   {"field": "blocked_by", "value": ""}],
+                        "history_line": "Vendor replied: only Northeast",
+                        "session_note": "## 2026-10-16\nRead the reply."}
+
+
+def test_ask_with_a_proposal_but_no_words_still_says_something():
+    answer, proposal = claude_chat.ask(FakeClaude(text="", proposal=PROPOSAL), "m", CONTEXT, [], "q", can_propose=True)
+    assert answer and proposal
+
+
+def test_ask_drops_a_proposal_the_app_cannot_use_and_says_why():
+    bad = {**PROPOSAL, "fields": [{"field": "priority", "value": "critical"}]}
+    answer, proposal = claude_chat.ask(FakeClaude(text="Done.", proposal=bad), "m", CONTEXT, [], "q", can_propose=True)
+    assert proposal is None
+    assert answer.startswith("Done.") and "priority" in answer
+
+
+@pytest.mark.parametrize("bad, words", [
+    ("junk", "mixed up"),
+    ({**PROPOSAL, "fields": [{"field": "priority", "value": "high"}]}, "priority"),
+    ({**PROPOSAL, "fields": [{"field": "jira", "value": "X-1"}]}, "jira"),
+    ({**PROPOSAL, "fields": [{"field": "status", "value": "done"}]}, "status"),
+    ({**PROPOSAL, "fields": [{"field": "title", "value": "  "}]}, "name"),
+    ({**PROPOSAL, "fields": ["next"]}, "mixed up"),
+    ({**PROPOSAL, "history_line": 5}, "mixed up"),
+])
+def test_clean_proposal_refuses_what_it_must_not_change(bad, words):
+    with pytest.raises(ValueError, match=words):
+        claude_chat.clean_proposal(bad)
+
+
+def test_clean_proposal_with_nothing_in_it_is_none():
+    assert claude_chat.clean_proposal({"fields": [], "history_line": " ", "session_note": ""}) is None
+
+
+def test_clean_proposal_keeps_the_last_value_of_a_repeated_field():
+    proposal = claude_chat.clean_proposal({**PROPOSAL, "fields": [{"field": "next", "value": "a"},
+                                                                  {"field": "next", "value": "b"}]})
+    assert proposal["fields"] == [{"field": "next", "value": "b"}]
 
 
 REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")

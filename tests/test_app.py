@@ -534,3 +534,76 @@ def test_model_defaults_to_sonnet(tmp_path, fake_claude):
     client = create_app(tmp_path, claude=lambda: fake_claude).test_client()
     client.post("/api/projects/DEMO-1/ask", json={"question": "q"})
     assert fake_claude.request["model"] == "claude-sonnet-5-5"
+
+
+# ---------- Ask Claude: Approve applies a proposal ----------
+
+PROPOSAL = {"fields": [{"field": "next", "value": "send the report"}, {"field": "status", "value": "pending"}],
+            "history_line": "Vendor replied", "session_note": "## Today\nRead the vendor reply."}
+
+
+def test_ask_lets_the_project_panel_propose_and_returns_the_proposal(tmp_path):
+    make_project(tmp_path, "DEMO-1", {"title": "Demo"})
+    fake = FakeClaude(text="My update:", proposal=PROPOSAL)
+    client = create_app(tmp_path, claude=lambda: fake).test_client()
+    response = client.post("/api/projects/DEMO-1/ask", json={"question": "Update it"})
+    assert fake.request["tools"][0]["name"] == "propose_changes"
+    assert response.json["proposal"] == PROPOSAL
+    assert response.json["stamp"]
+
+
+def apply(client, tmp_path, proposal=PROPOSAL, stamp=None):
+    import notes
+    stamp = stamp or notes.note_stamp(tmp_path / "DEMO-1")
+    return client.post("/api/projects/DEMO-1/apply", json={"proposal": proposal, "stamp": stamp})
+
+
+def test_apply_saves_fields_history_line_and_session_note(tmp_path, claude_client):
+    response = apply(claude_client, tmp_path)
+    assert response.status_code == 200
+    note = (tmp_path / "DEMO-1" / "note.md").read_text()
+    assert "next: send the report\n" in note and "status: pending\n" in note
+    assert "· Claude (you approved) · Vendor replied" in note
+    session = tmp_path / "DEMO-1" / "sessions" / response.json["session"]
+    assert session.read_text() == "## Today\nRead the vendor reply.\n"
+    assert response.json["session"].endswith(".md") and response.json["session"][:4].isdigit()
+
+
+def test_apply_without_a_session_note_creates_no_file(tmp_path, claude_client):
+    response = apply(claude_client, tmp_path, {**PROPOSAL, "session_note": ""})
+    assert response.status_code == 200 and response.json["session"] is None
+    assert not (tmp_path / "DEMO-1" / "sessions").exists()
+
+
+def test_apply_never_overwrites_a_session_file_from_the_same_day(tmp_path, claude_client):
+    first = apply(claude_client, tmp_path).json["session"]
+    second = apply(claude_client, tmp_path).json["session"]
+    assert first != second
+    assert len(list((tmp_path / "DEMO-1" / "sessions").iterdir())) == 2
+
+
+def test_apply_refuses_when_the_note_changed_since_claude_read_it(tmp_path, claude_client):
+    note = tmp_path / "DEMO-1" / "note.md"
+    before = note.read_text()
+    response = apply(claude_client, tmp_path, stamp="old-stamp")
+    assert response.status_code == 409 and "ask" in response.json["error"].lower()
+    assert note.read_text() == before
+    assert not (tmp_path / "DEMO-1" / "sessions").exists()
+
+
+def test_apply_refuses_priority_and_changes_nothing(tmp_path, claude_client):
+    note = tmp_path / "DEMO-1" / "note.md"
+    before = note.read_text()
+    response = apply(claude_client, tmp_path, {**PROPOSAL, "fields": [{"field": "priority", "value": "critical"}]})
+    assert response.status_code == 400 and "priority" in response.json["error"]
+    assert note.read_text() == before
+
+
+def test_apply_with_nothing_to_apply_is_400(tmp_path, claude_client):
+    response = apply(claude_client, tmp_path, {"fields": [], "history_line": "", "session_note": ""})
+    assert response.status_code == 400
+
+
+def test_apply_unknown_project_is_404(claude_client):
+    response = claude_client.post("/api/projects/NOPE/apply", json={"proposal": PROPOSAL, "stamp": "x"})
+    assert response.status_code == 404

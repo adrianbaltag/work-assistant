@@ -91,7 +91,28 @@ function startChat() {
     chips: ["Update this project from the raw files", "What's my next step?", "Summarize this project"],
     placeholder: "Ask about this project…",
     url: api("ask"),
+    current: field => card.project[field] ?? "",
+    approve: approveClaude,
   });
+}
+
+// Approve in the chat: save Claude's proposal, then redraw the card from the saved note.
+// Unsaved typing in the card would be lost by the redraw, so ask first (decided).
+async function approveClaude(proposal, stamp) {
+  if (!okToLeave()) return false;
+  let saved;
+  try {
+    const {response, data} = await post("apply", {proposal, stamp});
+    if (!response.ok) return data.error;
+    saved = data;
+    Object.assign(card, await fetchCard(card.id));
+    if (card.file) card.file = await fetchFile(card.file.dir, card.file.name);
+  } catch (err) {
+    return `Could not reach the app: ${err.message}. Is it still running in the terminal?`;
+  }
+  drawCard();
+  toast(saved.session ? `Saved. New session note: ${saved.session}` : "Saved Claude's changes");
+  return true;
 }
 
 function drawHead() {

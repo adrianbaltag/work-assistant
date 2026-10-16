@@ -19,7 +19,7 @@ import notes
 HERE = Path(__file__).parent
 SETTINGS_FILE = HERE / "settings.ini"
 PORT = 5050         # not 5000: macOS AirPlay Receiver uses that port
-CHOICES = {"status": ["active", "pending", "idea"], "priority": ["critical", "high", "normal"]}
+CHOICES = {"status": list(notes.STATUSES), "priority": ["critical", "high", "normal"]}
 FORM_FIELDS = ["title", "status", "priority", "next", "blocked_by", "jira", "folder"]
 UPLOAD_LIMIT_MB = 50
 LOCKED = "Could not change {}. Is it open in another program (e.g. Excel)? Close it and try again."
@@ -146,10 +146,47 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         stamp = notes.note_stamp(folder)
         context, skipped = claude_chat.project_context(folder, datetime.now())
         try:
-            reply = claude_chat.ask(claude(), model, context, history, question)
+            reply, proposal = claude_chat.ask(claude(), model, context, history, question, can_propose=True)
         except claude_chat.ClaudeError as err:
             return jsonify(error=str(err)), 502
-        return jsonify(reply=reply, skipped=skipped, stamp=stamp)
+        return jsonify(reply=reply, proposal=proposal, skipped=skipped, stamp=stamp)
+
+    @app.post("/api/projects/<project_id>/apply")
+    def api_apply(project_id):
+        """Approve: save what Claude proposed. JSON {proposal, stamp} (stamp = from the /ask answer).
+
+        If note.md changed since Claude read it, nothing is saved (409): the proposal may be out of date.
+        """
+        folder = folder_or_404(project_id)
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
+        try:
+            proposal = claude_chat.clean_proposal(data.get("proposal"))     # never trust the page blindly
+        except ValueError as err:
+            return jsonify(error=str(err)), 400
+        if not proposal:
+            return jsonify(error="Nothing to apply."), 400
+        stale = jsonify(error="This note changed since Claude read it. Ask Claude again."), 409
+        if notes.note_stamp(folder) != data.get("stamp"):
+            return stale
+
+        now = datetime.now()
+        text = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
+        text = notes.set_fields(text, {f["field"]: f["value"] for f in proposal["fields"]})
+        if proposal["history_line"]:
+            text = notes.add_history(text, proposal["history_line"], f"{now:%Y-%m-%d}", who="Claude (you approved)")
+        session = None
+        if proposal["session_note"]:      # written first; removed again if note.md can't be saved
+            (folder / "sessions").mkdir(exist_ok=True)
+            session = notes.free_name(folder / "sessions", f"{now:%Y-%m-%d}.md", now)
+            session.write_text(proposal["session_note"] + "\n", encoding="utf-8")
+        try:
+            stamp = notes.write_note(folder, text, data["stamp"], now)
+        except (notes.StaleNote, OSError) as err:
+            if session:
+                session.unlink()
+            return stale if isinstance(err, notes.StaleNote) else (jsonify(error=LOCKED.format("note.md")), 400)
+        return jsonify(stamp=stamp, session=session.name if session else None)
 
     @app.post("/api/projects/<project_id>/open-folder")
     def api_open_folder(project_id):
