@@ -399,3 +399,22 @@ def test_card_sends_jira_url_without_trailing_slash(tmp_path):
 def test_card_jira_url_is_empty_when_not_set(tmp_path, client):
     make_project(tmp_path, "DEMO-1111", {"title": "P"})
     assert client.get("/api/projects/DEMO-1111").json["jira_url"] == ""
+
+
+def test_jira_url_without_https_counts_as_not_set(tmp_path):
+    """'jira.example.com' alone would open as a page of this app, not Jira."""
+    app = create_app(tmp_path, jira_url="jira.example.com")
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    assert app.test_client().get("/api/projects/DEMO-1111").json["jira_url"] == ""
+
+
+def test_open_in_file_manager_uses_explorer_on_windows_and_open_on_mac(tmp_path, monkeypatch):
+    import app as app_module
+    calls = []
+    monkeypatch.setattr(app_module.os, "startfile", calls.append, raising=False)   # only exists on Windows
+    monkeypatch.setattr(app_module.subprocess, "run", lambda args, check: calls.append(args))
+    monkeypatch.setattr(app_module.sys, "platform", "win32")
+    app_module.open_in_file_manager(tmp_path)
+    monkeypatch.setattr(app_module.sys, "platform", "darwin")
+    app_module.open_in_file_manager(tmp_path)
+    assert calls == [tmp_path, ["open", str(tmp_path)]]

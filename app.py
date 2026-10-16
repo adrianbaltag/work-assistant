@@ -54,6 +54,8 @@ def create_app(projects_folder=None, jira_url=""):
         projects_folder = settings["projects_folder"]
         jira_url = settings.get("jira_url", "")
     jira_url = jira_url.strip().rstrip("/")
+    if not jira_url.startswith(("http://", "https://")):
+        jira_url = ""       # "jira.example.com" alone would open as a page of this app, not Jira
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
 

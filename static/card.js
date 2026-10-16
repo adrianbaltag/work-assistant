@@ -157,9 +157,9 @@ const jiraLink = () => {
   return card.jira_url && key ? `${card.jira_url}/browse/${encodeURIComponent(key)}` : "";
 };
 function drawJiraButton() {
-  const b = $("v-jira");
-  b.disabled = !jiraLink();
-  b.title = !card.jira_url ? "Set jira_url= in settings.ini first" : b.disabled ? "Type the ticket in the Jira box first" : jiraLink();
+  const b = $("v-jira"), link = jiraLink();
+  b.disabled = !link;
+  b.title = !card.jira_url ? "Set jira_url=https://... in settings.ini first" : link || "Type the ticket in the Jira box first";
 }
 const openJira = () => window.open(jiraLink(), "_blank", "noopener");
 const openFolder = () => act("open-folder", {}, async () => toast("Opened the notes folder."));
