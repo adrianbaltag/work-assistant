@@ -338,7 +338,7 @@ def save_upload(folder, name, data, now):
 # ---------- + New project ----------
 
 NEW_FIELDS = ("title", "status", "priority", "next", "blocked_by", "jira", "folder", "tags")
-TICKET_ID = re.compile(r"[A-Za-z]+-\d+")       # ABC-123 looks like a Jira ticket; "my_idea" does not
+TICKET_ID = re.compile(r"[A-Z][A-Z0-9]*-\d+")     # Jira keys: ABC-123, NET5G-42. Not "phase-2" or "my_idea"
 
 
 def new_project(projects_folder, project_id, title="", status="active"):
@@ -350,12 +350,16 @@ def new_project(projects_folder, project_id, title="", status="active"):
         raise ValueError(project_id)
     folder = Path(projects_folder) / project_id
     folder.mkdir()          # fails if taken: we never write into a folder we did not make
-    for dir in FILE_DIRS:
-        (folder / dir).mkdir()
     values = {"title": " ".join(title.split()) or project_id, "status": status, "priority": "normal",
               "jira": project_id if TICKET_ID.fullmatch(project_id) else ""}
     fields = "".join(f"{k}: {values[k]}\n" if values.get(k) else f"{k}:\n" for k in NEW_FIELDS)
-    (folder / NOTE_FILE).write_text(f"---\n{fields}---\n\n## Goal\n\n\n{HISTORY_HEADING}\n", encoding="utf-8")
+    try:
+        for dir in FILE_DIRS:
+            (folder / dir).mkdir()
+        (folder / NOTE_FILE).write_text(f"---\n{fields}---\n\n## Goal\n\n\n{HISTORY_HEADING}\n", encoding="utf-8")
+    except OSError:
+        shutil.rmtree(folder, ignore_errors=True)   # only the folder we just made: a half-made one would block the name
+        raise
     return folder
 
 

@@ -447,3 +447,25 @@ def test_new_project_bad_input_is_refused(tmp_path, client, body):
     response = client.post("/api/projects", json=body)
     assert response.status_code == 400 and response.json["error"]
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("body", [{"id": None, "status": "active"}, ["ABC-123"], "ABC-123"])
+def test_new_project_null_id_or_non_object_body_is_a_400(tmp_path, client, body):
+    response = client.post("/api/projects", json=body)
+    assert response.status_code == 400 and response.json["error"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_new_project_null_title_means_no_title(client):
+    client.post("/api/projects", json={"id": "P", "title": None, "status": "active"})
+    assert client.get("/api/projects/P").json["project"]["title"] == "P"
+
+
+@pytest.mark.parametrize("error, says", [(PermissionError("no"), "Could not create"), (ValueError("x"), "can't be used")])
+def test_new_project_other_failures_give_a_readable_json_error(client, monkeypatch, error, says):
+    import notes
+    def broken(*args):
+        raise error
+    monkeypatch.setattr(notes, "new_project", broken)
+    response = client.post("/api/projects", json={"id": "P", "status": "active"})
+    assert response.status_code == 400 and says in response.json["error"]

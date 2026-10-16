@@ -586,3 +586,20 @@ def test_new_project_refuses_unsafe_names(tmp_path, bad):
     with pytest.raises(ValueError):
         notes.new_project(tmp_path, bad)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_new_project_leaves_nothing_behind_when_writing_fails(tmp_path, monkeypatch):
+    """A half-made folder (no note.md) would be invisible in the app and block the name for good."""
+    def broken(*args, **kwargs):
+        raise PermissionError("disk full")
+    monkeypatch.setattr(notes.Path, "write_text", broken)
+    with pytest.raises(PermissionError):
+        notes.new_project(tmp_path, "P")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("project_id, jira", [("ABC-123", "ABC-123"), ("NET5G-42", "NET5G-42"),
+                                              ("phase-2", ""), ("abc-123", ""), ("5G-1", "")])
+def test_new_project_fills_jira_only_for_uppercase_ticket_keys(tmp_path, project_id, jira):
+    fields, _ = notes.parse_note((notes.new_project(tmp_path, project_id) / "note.md").read_text(encoding="utf-8"))
+    assert fields["jira"] == jira

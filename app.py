@@ -85,17 +85,22 @@ def create_app(projects_folder=None, jira_url=""):
     @app.post("/api/projects")
     def api_new_project():
         """+ New project. JSON {id, title, status}. The ID is cleaned ("my idea" -> "my_idea") and becomes the folder."""
-        data = request.get_json(silent=True) or {}
-        project_id = secure_filename(str(data.get("id", "")))
-        status = str(data.get("status", "active"))
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
+        project_id = secure_filename(str(data.get("id") or ""))     # "or": a JSON null must not become "None"
+        status = str(data.get("status") or "active")
         if not project_id:
             return jsonify(error="Type a ticket ID or a short name (letters, digits, - or _)."), 400
         if status not in CHOICES["status"]:
             return jsonify(error=f"Unknown status: {status}."), 400
         try:
-            notes.new_project(projects_folder, project_id, str(data.get("title", "")), status)
-        except (FileExistsError, ValueError):
+            notes.new_project(projects_folder, project_id, str(data.get("title") or ""), status)
+        except FileExistsError:
             return jsonify(error=f'A folder named "{project_id}" already exists. Pick another name.'), 400
+        except ValueError:
+            return jsonify(error=f'"{project_id}" can\'t be used as a folder name. Pick another name.'), 400
+        except OSError as err:
+            return jsonify(error=f"Could not create the folder: {err}. Is the projects folder reachable?"), 400
         return jsonify(id=project_id)
 
     def folder_or_404(project_id):
