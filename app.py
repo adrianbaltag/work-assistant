@@ -48,8 +48,8 @@ def open_in_file_manager(path):
         subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(path)], check=True)
 
 
-def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client, model=""):
-    """Build the Flask app. No folder given = read it (and jira_url, model) from settings.ini.
+def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client, model="", text_limit=""):
+    """Build the Flask app. No folder given = read it (and jira_url, model, text_limit) from settings.ini.
 
     claude = a function that returns the Claude client; tests pass one that returns a fake.
     """
@@ -58,7 +58,16 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         projects_folder = settings["projects_folder"]
         jira_url = settings.get("jira_url", "")
         model = settings.get("model", "")
+        text_limit = settings.get("text_limit", "")
     model = model.strip() or claude_chat.DEFAULT_MODEL
+    text_limit = str(text_limit).strip().replace("_", "")
+    if not text_limit:
+        text_limit = claude_chat.TEXT_CAP
+    elif text_limit.isdecimal() and int(text_limit) > 0:
+        text_limit = int(text_limit)
+    else:
+        raise SystemExit(f'text_limit= in settings.ini must be a whole number of characters, like 200000 '
+                         f'(no commas). It is "{text_limit}".')
     jira_url = jira_url.strip().rstrip("/")
     if not jira_url.startswith(("http://", "https://")):
         jira_url = ""       # "jira.example.com" alone would open as a page of this app, not Jira
@@ -148,7 +157,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         question, history, error = chat_input()
         if error:
             return jsonify(error=error), 400
-        context, skipped = claude_chat.all_projects_context(projects_folder, datetime.now())
+        context, skipped = claude_chat.all_projects_context(projects_folder, datetime.now(), text_limit)
         try:
             reply, _ = claude_chat.ask(claude(), model, context, history, question, system=claude_chat.ALL_SYSTEM)
         except claude_chat.ClaudeError as err:
@@ -163,7 +172,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         if error:
             return jsonify(error=error), 400
         stamp = notes.note_stamp(folder)
-        context, skipped = claude_chat.project_context(folder, datetime.now())
+        context, skipped = claude_chat.project_context(folder, datetime.now(), text_limit)
         try:
             reply, proposal = claude_chat.ask(claude(), model, context, history, question, can_propose=True)
         except claude_chat.ClaudeError as err:

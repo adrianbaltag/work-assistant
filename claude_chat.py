@@ -13,7 +13,8 @@ import anthropic
 import notes
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
-TEXT_CAP = 200_000          # characters of text per question (~50k tokens, ~$0.10 on Sonnet)
+TEXT_CAP = 200_000          # default characters of text per question (~50k tokens, ~$0.10 on Sonnet);
+                            # settings.ini text_limit= changes it
 IMAGE_BYTES = 5 * 1024 * 1024   # the API refuses bigger images
 IMAGE_COUNT = 20            # newest images only
 IMAGE_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -100,10 +101,15 @@ def make_client():
     return anthropic.Anthropic()
 
 
-def project_context(folder, now):
+def over(cap):
+    """Why a file was left out, and how to fix it."""
+    return f"over the {cap:,}-character limit: raise text_limit= in settings.ini"
+
+
+def project_context(folder, now, cap=TEXT_CAP):
     """What Claude reads about one project: a list of content blocks, plus the files left out.
 
-    note.md first, then sessions/ and raw/ files newest first. Text stops at TEXT_CAP;
+    note.md first, then sessions/ and raw/ files newest first. Text stops at cap characters;
     images are sent as pictures (IMAGE_COUNT newest, each under IMAGE_BYTES).
     """
     folder = Path(folder)
@@ -134,8 +140,8 @@ def project_context(folder, now):
         if shown["kind"] != "text":
             skipped.append(f"{label} (not a text file)")
             blocks.append({"type": "text", "text": f"=== {label} (not a text file, can't be read) ==="})
-        elif used + len(shown["text"]) > TEXT_CAP:
-            skipped.append(f"{label} (over the 200 KB text limit)")
+        elif used + len(shown["text"]) > cap:
+            skipped.append(f"{label} ({over(cap)})")
         else:
             used += len(shown["text"])
             blocks.append({"type": "text", "text": f"=== {label} ===\n{shown['text']}"})
@@ -145,10 +151,10 @@ def project_context(folder, now):
     return blocks, skipped
 
 
-def all_projects_context(projects_folder, now):
+def all_projects_context(projects_folder, now, cap=TEXT_CAP):
     """What the global Ask Claude page sends: every open project's note.md, critical first.
 
-    Returns (content blocks, notes left out). Notes stop at TEXT_CAP, like one project's files.
+    Returns (content blocks, notes left out). Notes stop at cap characters, like one project's files.
     """
     projects = notes.dashboard(notes.list_projects(projects_folder), now)
     blocks = [{"type": "text", "text": f"Today is {now:%Y-%m-%d}. Open projects: {len(projects)}."}]
@@ -161,8 +167,8 @@ def all_projects_context(projects_folder, now):
         except OSError:      # archived or renamed (another tab, Claude Code) since the list was made
             skipped.append(f"{label} (moved or deleted while reading)")
             continue
-        if used + len(note) > TEXT_CAP:
-            skipped.append(f"{label} (over the 200 KB text limit)")
+        if used + len(note) > cap:
+            skipped.append(f"{label} ({over(cap)})")
             continue
         used += len(note)
         days = max(0, p["days_ago"])      # a clock ahead on a network drive would give -1

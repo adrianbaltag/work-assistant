@@ -57,13 +57,18 @@ def test_context_puts_newest_files_first(tmp_path):
     assert all_text.index("NEW") < all_text.index("OLD")
 
 
-def test_context_skips_older_text_over_the_size_cap(tmp_path, monkeypatch):
-    monkeypatch.setattr(claude_chat, "TEXT_CAP", 1000)
+def test_context_skips_older_text_over_the_size_cap(tmp_path):
     folder = make_project(tmp_path, {"raw/old.txt": "o" * 600, "raw/new.txt": "n" * 600})
-    blocks, skipped = claude_chat.project_context(folder, NOW)
+    blocks, skipped = claude_chat.project_context(folder, NOW, cap=1000)
     assert "n" * 600 in "\n".join(texts(blocks))
     assert "o" * 600 not in "\n".join(texts(blocks))
-    assert skipped == ["raw/old.txt (over the 200 KB text limit)"]
+    assert skipped == ["raw/old.txt (over the 1,000-character limit: raise text_limit= in settings.ini)"]
+
+
+def test_context_cap_defaults_to_200_000_characters(tmp_path):
+    folder = make_project(tmp_path, {"raw/big.txt": "b" * 150_000, "raw/bigger.txt": "c" * 60_000})
+    _, skipped = claude_chat.project_context(folder, NOW)
+    assert skipped == ["raw/big.txt (over the 200,000-character limit: raise text_limit= in settings.ini)"]
 
 
 def test_context_sends_images_as_base64_with_the_right_type(tmp_path):
@@ -161,13 +166,12 @@ def test_all_context_puts_critical_projects_first(tmp_path):
     assert all_text.index("Fire") < all_text.index("Calm")
 
 
-def test_all_context_skips_notes_over_the_size_cap(tmp_path, monkeypatch):
-    monkeypatch.setattr(claude_chat, "TEXT_CAP", 100)
+def test_all_context_skips_notes_over_the_size_cap(tmp_path):
     make_note(tmp_path, "DEMO-1", "---\ntitle: Small\npriority: critical\n---\n")
     make_note(tmp_path, "DEMO-2", "---\ntitle: Big\n---\n" + "x" * 200)
-    blocks, skipped = claude_chat.all_projects_context(tmp_path, NOW)
+    blocks, skipped = claude_chat.all_projects_context(tmp_path, NOW, cap=100)
     assert "Big" not in "\n".join(texts(blocks))
-    assert skipped == ["DEMO-2/note.md (over the 200 KB text limit)"]
+    assert skipped == ["DEMO-2/note.md (over the 100-character limit: raise text_limit= in settings.ini)"]
 
 
 def test_all_context_with_no_open_projects_says_so(tmp_path):

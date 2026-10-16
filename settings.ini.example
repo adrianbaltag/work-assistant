@@ -11,3 +11,8 @@ jira_url=https://jira.example.com
 # The login is NOT here: it comes from environment variables
 # (ANTHROPIC_API_KEY at home, ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL at work).
 model=claude-sonnet-5-5
+
+# Most text Ask Claude reads per question, in characters (about 1 character = 1 byte).
+# Empty or missing = 200000 (about $0.10 per question on Sonnet; double it = double the cost).
+# Raise it if the chat says "Not read: ... over the limit". Whole number, no commas.
+text_limit=200000

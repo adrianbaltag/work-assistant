@@ -529,6 +529,32 @@ def test_ask_shows_claude_errors_in_plain_english(tmp_path):
     assert response.json["error"] == "No Claude login found."
 
 
+def test_text_limit_setting_reaches_both_ask_routes(tmp_path, fake_claude):
+    make_project(tmp_path, "DEMO-1", {"title": "Demo"})
+    (tmp_path / "DEMO-1" / "raw").mkdir()
+    (tmp_path / "DEMO-1" / "raw" / "log.txt").write_text("x" * 500, encoding="utf-8")
+    client = create_app(tmp_path, claude=lambda: fake_claude, text_limit=" 300 ").test_client()
+    assert client.post("/api/projects/DEMO-1/ask", json={"question": "q"}).json["skipped"] == [
+        "raw/log.txt (over the 300-character limit: raise text_limit= in settings.ini)"]
+    small = create_app(tmp_path, claude=lambda: fake_claude, text_limit="10").test_client()
+    assert small.post("/api/ask", json={"question": "q"}).json["skipped"] == [
+        "DEMO-1/note.md (over the 10-character limit: raise text_limit= in settings.ini)"]
+
+
+def test_text_limit_blank_means_the_default(tmp_path, fake_claude):
+    make_project(tmp_path, "DEMO-1", {"title": "Demo"})
+    (tmp_path / "DEMO-1" / "raw").mkdir()
+    (tmp_path / "DEMO-1" / "raw" / "log.txt").write_text("x" * 500, encoding="utf-8")
+    client = create_app(tmp_path, claude=lambda: fake_claude, text_limit="").test_client()
+    assert client.post("/api/projects/DEMO-1/ask", json={"question": "q"}).json["skipped"] == []
+
+
+@pytest.mark.parametrize("bad", ["abc", "200,000", "0", "-5", "1.5"])
+def test_text_limit_that_is_not_a_whole_number_stops_the_app_with_a_clear_message(tmp_path, bad):
+    with pytest.raises(SystemExit, match="text_limit="):
+        create_app(tmp_path, text_limit=bad)
+
+
 def test_model_defaults_to_sonnet(tmp_path, fake_claude):
     make_project(tmp_path, "DEMO-1", {"title": "Demo"})
     client = create_app(tmp_path, claude=lambda: fake_claude).test_client()
