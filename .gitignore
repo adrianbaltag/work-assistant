@@ -5,3 +5,4 @@ __pycache__/
 .claude/.last-tested
 SKIP_STOP_HOOK
 settings.ini
+handoffs/
