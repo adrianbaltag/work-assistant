@@ -3,6 +3,9 @@
 Run it:   python app.py      then open http://127.0.0.1:5050
 """
 import configparser
+import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -36,10 +39,21 @@ def load_settings(path=SETTINGS_FILE):
     return dict(parser["settings"])
 
 
-def create_app(projects_folder=None):
-    """Build the Flask app. No folder given = read it from settings.ini."""
+def open_in_file_manager(path):
+    """Show a folder in Windows Explorer (Finder on a Mac). Tests swap this for a fake."""
+    if sys.platform == "win32":
+        os.startfile(path)
+    else:
+        subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(path)], check=True)
+
+
+def create_app(projects_folder=None, jira_url=""):
+    """Build the Flask app. No folder given = read it (and jira_url) from settings.ini."""
     if projects_folder is None:
-        projects_folder = load_settings()["projects_folder"]
+        settings = load_settings()
+        projects_folder = settings["projects_folder"]
+        jira_url = settings.get("jira_url", "")
+    jira_url = jira_url.strip().rstrip("/")
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
 
@@ -79,8 +93,18 @@ def create_app(projects_folder=None):
         stamp = notes.note_stamp(folder)     # before reading: a change in between = a warning, not a lost edit
         project = notes.dashboard([notes.read_project(folder)], datetime.now())[0]
         text = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
-        return jsonify(project=project, text=text, stamp=stamp,
+        return jsonify(project=project, text=text, stamp=stamp, jira_url=jira_url,
                        history=notes.read_history(text), files=notes.list_files(folder))
+
+    @app.post("/api/projects/<project_id>/open-folder")
+    def api_open_folder(project_id):
+        """The page can't open folders on your disk, so Python asks the computer to do it."""
+        folder = folder_or_404(project_id)
+        try:
+            open_in_file_manager(folder)
+        except (OSError, subprocess.SubprocessError):
+            return jsonify(error=f"Could not open {folder}. Open it yourself in File Explorer."), 400
+        return jsonify(ok=True)
 
     def save(folder, make_text):
         """Shared by every save button. make_text(current note text) -> new note text.

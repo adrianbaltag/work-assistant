@@ -356,3 +356,46 @@ def test_archive_requests_from_other_websites_are_refused(tmp_path, client):
     evil = client.post("/api/projects/DEMO-1111/archive", headers={"Origin": "https://evil.example"})
     assert evil.status_code == 403
     assert (tmp_path / "DEMO-1111" / "note.md").is_file()
+
+
+# ---------- slice 6: Open notes folder, Open in Jira ----------
+
+def test_open_folder_asks_the_computer_to_open_the_project_folder(tmp_path, client, monkeypatch):
+    import app as app_module
+    opened = []
+    monkeypatch.setattr(app_module, "open_in_file_manager", opened.append)   # fake: no real window in tests
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    assert client.post("/api/projects/DEMO-1111/open-folder").json == {"ok": True}
+    assert opened == [tmp_path / "DEMO-1111"]
+
+
+def test_open_folder_unknown_project_or_other_website_does_nothing(tmp_path, client, monkeypatch):
+    import app as app_module
+    opened = []
+    monkeypatch.setattr(app_module, "open_in_file_manager", opened.append)
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    assert client.post("/api/projects/nope/open-folder").status_code == 404
+    evil = client.post("/api/projects/DEMO-1111/open-folder", headers={"Origin": "https://evil.example"})
+    assert evil.status_code == 403
+    assert opened == []
+
+
+def test_open_folder_failure_gives_a_clear_error(tmp_path, client, monkeypatch):
+    import app as app_module
+    def broken(path):
+        raise OSError("no file manager")
+    monkeypatch.setattr(app_module, "open_in_file_manager", broken)
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    response = client.post("/api/projects/DEMO-1111/open-folder")
+    assert response.status_code == 400 and "Could not open" in response.json["error"]
+
+
+def test_card_sends_jira_url_without_trailing_slash(tmp_path):
+    app = create_app(tmp_path, jira_url="https://jira.example.com/")
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    assert app.test_client().get("/api/projects/DEMO-1111").json["jira_url"] == "https://jira.example.com"
+
+
+def test_card_jira_url_is_empty_when_not_set(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "P"})
+    assert client.get("/api/projects/DEMO-1111").json["jira_url"] == ""

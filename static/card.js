@@ -140,7 +140,7 @@ function drawOverview() {
       ${input("jira", "Jira")}
       ${input("folder", "Code folder", "wide", '<span class="hint">Info only, e.g. work_jira\\DEMO-1111</span>')}
     </div>
-    <div class="row"><button class="btn sm" disabled title="Coming soon">Open notes folder</button><button class="btn sm" disabled title="Coming soon">Open in Jira</button></div>
+    <div class="row"><button class="btn sm" id="v-openfolder">Open notes folder</button><button class="btn sm" id="v-jira">Open in Jira</button></div>
     <div class="box"><h4>Add a line to the history</h4>
       <textarea id="f-line" rows="2" placeholder="e.g. Senior said: Northeast markets only"></textarea>
       <div class="row" style="margin-top:8px"><button class="btn sm" id="v-addline">Add line</button></div>
@@ -148,7 +148,21 @@ function drawOverview() {
     <div id="v-alert"></div>
     <div class="foot"><button class="btn primary" id="v-save">Save changes</button><span class="sp"></span><button class="btn danger" id="v-arch">Mark done & archive</button></div>`;
   drawLog();
+  drawJiraButton();
 }
+
+// Open in Jira uses what is in the Jira box right now (saved or not) + jira_url from settings.ini.
+const jiraLink = () => {
+  const key = $("f-jira").value.trim();
+  return card.jira_url && key ? `${card.jira_url}/browse/${encodeURIComponent(key)}` : "";
+};
+function drawJiraButton() {
+  const b = $("v-jira");
+  b.disabled = !jiraLink();
+  b.title = !card.jira_url ? "Set jira_url= in settings.ini first" : b.disabled ? "Type the ticket in the Jira box first" : jiraLink();
+}
+const openJira = () => window.open(jiraLink(), "_blank", "noopener");
+const openFolder = () => act("open-folder", {}, async () => toast("Opened the notes folder."));
 
 function drawLog() {
   $("v-log").innerHTML = card.history.length
@@ -407,7 +421,10 @@ const ACTIONS = {
   "v-renamebtn": startRename, "v-rename-ok": doRename, "v-rename-no": cancelRename,
   "v-del": askDelete, "v-del-yes": doDelete, "v-del-no": cancelDelete,
   "v-arch": askArchive, "v-arch-yes": doArchive, "v-arch-no": () => showAlert(""),
+  "v-openfolder": openFolder, "v-jira": openJira,
 };
+
+$("ov").addEventListener("input", e => { if (e.target.id === "f-jira") drawJiraButton(); });
 
 $("ov").addEventListener("click", e => {
   if (e.target === $("ov")) return closeCard();        // click outside the card

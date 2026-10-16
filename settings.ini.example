@@ -4,5 +4,5 @@
 # Folder that holds one sub-folder per project (each with a note.md).
 projects_folder=C:\Users\YOUR-NAME\Desktop\projects
 
-# Base URL of your Jira, used by "Open in Jira" (later).
+# Base URL of your Jira, used by "Open in Jira" (it adds /browse/TICKET-ID).
 jira_url=https://jira.example.com
