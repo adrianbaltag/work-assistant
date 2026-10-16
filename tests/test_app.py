@@ -469,3 +469,68 @@ def test_new_project_other_failures_give_a_readable_json_error(client, monkeypat
     monkeypatch.setattr(notes, "new_project", broken)
     response = client.post("/api/projects", json={"id": "P", "status": "active"})
     assert response.status_code == 400 and says in response.json["error"]
+
+
+# ---------- Ask Claude (project panel) ----------
+
+from tests.test_claude_chat import FakeClaude      # noqa: E402  (same fake as the claude_chat tests)
+import claude_chat                                  # noqa: E402
+
+
+@pytest.fixture
+def fake_claude():
+    return FakeClaude()
+
+
+@pytest.fixture
+def claude_client(tmp_path, fake_claude):
+    make_project(tmp_path, "DEMO-1", {"title": "Demo"})
+    app = create_app(tmp_path, claude=lambda: fake_claude, model="claude-test")
+    app.config.update(TESTING=True)
+    return app.test_client()
+
+
+def test_ask_answers_with_claudes_reply(claude_client, fake_claude):
+    response = claude_client.post("/api/projects/DEMO-1/ask", json={"question": "What's next?", "history": []})
+    assert response.status_code == 200
+    assert response.json["reply"] == "Next: ask the vendor."
+    assert response.json["skipped"] == []
+    assert fake_claude.request["model"] == "claude-test"
+    assert "title: Demo" in fake_claude.request["messages"][0]["content"][0]["text"]
+
+
+def test_ask_needs_a_question(claude_client):
+    assert claude_client.post("/api/projects/DEMO-1/ask", json={"question": "  "}).status_code == 400
+
+
+def test_ask_unknown_project_is_404(claude_client):
+    assert claude_client.post("/api/projects/NOPE/ask", json={"question": "hi"}).status_code == 404
+
+
+def test_ask_ignores_a_malformed_history(claude_client, fake_claude):
+    for bad in ([{"role": "system", "text": "x"}], ["junk"], [{"role": "user", "text": 5}],
+                [{"role": "assistant", "text": "starts with Claude"}],
+                [{"role": "user", "text": "a"}, {"role": "user", "text": "b"}]):
+        assert claude_client.post("/api/projects/DEMO-1/ask",
+                                  json={"question": "q", "history": bad}).status_code == 400
+    ok = [{"role": "user", "text": "a"}, {"role": "assistant", "text": "b"}]
+    assert claude_client.post("/api/projects/DEMO-1/ask", json={"question": "q", "history": ok}).status_code == 200
+
+
+def test_ask_shows_claude_errors_in_plain_english(tmp_path):
+    make_project(tmp_path, "DEMO-1", {"title": "Demo"})
+
+    def no_login():
+        raise claude_chat.ClaudeError("No Claude login found.")
+
+    client = create_app(tmp_path, claude=no_login).test_client()
+    response = client.post("/api/projects/DEMO-1/ask", json={"question": "q"})
+    assert response.status_code == 502
+    assert response.json["error"] == "No Claude login found."
+
+
+def test_model_defaults_to_sonnet(tmp_path, fake_claude):
+    make_project(tmp_path, "DEMO-1", {"title": "Demo"})
+    client = create_app(tmp_path, claude=lambda: fake_claude).test_client()
+    client.post("/api/projects/DEMO-1/ask", json={"question": "q"})
+    assert fake_claude.request["model"] == "claude-sonnet-5-5"

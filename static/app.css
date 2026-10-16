@@ -168,11 +168,25 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .btn.danger{color:var(--crit);border-color:rgba(255,90,95,.35);background:var(--crit-soft)}
 .mono{font-family:var(--mono)}
 
-/* Claude panel (greyed until Ask Claude is built) */
+/* Claude panel */
 .c-head{padding:16px 16px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
 .spark{width:26px;height:26px;border-radius:8px;background:var(--claude-soft);color:var(--claude);display:grid;place-items:center;font-size:.9rem;flex:none}
 .c-head small{display:block;color:var(--dim);font-size:.72rem}
-.c-soon{margin:16px;opacity:.6}
+.c-log{flex:1;min-height:120px;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:92%;padding:9px 12px;border-radius:12px;font-size:.84rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.you{align-self:flex-end;background:var(--raised)}
+.msg.claude{align-self:flex-start;background:var(--surface);border:1px solid var(--line)}
+.msg.wait{color:var(--dim);font-style:italic}
+.msg.err{align-self:flex-start;background:var(--crit-soft);border:1px solid rgba(255,90,95,.35)}
+.msg.skip{align-self:flex-start;padding:0 2px;font-size:.72rem;color:var(--dim)}
+.c-foot{padding:10px 16px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:none;border:1px solid var(--line-2);color:var(--fg);border-radius:999px;padding:5px 10px;font:inherit;font-size:.74rem;cursor:pointer}
+.chip:hover{border-color:var(--claude);color:var(--claude)}
+.c-note{font-family:var(--mono);font-size:.66rem;color:var(--dim)}
+.c-ask{display:flex;gap:6px}
+.c-ask input{flex:1;min-width:0;border-radius:999px}
+.busy .chip,.busy .c-ask{opacity:.5;pointer-events:none}
 
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;background:var(--fg);color:var(--ink);padding:10px 16px;border-radius:12px;font-size:.85rem;font-weight:500;box-shadow:0 12px 40px rgba(0,0,0,.6);max-width:calc(100% - 32px)}
 @media (prefers-reduced-motion:no-preference){.toast:not([hidden]){animation:pop .25s ease-out}}

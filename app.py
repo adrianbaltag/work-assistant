@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from flask import Flask, abort, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
+import claude_chat
 import notes
 
 HERE = Path(__file__).parent
@@ -47,12 +48,17 @@ def open_in_file_manager(path):
         subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(path)], check=True)
 
 
-def create_app(projects_folder=None, jira_url=""):
-    """Build the Flask app. No folder given = read it (and jira_url) from settings.ini."""
+def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client, model=""):
+    """Build the Flask app. No folder given = read it (and jira_url, model) from settings.ini.
+
+    claude = a function that returns the Claude client; tests pass one that returns a fake.
+    """
     if projects_folder is None:
         settings = load_settings()
         projects_folder = settings["projects_folder"]
         jira_url = settings.get("jira_url", "")
+        model = settings.get("model", "")
+    model = model.strip() or claude_chat.DEFAULT_MODEL
     jira_url = jira_url.strip().rstrip("/")
     if not jira_url.startswith(("http://", "https://")):
         jira_url = ""       # "jira.example.com" alone would open as a page of this app, not Jira
@@ -118,6 +124,32 @@ def create_app(projects_folder=None, jira_url=""):
         text = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
         return jsonify(project=project, text=text, stamp=stamp, jira_url=jira_url,
                        history=notes.read_history(text), files=notes.list_files(folder))
+
+    @app.post("/api/projects/<project_id>/ask")
+    def api_ask(project_id):
+        """Ask Claude about one project. JSON {question, history: [{role, text}, ...]}.
+
+        The page keeps the chat (forgotten when the card closes) and sends it back each time.
+        stamp = note.md's version when Claude read it (Approve checks it later).
+        """
+        folder = folder_or_404(project_id)
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
+        question = str(data.get("question") or "").strip()
+        history = data.get("history") or []
+        if not question:
+            return jsonify(error="Type a question first."), 400
+        if not (isinstance(history, list) and all(
+                isinstance(t, dict) and t.get("role") == ("user", "assistant")[i % 2] and isinstance(t.get("text"), str)
+                for i, t in enumerate(history))):     # you, Claude, you, Claude, ...
+            return jsonify(error="The chat got mixed up. Close the card and open it again."), 400
+        stamp = notes.note_stamp(folder)
+        context, skipped = claude_chat.project_context(folder, datetime.now())
+        try:
+            reply = claude_chat.ask(claude(), model, context, history, question)
+        except claude_chat.ClaudeError as err:
+            return jsonify(error=str(err)), 502
+        return jsonify(reply=reply, skipped=skipped, stamp=stamp)
 
     @app.post("/api/projects/<project_id>/open-folder")
     def api_open_folder(project_id):

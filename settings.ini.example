@@ -6,3 +6,8 @@ projects_folder=C:\Users\YOUR-NAME\Desktop\projects
 
 # Base URL of your Jira, used by "Open in Jira" (it adds /browse/TICKET-ID).
 jira_url=https://jira.example.com
+
+# Claude model used by Ask Claude. Empty or missing = claude-sonnet-5-5.
+# The login is NOT here: it comes from environment variables
+# (ANTHROPIC_API_KEY at home, ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL at work).
+model=claude-sonnet-5-5

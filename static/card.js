@@ -45,6 +45,7 @@ async function openCard(id) {
     return;
   }
   drawCard();
+  startChat();        // once per opening: saves and reloads redraw the card but keep the chat
   $("ov").hidden = false;
   document.body.style.overflow = "hidden";
   $("m-close").focus();
@@ -58,6 +59,7 @@ function hideCard() {
   $("ov").hidden = true;
   document.body.style.overflow = "";
   card = null;
+  $("m-claude").chat = null;      // forget the chat; a late answer is dropped
   load();       // the dashboard re-reads the notes, so it shows what you just saved
 }
 
@@ -78,8 +80,18 @@ function drawCard() {
   drawHead();
   drawTree();
   drawView();
-  $("m-claude").innerHTML = `<div class="c-head"><span class="spark">✳</span><div><b>Ask Claude</b><small>about this project</small></div></div>
-    <div class="empty c-soon"><b>Coming soon.</b>Built after the gateway test at the office.</div>`;
+}
+
+function startChat() {
+  const n = card.files.sessions.length, r = card.files.raw.length;
+  const plural = (count, word) => `${count} ${word} file${count === 1 ? "" : "s"}`;
+  makeChat($("m-claude"), {
+    sub: "about this project only",
+    intro: `I can read ${card.project.title}: its note, ${plural(n, "session")} and ${plural(r, "raw")}. What do you need?`,
+    chips: ["Update this project from the raw files", "What's my next step?", "Summarize this project"],
+    placeholder: "Ask about this project…",
+    url: api("ask"),
+  });
 }
 
 function drawHead() {
