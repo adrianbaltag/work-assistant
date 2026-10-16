@@ -88,7 +88,10 @@ function startChat() {
   makeChat($("m-claude"), {
     sub: "about this project only",
     intro: `I can read ${card.project.title}: its note, ${plural(n, "session")} and ${plural(r, "raw")}. What do you need?`,
-    chips: ["Update this project from the raw files", "What's my next step?", "Summarize this project"],
+    chips: ["Update this project from the raw files",
+            {label: "My next steps", ask: "Write a short paragraph about this project covering: the issue, where I "
+              + "stand, the next step(s), and the fix (planned or done). Say so if the notes don't cover one of these."},
+            "Summarize this project"],
     placeholder: "Ask about this project…",
     url: api("ask"),
     current: field => card.project[field] ?? "",

@@ -98,6 +98,89 @@ def test_context_marks_its_last_block_for_caching(tmp_path):
     assert all("cache_control" not in b for b in blocks[:-1])
 
 
+# ---------- all_projects_context: the global Ask Claude page reads every open note.md ----------
+
+def make_note(root, folder, note, days_ago=0):
+    """root/folder/note.md with this text, last changed `days_ago` days ago."""
+    path = root / folder
+    path.mkdir(parents=True)
+    (path / "note.md").write_text(note, encoding="utf-8")
+    stamp = time.time() - days_ago * 86400
+    os.utime(path / "note.md", (stamp, stamp))
+    return path
+
+
+def test_all_context_has_every_open_note_and_how_old_it_is(tmp_path):
+    make_note(tmp_path, "DEMO-1", "---\ntitle: Report\n---\nvendor late\n", days_ago=3)
+    make_note(tmp_path, "DEMO-2", "---\ntitle: Parser\n---\nlogs in\n")
+    blocks, skipped = claude_chat.all_projects_context(tmp_path, NOW)
+    all_text = "\n".join(texts(blocks))
+    assert "2026-10-16" in texts(blocks)[0]
+    assert "=== DEMO-1/note.md (title: Report, status: active, priority: normal, updated 3 days ago) ===" in all_text
+    assert "vendor late" in all_text
+    assert "=== DEMO-2/note.md (title: Parser, status: active, priority: normal, updated today) ===" in all_text
+    assert "logs in" in all_text
+    assert skipped == []
+
+
+def test_all_context_fills_in_missing_fields_like_the_dashboard(tmp_path):
+    make_note(tmp_path, "DEMO-1", "just text, no fields\n")
+    all_text = "\n".join(texts(claude_chat.all_projects_context(tmp_path, NOW)[0]))
+    assert "(title: DEMO-1, status: active, priority: normal, updated today)" in all_text
+
+
+def test_all_context_never_says_minus_days(tmp_path):
+    make_note(tmp_path, "DEMO-1", "---\ntitle: Report\n---\n", days_ago=-2)      # clock ahead on a network drive
+    all_text = "\n".join(texts(claude_chat.all_projects_context(tmp_path, NOW)[0]))
+    assert "updated today" in all_text and "-" not in all_text.split("updated")[1].split(")")[0]
+
+
+def test_all_context_skips_a_project_moved_while_reading(tmp_path, monkeypatch):
+    make_note(tmp_path, "DEMO-1", "---\ntitle: Report\n---\n")
+    listed = claude_chat.notes.list_projects(tmp_path)
+    (tmp_path / "DEMO-1" / "note.md").unlink()          # archived in another tab, after the list was made
+    monkeypatch.setattr(claude_chat.notes, "list_projects", lambda folder: listed)
+    _, skipped = claude_chat.all_projects_context(tmp_path, NOW)
+    assert skipped == ["DEMO-1/note.md (moved or deleted while reading)"]
+
+
+def test_all_context_skips_archived_projects_and_project_files(tmp_path):
+    folder = make_note(tmp_path, "DEMO-1", "---\ntitle: Open\n---\n")
+    (folder / "raw").mkdir()
+    (folder / "raw" / "mail.txt").write_text("SECRET RAW", encoding="utf-8")
+    make_note(tmp_path, "_archive/OLD-1", "---\ntitle: Done long ago\n---\n")
+    all_text = "\n".join(texts(claude_chat.all_projects_context(tmp_path, NOW)[0]))
+    assert "Open" in all_text
+    assert "Done long ago" not in all_text and "SECRET RAW" not in all_text
+
+
+def test_all_context_puts_critical_projects_first(tmp_path):
+    make_note(tmp_path, "AAA-1", "---\ntitle: Calm\n---\n", days_ago=9)
+    make_note(tmp_path, "ZZZ-1", "---\ntitle: Fire\npriority: critical\n---\n")
+    all_text = "\n".join(texts(claude_chat.all_projects_context(tmp_path, NOW)[0]))
+    assert all_text.index("Fire") < all_text.index("Calm")
+
+
+def test_all_context_skips_notes_over_the_size_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_chat, "TEXT_CAP", 100)
+    make_note(tmp_path, "DEMO-1", "---\ntitle: Small\npriority: critical\n---\n")
+    make_note(tmp_path, "DEMO-2", "---\ntitle: Big\n---\n" + "x" * 200)
+    blocks, skipped = claude_chat.all_projects_context(tmp_path, NOW)
+    assert "Big" not in "\n".join(texts(blocks))
+    assert skipped == ["DEMO-2/note.md (over the 200 KB text limit)"]
+
+
+def test_all_context_with_no_open_projects_says_so(tmp_path):
+    blocks, _ = claude_chat.all_projects_context(tmp_path, NOW)
+    assert "no open projects" in texts(blocks)[-1].lower()
+
+
+def test_all_context_marks_its_last_block_for_caching(tmp_path):
+    make_note(tmp_path, "DEMO-1", "---\ntitle: Report\n---\n")
+    blocks, _ = claude_chat.all_projects_context(tmp_path, NOW)
+    assert blocks[-1]["cache_control"] == {"type": "ephemeral"}
+
+
 # ---------- ask: one question, one answer ----------
 
 class FakeClaude:
@@ -142,6 +225,13 @@ def test_ask_sends_the_earlier_chat_after_the_context():
         {"role": "user", "content": CONTEXT + [{"type": "text", "text": "Hi"}]},
         {"role": "assistant", "content": "Hello"},
         {"role": "user", "content": "And now?"}]
+
+
+def test_ask_about_all_projects_uses_its_own_instructions():
+    fake = FakeClaude()
+    claude_chat.ask(fake, "m", CONTEXT, [], "q", system=claude_chat.ALL_SYSTEM)
+    assert fake.request["system"] == claude_chat.ALL_SYSTEM
+    assert "tools" not in fake.request
 
 
 def test_ask_explains_a_refusal():

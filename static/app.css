@@ -169,6 +169,7 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .mono{font-family:var(--mono)}
 
 /* Claude panel */
+.ask-box{flex:1;min-height:420px;max-height:calc(100vh - 220px);display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--line);border-radius:14px;overflow:hidden}
 .c-head{padding:16px 16px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
 .spark{width:26px;height:26px;border-radius:8px;background:var(--claude-soft);color:var(--claude);display:grid;place-items:center;font-size:.9rem;flex:none}
 .c-head small{display:block;color:var(--dim);font-size:.72rem}

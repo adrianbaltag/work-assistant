@@ -125,24 +125,43 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         return jsonify(project=project, text=text, stamp=stamp, jira_url=jira_url,
                        history=notes.read_history(text), files=notes.list_files(folder))
 
-    @app.post("/api/projects/<project_id>/ask")
-    def api_ask(project_id):
-        """Ask Claude about one project. JSON {question, history: [{role, text}, ...]}.
+    def chat_input():
+        """Read {question, history: [{role, text}, ...]} sent by the page. Returns (question, history, error).
 
-        The page keeps the chat (forgotten when the card closes) and sends it back each time.
-        stamp = note.md's version when Claude read it (Approve checks it later).
+        The page keeps the chat (forgotten when you close it) and sends it all back each time.
         """
-        folder = folder_or_404(project_id)
         data = request.get_json(silent=True)
         data = data if isinstance(data, dict) else {}
         question = str(data.get("question") or "").strip()
         history = data.get("history") or []
         if not question:
-            return jsonify(error="Type a question first."), 400
+            return question, history, "Type a question first."
         if not (isinstance(history, list) and all(
                 isinstance(t, dict) and t.get("role") == ("user", "assistant")[i % 2] and isinstance(t.get("text"), str)
                 for i, t in enumerate(history))):     # you, Claude, you, Claude, ...
-            return jsonify(error="The chat got mixed up. Close the card and open it again."), 400
+            return question, history, "The chat got mixed up. Reload the page and ask again."
+        return question, history, None
+
+    @app.post("/api/ask")
+    def api_ask_all():
+        """The global Ask Claude page: a question about every open project. Answers only, no proposals."""
+        question, history, error = chat_input()
+        if error:
+            return jsonify(error=error), 400
+        context, skipped = claude_chat.all_projects_context(projects_folder, datetime.now())
+        try:
+            reply, _ = claude_chat.ask(claude(), model, context, history, question, system=claude_chat.ALL_SYSTEM)
+        except claude_chat.ClaudeError as err:
+            return jsonify(error=str(err)), 502
+        return jsonify(reply=reply, skipped=skipped)
+
+    @app.post("/api/projects/<project_id>/ask")
+    def api_ask(project_id):
+        """Ask Claude about one project. stamp = note.md's version when Claude read it (Approve checks it later)."""
+        folder = folder_or_404(project_id)
+        question, history, error = chat_input()
+        if error:
+            return jsonify(error=error), 400
         stamp = notes.note_stamp(folder)
         context, skipped = claude_chat.project_context(folder, datetime.now())
         try:

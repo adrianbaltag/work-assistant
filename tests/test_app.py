@@ -536,6 +536,43 @@ def test_model_defaults_to_sonnet(tmp_path, fake_claude):
     assert fake_claude.request["model"] == "claude-sonnet-5-5"
 
 
+# ---------- Ask Claude: the global page asks about every open project ----------
+
+def test_global_ask_reads_every_open_note_and_answers(tmp_path, fake_claude):
+    make_project(tmp_path, "DEMO-1", {"title": "Report"})
+    make_project(tmp_path, "DEMO-2", {"title": "Parser"})
+    client = create_app(tmp_path, claude=lambda: fake_claude, model="claude-test").test_client()
+    response = client.post("/api/ask", json={"question": "Which projects are blocked?", "history": []})
+    assert response.status_code == 200
+    assert response.json["reply"] == "Next: ask the vendor."
+    assert response.json["skipped"] == []
+    sent = "\n".join(b["text"] for b in fake_claude.request["messages"][0]["content"] if b["type"] == "text")
+    assert "title: Report" in sent and "title: Parser" in sent
+    assert fake_claude.request["system"] == claude_chat.ALL_SYSTEM
+    assert "tools" not in fake_claude.request          # answers only: no proposals here
+
+
+def test_global_ask_never_returns_a_proposal(tmp_path):
+    make_project(tmp_path, "DEMO-1", {"title": "Report"})
+    fake = FakeClaude(text="Done.", proposal=PROPOSAL)
+    response = create_app(tmp_path, claude=lambda: fake).test_client().post("/api/ask", json={"question": "q"})
+    assert "proposal" not in response.json
+
+
+def test_global_ask_checks_question_and_history(claude_client):
+    assert claude_client.post("/api/ask", json={"question": " "}).status_code == 400
+    bad = [{"role": "assistant", "text": "starts with Claude"}]
+    assert claude_client.post("/api/ask", json={"question": "q", "history": bad}).status_code == 400
+
+
+def test_global_ask_shows_claude_errors_in_plain_english(tmp_path):
+    def no_login():
+        raise claude_chat.ClaudeError("No Claude login found.")
+
+    response = create_app(tmp_path, claude=no_login).test_client().post("/api/ask", json={"question": "q"})
+    assert response.status_code == 502 and response.json["error"] == "No Claude login found."
+
+
 # ---------- Ask Claude: Approve applies a proposal ----------
 
 PROPOSAL = {"fields": [{"field": "next", "value": "send the report"}, {"field": "status", "value": "pending"}],

@@ -69,18 +69,40 @@ $("tabs").addEventListener("click", e => {
   load();
 });
 
-// Sidebar: Dashboard / Archive. Each switch re-reads from disk.
-document.querySelector(".side").addEventListener("click", e => {
+// Sidebar: Dashboard / Ask Claude / Archive (and the dashboard's Ask Claude button). Each switch re-reads from disk.
+document.querySelector(".app").addEventListener("click", e => {
   const button = e.target.closest("[data-page]");
   if (button) showPage(button.dataset.page);
 });
 
 function showPage(page) {
+  if (page === "ask" && !$("page-ask").hidden) return;     // already here: keep the chat
   document.querySelectorAll(".nav[data-page]").forEach(n =>
     n.dataset.page === page ? n.setAttribute("aria-current", "page") : n.removeAttribute("aria-current"));
   $("page-dash").hidden = page !== "dash";
+  $("page-ask").hidden = page !== "ask";
   $("page-archive").hidden = page !== "archive";
-  page === "dash" ? load() : loadArchive();
+  if (page === "dash") load();
+  else if (page === "ask") askAll();
+  else loadArchive();
+}
+
+// Global Ask Claude: answers only. Opening the page starts a fresh chat (decided): an old one
+// may answer from notes that changed since.
+function askAll() {
+  makeChat($("ask-chat"), {
+    sub: "about all your open projects",
+    intro: "I can read the note of every open project. What do you need?",
+    chips: ["What should I work on this morning?", "Which projects are blocked?",
+            {label: "Quick summary", ask: "Give me a quick summary of all my open projects together: "
+              + "a short paragraph or a few bullet points."},
+            {label: "My next steps", ask: "For each open project, critical first, write a short paragraph "
+              + "covering: the issue, where I stand, the next step(s), and the fix (planned or done). "
+              + "Say so if the notes don't cover one of these."}],
+    placeholder: "Ask about your projects…",
+    url: "/api/ask",
+    note: "Answers only. To change a project, ask in its card.",
+  });
 }
 
 // Click a row = open that project's card (card.js).
