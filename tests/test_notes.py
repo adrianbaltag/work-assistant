@@ -536,3 +536,53 @@ def test_archived_file_path_only_plain_names_in_known_places(tmp_path):
     assert notes.archived_file_path(folder, "", "note.md") == folder / "archive" / "note.md"
     for dir, name in [("junk", "a.txt"), ("raw", "../a.txt"), ("raw", ".x"), ("raw", ""), ("..", "a.txt")]:
         assert notes.archived_file_path(folder, dir, name) is None
+
+
+# ---------- + New project ----------
+
+def test_new_project_makes_note_with_all_fields_and_empty_folders(tmp_path):
+    folder = notes.new_project(tmp_path, "ABC-123", "Fix alarms", "pending")
+    assert folder == tmp_path / "ABC-123"
+    assert (folder / "sessions").is_dir() and (folder / "raw").is_dir()
+    assert (folder / "note.md").read_text(encoding="utf-8") == (
+        "---\ntitle: Fix alarms\nstatus: pending\npriority: normal\nnext:\nblocked_by:\n"
+        "jira: ABC-123\nfolder:\ntags:\n---\n\n## Goal\n\n\n## History\n")
+    assert notes.read_history((folder / "note.md").read_text(encoding="utf-8")) == []
+    assert notes.find_project(tmp_path, "ABC-123") == folder
+
+
+def test_new_project_defaults_title_to_id_and_no_jira_for_plain_names(tmp_path):
+    fields, _ = notes.parse_note((notes.new_project(tmp_path, "my_idea") / "note.md").read_text(encoding="utf-8"))
+    assert (fields["title"], fields["status"], fields["jira"]) == ("my_idea", "active", "")
+
+
+def test_new_project_title_is_kept_on_one_line(tmp_path):
+    fields, _ = notes.parse_note((notes.new_project(tmp_path, "P", "  two\nlines ") / "note.md").read_text(encoding="utf-8"))
+    assert fields["title"] == "two lines"
+
+
+@pytest.mark.parametrize("taken", ["open project", "stray folder", "file"])
+def test_new_project_never_touches_a_taken_name(tmp_path, taken):
+    if taken == "open project":
+        make_project(tmp_path, "P")
+    elif taken == "stray folder":
+        (tmp_path / "P").mkdir()
+    else:
+        (tmp_path / "P").write_text("x", encoding="utf-8")
+    before = sorted(str(p) for p in tmp_path.rglob("*"))
+    with pytest.raises(FileExistsError):
+        notes.new_project(tmp_path, "P")
+    assert sorted(str(p) for p in tmp_path.rglob("*")) == before
+
+
+def test_new_project_allowed_when_the_id_is_only_in_the_archive(tmp_path):
+    notes.archive_project(tmp_path, make_project(tmp_path, "P"), NOW)
+    notes.new_project(tmp_path, "P")
+    assert notes.find_project(tmp_path, "P") and notes.find_archived(tmp_path, "P")
+
+
+@pytest.mark.parametrize("bad", ["", "_archive", "../x", ".hidden", "a/b"])
+def test_new_project_refuses_unsafe_names(tmp_path, bad):
+    with pytest.raises(ValueError):
+        notes.new_project(tmp_path, bad)
+    assert list(tmp_path.iterdir()) == []

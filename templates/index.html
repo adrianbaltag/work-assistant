@@ -29,7 +29,7 @@
         </div>
         <div class="actions">
           <button class="btn claude" disabled title="Coming soon">✳ Ask Claude</button>
-          <button class="btn primary" disabled title="Coming soon">+ New project</button>
+          <button class="btn primary" id="new-project">+ New project</button>
         </div>
       </div>
       <div class="seg" role="tablist" id="tabs"></div>
@@ -59,10 +59,27 @@
       </div>
     </div>
   </div>
+  <div class="overlay" id="np" hidden>
+    <form class="modal small" id="np-form" role="dialog" aria-modal="true" aria-labelledby="np-title-h">
+      <header class="m-head"><div class="t"><div class="path">projects\&lt;ID&gt;\</div><h2 id="np-title-h">New project</h2></div>
+        <button type="button" class="x" id="np-cancel" aria-label="Close">×</button></header>
+      <div class="np-body">
+        <label>Ticket ID or short name <span class="hint">Becomes the folder name, never renamed. Spaces become _</span>
+          <input id="np-id" required autocomplete="off" placeholder="ABC-123"></label>
+        <label>Project name <span class="hint">Optional. Empty = same as the ID. You can change it later.</span>
+          <input id="np-title" autocomplete="off"></label>
+        <label>Status
+          <select id="np-status"><option>active</option><option>pending</option><option>idea</option></select></label>
+        <div id="np-alert"></div>
+        <div class="row"><button class="btn primary" type="submit">Create</button></div>
+      </div>
+    </form>
+  </div>
   <div class="toast" id="toast" hidden role="status"></div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script src="{{ url_for('static', filename='card.js') }}"></script>
   <script src="{{ url_for('static', filename='archive.js') }}"></script>
+  <script src="{{ url_for('static', filename='newproject.js') }}"></script>
 </body>
 </html>

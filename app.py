@@ -82,6 +82,22 @@ def create_app(projects_folder=None, jira_url=""):
             del row["body"]
         return jsonify(today=now.strftime("%Y-%m-%d"), projects=rows)
 
+    @app.post("/api/projects")
+    def api_new_project():
+        """+ New project. JSON {id, title, status}. The ID is cleaned ("my idea" -> "my_idea") and becomes the folder."""
+        data = request.get_json(silent=True) or {}
+        project_id = secure_filename(str(data.get("id", "")))
+        status = str(data.get("status", "active"))
+        if not project_id:
+            return jsonify(error="Type a ticket ID or a short name (letters, digits, - or _)."), 400
+        if status not in CHOICES["status"]:
+            return jsonify(error=f"Unknown status: {status}."), 400
+        try:
+            notes.new_project(projects_folder, project_id, str(data.get("title", "")), status)
+        except (FileExistsError, ValueError):
+            return jsonify(error=f'A folder named "{project_id}" already exists. Pick another name.'), 400
+        return jsonify(id=project_id)
+
     def folder_or_404(project_id):
         folder = notes.find_project(projects_folder, project_id)
         if folder is None:

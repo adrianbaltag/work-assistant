@@ -418,3 +418,32 @@ def test_open_in_file_manager_uses_explorer_on_windows_and_open_on_mac(tmp_path,
     monkeypatch.setattr(app_module.sys, "platform", "darwin")
     app_module.open_in_file_manager(tmp_path)
     assert calls == [tmp_path, ["open", str(tmp_path)]]
+
+
+# ---------- + New project ----------
+
+def test_new_project_creates_it_and_cleans_the_name(tmp_path, client):
+    response = client.post("/api/projects", json={"id": "my idea", "title": "", "status": "idea"})
+    assert response.json == {"id": "my_idea"}
+    card = client.get("/api/projects/my_idea").json["project"]
+    assert (card["title"], card["status"], card["priority"], card["jira"]) == ("my_idea", "idea", "normal", "")
+
+
+def test_new_project_fills_jira_for_ticket_ids(client):
+    client.post("/api/projects", json={"id": "ABC-123", "title": "Fix alarms", "status": "active"})
+    assert client.get("/api/projects/ABC-123").json["project"]["jira"] == "ABC-123"
+
+
+def test_new_project_name_taken_is_a_clear_error_and_changes_nothing(tmp_path, client):
+    make_project(tmp_path, "P", {"title": "old"})
+    response = client.post("/api/projects", json={"id": "P", "title": "new", "status": "active"})
+    assert response.status_code == 400
+    assert "already exists" in response.json["error"]
+    assert "title: old" in (tmp_path / "P" / "note.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("body", [{"id": "???", "status": "active"}, {"id": "P", "status": "done"}, {}])
+def test_new_project_bad_input_is_refused(tmp_path, client, body):
+    response = client.post("/api/projects", json=body)
+    assert response.status_code == 400 and response.json["error"]
+    assert list(tmp_path.iterdir()) == []
