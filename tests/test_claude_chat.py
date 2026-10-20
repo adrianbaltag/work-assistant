@@ -110,7 +110,7 @@ def make_note(root, folder, note, days_ago=0):
     path = root / folder
     path.mkdir(parents=True)
     (path / "note.md").write_text(note, encoding="utf-8")
-    stamp = time.time() - days_ago * 86400
+    stamp = NOW.timestamp() - days_ago * 86400      # from NOW, not the real clock: the test runs on any day
     os.utime(path / "note.md", (stamp, stamp))
     return path
 
