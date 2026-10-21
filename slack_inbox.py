@@ -49,7 +49,11 @@ def slack_settings(settings):
             return False
         raise SystemExit(f'{key}= in settings.ini must be yes or no. It is "{value}".')
 
-    return {"poll_seconds": number("slack_poll_seconds", 30, 5),
+    mode = settings.get("slack_mode", "").strip().lower() or "instant"
+    if mode not in ("instant", "backup"):
+        raise SystemExit(f'slack_mode= in settings.ini must be instant or backup. It is "{mode}".')
+    return {"mode": mode,
+            "poll_seconds": number("slack_poll_seconds", 30, 5),
             "lookback_days": number("slack_lookback_days", 7, 1),
             "count_bots": yes_no("slack_count_bots"),
             "count_here": yes_no("slack_count_here"),
@@ -321,39 +325,58 @@ def catch_up(look, settings, inbox, now):
 
     Slack has no "list my unread DMs" call, so every DM conversation is asked about, one by one.
     """
-    client = look.client
-    cursor = None
+    for channel in dm_ids(look.client):
+        check_dm(look, settings, inbox, channel)
+    mention_check(look, settings, inbox, now - timedelta(days=settings["lookback_days"]))
+
+
+def dm_ids(client):
+    """Every DM and group DM you are in (not ones with deleted people)."""
+    ids, cursor = [], None
     while True:
         page = client.users_conversations(types="im,mpim", exclude_archived=True, limit=200, cursor=cursor)
-        for convo in page["channels"]:
-            if convo.get("is_user_deleted"):
-                continue
-            info = look.fresh_info(convo["id"])
-            unread = info.get("unread_count_display", info.get("unread_count"))
-            if unread == 0:         # missing = Slack didn't say: look anyway
-                continue
-            kind = "mpim" if info.get("is_mpim") else "im"
-            history = client.conversations_history(channel=convo["id"], oldest=info.get("last_read") or "0", limit=999)
-            for message in history["messages"]:
-                counted = what_counts(message, kind, look.me, settings)
-                if counted:
-                    inbox.add(make_row(message, convo["id"], *counted, look))
+        ids += [convo["id"] for convo in page["channels"] if not convo.get("is_user_deleted")]
         cursor = page.get("response_metadata", {}).get("next_cursor")
         if not cursor:
-            break
+            return ids
 
-    since = now - timedelta(days=settings["lookback_days"])
+
+def check_dm(look, settings, inbox, channel):
+    """One DM conversation: its unread messages become rows. One Slack won't show is skipped."""
+    try:
+        info = look.fresh_info(channel)
+        unread = info.get("unread_count_display", info.get("unread_count"))
+        if unread == 0:         # missing = Slack didn't say: look anyway
+            return
+        history = look.client.conversations_history(channel=channel, oldest=info.get("last_read") or "0", limit=999)
+    except SlackApiError as err:
+        if err.response.get("error") in LOGIN_ERRORS:
+            raise
+        return          # closed or gone: don't let it block the other DMs
+    kind = "mpim" if info.get("is_mpim") else "im"
+    for message in history["messages"]:
+        counted = what_counts(message, kind, look.me, settings)
+        if counted:
+            inbox.add(make_row(message, channel, *counted, look))
+
+
+def mention_queries(look, settings):
     queries = [f"<@{look.me['user']}>"]
     if settings["count_here"]:
         queries += ["@here", "@channel", "@everyone"]
     if settings["count_groups"]:
         queries += [f"<!subteam^{group}>" for group in sorted(look.me["groups"])]
-    asked = {}      # channel -> its info, asked once per catch-up (last_read must be fresh)
-    for query in queries:
-        for match in search(client, query, since):
+    return queries
+
+
+def mention_check(look, settings, inbox, since):
+    """Unread channel mentions of you (and @here, your groups...) sent after `since`."""
+    asked = {}      # channel -> its info, asked once per check (last_read must be fresh)
+    for query in mention_queries(look, settings):
+        for match in search(look.client, query, since):
             where = match.get("channel", {})
             if where.get("is_im") or where.get("is_mpim") or stamp(match["ts"]) < Decimal(since.timestamp()):
-                continue        # DMs were done above
+                continue        # DMs are checked on their own
             if where["id"] not in asked:
                 asked[where["id"]] = look.fresh_info(where["id"])
             info = asked[where["id"]]
@@ -373,7 +396,10 @@ def search(client, query, since):
         # after: means "after that whole day", so one day earlier; catch_up cuts exactly
         result = client.search_messages(query=f"{query} after:{since.date() - timedelta(days=1)}",
                                         count=100, sort="timestamp", sort_dir="desc", page=page)
-        yield from result["messages"]["matches"]
+        matches = result["messages"]["matches"]
+        yield from matches
+        if matches and stamp(matches[-1]["ts"]) < Decimal(since.timestamp()):
+            break       # newest first: the next pages are older still
         pages = result["messages"].get("paging", {}).get("pages", 1)
         page += 1
 

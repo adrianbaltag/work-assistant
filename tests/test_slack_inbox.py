@@ -117,19 +117,20 @@ def found(m, channel=OPS, name="ops"):
 # ---------- slack_settings: the slack_ lines in settings.ini ----------
 
 def test_settings_defaults():
-    assert slack_inbox.slack_settings({}) == {"poll_seconds": 30, "lookback_days": 7, "count_bots": True,
-                                              "count_here": True, "count_groups": True}
+    assert slack_inbox.slack_settings({}) == {"mode": "instant", "poll_seconds": 30, "lookback_days": 7,
+                                              "count_bots": True, "count_here": True, "count_groups": True}
 
 
 def test_settings_read_numbers_and_yes_no():
-    got = slack_inbox.slack_settings({"slack_poll_seconds": " 45 ", "slack_lookback_days": "3",
+    got = slack_inbox.slack_settings({"slack_mode": " Backup ", "slack_poll_seconds": " 45 ", "slack_lookback_days": "3",
                                       "slack_count_bots": "No", "slack_count_here": "off", "slack_count_groups": ""})
-    assert got == {"poll_seconds": 45, "lookback_days": 3, "count_bots": False,
+    assert got == {"mode": "backup", "poll_seconds": 45, "lookback_days": 3, "count_bots": False,
                    "count_here": False, "count_groups": True}
 
 
 @pytest.mark.parametrize("key, value", [("slack_poll_seconds", "thirty"), ("slack_poll_seconds", "2"),
-                                        ("slack_lookback_days", "0"), ("slack_count_bots", "maybe")])
+                                        ("slack_lookback_days", "0"), ("slack_count_bots", "maybe"),
+                                        ("slack_mode", "fast")])
 def test_settings_bad_value_stops_with_plain_message(key, value):
     with pytest.raises(SystemExit, match=key):
         slack_inbox.slack_settings({key: value})
@@ -473,6 +474,52 @@ def test_catch_up_reads_every_search_page(look, slack):
     inbox = slack_inbox.Inbox()
     slack_inbox.catch_up(look, SETTINGS, inbox, NOW)
     assert inbox.summary(NOW)["count"] == 2
+
+
+def test_dm_ids_lists_every_page_and_skips_deleted_users(slack):
+    slack.dm_pages = [[{"id": DM_MIKE, "is_im": True, "user": MIKE},
+                       {"id": "D0GONE", "is_im": True, "user": "U0GONE", "is_user_deleted": True}],
+                      [{"id": GDM, "is_mpim": True}]]
+    assert slack_inbox.dm_ids(slack) == [DM_MIKE, GDM]
+
+
+def test_check_dm_adds_the_unread_messages_of_one_conversation(look, slack):
+    slack.channels[DM_MIKE]["unread_count_display"] = 1
+    slack.history[DM_MIKE] = [msg("new", minutes_ago=5)]
+    inbox = slack_inbox.Inbox()
+    slack_inbox.check_dm(look, SETTINGS, inbox, DM_MIKE)
+    assert [r["text"] for r in inbox.summary(NOW)["dms"]] == ["new"]
+    assert slack.names() == ["auth_test", "usergroups_list", "conversations_info", "conversations_history",
+                             "users_info"]
+
+
+def test_check_dm_skips_a_conversation_slack_will_not_show(look, slack):
+    slack.fail["conversations_info"] = error("channel_not_found")
+    inbox = slack_inbox.Inbox()
+    slack_inbox.check_dm(look, SETTINGS, inbox, DM_MIKE)       # no error: the others still get checked
+    assert inbox.summary(NOW)["count"] == 0
+
+
+def test_check_dm_still_stops_on_login_errors(look, slack):
+    slack.fail["conversations_info"] = error("invalid_auth")
+    with pytest.raises(SlackApiError):
+        slack_inbox.check_dm(look, SETTINGS, slack_inbox.Inbox(), DM_MIKE)
+
+
+def test_search_stops_paging_once_results_are_older_than_wanted(slack):
+    slack.matches["@here"] = [[found(msg("<!here> new", minutes_ago=1)), found(msg("<!here> old", minutes_ago=30))],
+                              [found(msg("<!here> older", minutes_ago=60))]]
+    got = list(slack_inbox.search(slack, "@here", NOW - timedelta(minutes=10)))
+    assert len(got) == 2 and slack.names() == ["search_messages"]
+
+
+def test_mention_check_only_keeps_mentions_since_the_time_given(look, slack):
+    slack.channels[OPS]["last_read"] = ts(60 * 24)
+    slack.matches[f"<@{ME}>"] = [found(msg(f"<@{ME}> new", minutes_ago=1)), found(msg(f"<@{ME}> older", minutes_ago=10))]
+    inbox = slack_inbox.Inbox()
+    slack_inbox.mention_check(look, SETTINGS, inbox, NOW - timedelta(minutes=5))
+    assert [r["text"] for r in inbox.summary(NOW)["mentions"]] == ["@Adrian new"]
+    assert "users_conversations" not in slack.names()       # no DM work
 
 
 # ---------- read_check: did you read it in the Slack app? ----------
