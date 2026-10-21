@@ -16,3 +16,29 @@ model=claude-sonnet-5-5
 # Empty or missing = 200000 (about $0.10 per question on Sonnet; double it = double the cost).
 # Raise it if the chat says "Not read: ... over the limit". Whole number, no commas.
 text_limit=200000
+
+# ----- Slack button -----
+# The login is NOT here: it comes from environment variables SLACK_USER_TOKEN (xoxp-…, reads your
+# messages) and SLACK_APP_TOKEN (xapp-…, lets Slack push new messages at once). No SLACK_USER_TOKEN
+# = the button says "not connected" and the rest of the app works as usual.
+
+# instant = Slack pushes new messages to the app within seconds (needs SLACK_APP_TOKEN).
+# backup  = the app asks Slack every slack_poll_seconds instead (use it if the work network blocks instant).
+# Empty or missing = instant.
+slack_mode=instant
+
+# Backup mode: seconds between checks. Empty or missing = 30. Smallest = 5.
+slack_poll_seconds=30
+
+# On start (and after a lost connection), how many days back to look for unread mentions.
+# Unread DMs are found whatever their age. Empty or missing = 7.
+slack_lookback_days=7
+
+# Make the button glow for messages from bots and apps (Jira, CI...)? yes or no. Missing = yes.
+slack_count_bots=yes
+
+# Make it glow for @here, @channel and @everyone? yes or no. Missing = yes.
+slack_count_here=yes
+
+# Make it glow for mentions of groups you are in (like @rf-team)? yes or no. Missing = yes.
+slack_count_groups=yes

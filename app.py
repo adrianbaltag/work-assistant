@@ -15,6 +15,8 @@ from werkzeug.utils import secure_filename
 
 import claude_chat
 import notes
+import slack_inbox
+import slack_live
 
 HERE = Path(__file__).parent
 SETTINGS_FILE = HERE / "settings.ini"
@@ -48,10 +50,13 @@ def open_in_file_manager(path):
         subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(path)], check=True)
 
 
-def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client, model="", text_limit=""):
-    """Build the Flask app. No folder given = read it (and jira_url, model, text_limit) from settings.ini.
+def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client, model="", text_limit="",
+               slack=None):
+    """Build the Flask app. No folder given = a real run: read it (and jira_url, model, text_limit,
+    the slack_ lines) from settings.ini, and start the Slack part.
 
     claude = a function that returns the Claude client; tests pass one that returns a fake.
+    slack = the running Slack part (slack_live.Live); tests pass a fake, or none = "not connected".
     """
     if projects_folder is None:
         settings = load_settings()
@@ -59,6 +64,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         jira_url = settings.get("jira_url", "")
         model = settings.get("model", "")
         text_limit = settings.get("text_limit", "")
+        slack = slack_live.start(slack_inbox.slack_settings(settings), slack_inbox.Inbox())
     model = model.strip() or claude_chat.DEFAULT_MODEL
     text_limit = str(text_limit).strip().replace("_", "")
     if not text_limit:
@@ -399,6 +405,30 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         except OSError:
             return jsonify(error=LOCKED.format(path.name)), 400
         return jsonify(where=where)
+
+    # ----- Slack button -----
+
+    def slack_status():
+        if slack is None:
+            return {"state": "off", "message": slack_live.NO_USER_TOKEN, "mode": "",
+                    **slack_inbox.Inbox().summary(datetime.now())}
+        return slack.status()
+
+    @app.get("/api/slack")
+    def api_slack():
+        """The page asks every few seconds. Never calls Slack: it reads what the Slack part already knows."""
+        return jsonify(slack_status())
+
+    @app.post("/api/slack/opened")
+    def api_slack_opened():
+        """You clicked a row (Slack opens it): it goes from the list at once."""
+        data = request.get_json(silent=True) or {}
+        channel, ts = data.get("channel"), data.get("ts")
+        if not (isinstance(channel, str) and isinstance(ts, str) and channel and ts):
+            return jsonify(error="channel and ts are needed"), 400
+        if slack is not None:
+            slack.inbox.opened(channel, ts)
+        return jsonify(slack_status())
 
     return app
 

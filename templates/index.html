@@ -14,10 +14,11 @@
       <button class="nav" data-page="dash" aria-current="page"><span class="ico">▦</span>Dashboard</button>
       <button class="nav claude" data-page="ask"><span class="ico">✳</span>Ask Claude</button>
       <button class="nav" data-page="archive"><span class="ico">▤</span>Archive</button>
+      <div class="slack-wrap"><button class="nav slack" id="nav-slack" aria-haspopup="true" aria-expanded="false" aria-controls="slack-dd"><span class="ico">#</span><span id="slack-label">Slack</span><span class="badge" id="slack-n" hidden></span></button>
+        <div class="slack-dd" id="slack-dd" hidden></div></div>
       <div class="side-label">Coming later</div>
       <button class="nav" disabled><span class="ico">✉</span>Morning brief<span class="v">v3</span></button>
       <button class="nav" disabled><span class="ico">◷</span>Calendar<span class="v">v3</span></button>
-      <button class="nav slack" disabled title="Not connected"><span class="ico">#</span>Slack<span class="v">v2</span></button>
     </nav>
 
     <section class="content" id="page-dash">
@@ -93,5 +94,6 @@
   <script src="{{ url_for('static', filename='card.js') }}"></script>
   <script src="{{ url_for('static', filename='archive.js') }}"></script>
   <script src="{{ url_for('static', filename='newproject.js') }}"></script>
+  <script src="{{ url_for('static', filename='slack.js') }}"></script>
 </body>
 </html>

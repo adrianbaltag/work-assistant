@@ -1,9 +1,12 @@
 """Slice 2: the Flask app serves the dashboard page and the projects as JSON."""
 import os
 import time
+from datetime import datetime
 
 import pytest
 
+import app as app_module
+import slack_inbox
 from app import create_app, load_settings
 
 
@@ -670,3 +673,74 @@ def test_apply_with_nothing_to_apply_is_400(tmp_path, claude_client):
 def test_apply_unknown_project_is_404(claude_client):
     response = claude_client.post("/api/projects/NOPE/apply", json={"proposal": PROPOSAL, "stamp": "x"})
     assert response.status_code == 404
+
+
+# ---------- Slack button: /api/slack ----------
+
+class FakeLive:
+    """Stands in for slack_live.Live: a real Inbox, a canned state. Starts no threads."""
+
+    def __init__(self):
+        self.inbox = slack_inbox.Inbox()
+        self.state = "connected"
+
+    def status(self):
+        return {"state": self.state, "message": "", "mode": "instant", **self.inbox.summary(datetime.now())}
+
+
+def slack_row(channel, ts, kind="mention"):
+    return {"kind": kind, "channel": channel, "ts": ts, "tags": ["@you"], "thread": None, "who": "Mike",
+            "where": "#ops", "convo": "Mike", "text": "hi", "link": f"slack://channel?team=T0&id={channel}&message={ts}"}
+
+
+@pytest.fixture
+def live():
+    return FakeLive()
+
+
+@pytest.fixture
+def slack_client(tmp_path, live):
+    app = create_app(tmp_path, slack=live)
+    app.config.update(TESTING=True)
+    return app.test_client()
+
+
+def test_slack_status_comes_from_the_live_part(slack_client, live):
+    live.inbox.add(slack_row("C0OPS", "1792541580.212069"))
+    got = slack_client.get("/api/slack").json
+    assert got["state"] == "connected" and got["count"] == 1 and got["mentions"][0]["who"] == "Mike"
+
+
+def test_slack_off_when_the_app_has_no_slack_part(client):
+    got = client.get("/api/slack").json
+    assert got["state"] == "off" and "SLACK_USER_TOKEN" in got["message"]
+    assert got["count"] == 0 and got["mentions"] == [] and got["dms"] == []
+
+
+def test_opening_a_row_clears_it_at_once(slack_client, live):
+    live.inbox.add(slack_row("C0OPS", "1792541580.212069"))
+    live.inbox.add(slack_row("C0OPS", "1792541590.000100"))
+    got = slack_client.post("/api/slack/opened", json={"channel": "C0OPS", "ts": "1792541580.212069"}).json
+    assert got["count"] == 1 and got["mentions"][0]["ts"] == "1792541590.000100"
+
+
+def test_opening_needs_a_channel_and_ts(slack_client):
+    assert slack_client.post("/api/slack/opened", json={"channel": "C0OPS"}).status_code == 400
+    assert slack_client.post("/api/slack/opened", json={"channel": 5, "ts": "1.2"}).status_code == 400
+
+
+def test_opening_from_another_website_is_refused(slack_client, live):
+    live.inbox.add(slack_row("C0OPS", "1792541580.212069"))
+    evil = slack_client.post("/api/slack/opened", json={"channel": "C0OPS", "ts": "1792541580.212069"},
+                             headers={"Origin": "https://evil.example"})
+    assert evil.status_code == 403 and live.inbox.summary(datetime.now())["count"] == 1
+
+
+def test_real_run_starts_slack_with_the_settings_ini_lines(tmp_path, monkeypatch):
+    started = []
+    monkeypatch.setattr(app_module, "load_settings",
+                        lambda: {"projects_folder": str(tmp_path), "slack_poll_seconds": "45"})
+    monkeypatch.setattr(app_module.slack_live, "start",
+                        lambda settings, inbox: started.append(settings) or FakeLive())
+    create_app()
+    assert len(started) == 1 and started[0]["poll_seconds"] == 45 and started[0]["mode"] == "instant"
