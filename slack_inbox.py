@@ -8,7 +8,7 @@ import re
 import threading
 from datetime import datetime, timedelta
 from decimal import Decimal
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from slack_sdk.errors import SlackApiError
 
@@ -22,7 +22,8 @@ NO = {"no", "false", "off", "0"}
 # Codes Slack puts in message text: <@U123>, <!here>, <!subteam^S123|@team>, <#C123|name>, <https://…|label>
 CODE = re.compile(r"<([^<>]*)>")
 HERE = re.compile(r"<!(here|channel|everyone)(\|[^>]*)?>")
-GROUP = re.compile(r"<!subteam\^(\w+)(\|[^>]*)?>")
+# A group mention: <!subteam^S123> in live messages, <@S123> in search results (group IDs start with S)
+GROUP = re.compile(r"<(?:!subteam\^|@)(S\w+)(\|[^>]*)?>")
 # Errors that mean the login itself is wrong: never hide these.
 LOGIN_ERRORS = {"not_authed", "invalid_auth", "missing_scope", "token_revoked", "token_expired",
                 "account_inactive", "ratelimited"}
@@ -171,11 +172,11 @@ def preview(message, look):
     def readable(match):
         code = match.group(1)
         target, _, label = code.partition("|")
+        group = GROUP.fullmatch(match.group(0))
+        if group:
+            return "@" + (look.me["group_names"].get(group.group(1)) or label.lstrip("@") or "group")
         if target.startswith("@"):
             return "@" + look.person(target[1:])
-        if target.startswith("!subteam^"):
-            name = look.me["group_names"].get(target[len("!subteam^"):]) or label.lstrip("@") or "group"
-            return "@" + name
         if target in ("!here", "!channel", "!everyone"):
             return "@" + target[1:]
         if target.startswith("!"):
@@ -202,11 +203,33 @@ def make_row(message, channel, kind, tags, look):
     """One unread message, ready for the Inbox. Asks Slack for names here, so summary() never has to."""
     ts = message["ts"]
     return {"kind": kind, "channel": channel, "ts": ts, "tags": tags,
-            "thread": message.get("thread_ts") not in (None, ts),     # a reply inside a thread
+            "thread": thread_of(message),        # the thread it replies in, or None
             "who": look.sender(message), "where": look.where(channel),
             "convo": look.conversation_name(channel) if kind == "dm" else "",
             "text": preview(message, look),
             "link": f"slack://channel?team={look.me['team']}&id={channel}&message={ts}"}
+
+
+def thread_of(message):
+    """The thread a message replies in (its first message's ts), or None. Search results have no
+    thread_ts field: the thread is only in the permalink, as ?thread_ts=…
+    """
+    parent = (message.get("thread_ts")
+              or parse_qs(urlparse(message.get("permalink", "")).query).get("thread_ts", [None])[0])
+    return parent if parent and parent != message["ts"] else None
+
+
+def thread_mark(client, channel, parent):
+    """How far you have read inside one thread (Slack keeps it apart from the channel's), or None
+    if Slack won't say. Login errors still stop everything.
+    """
+    try:
+        first = client.conversations_replies(channel=channel, ts=parent, limit=1)["messages"][0]
+    except SlackApiError as err:
+        if err.response.get("error") in LOGIN_ERRORS:
+            raise
+        return None
+    return first.get("last_read")
 
 
 def stamp(ts):
@@ -258,15 +281,15 @@ class Inbox:
                 for key in [k for k, r in self._rows.items() if k[0] == channel and r["kind"] == "dm"]:
                     del self._rows[key]
 
-    def drop_read(self, channel, last_read):
-        """Slack says you have read this conversation up to last_read: those rows go.
+    def drop_read(self, channel, last_read, thread=None):
+        """Slack says you have read this conversation (or one thread in it) up to last_read: those rows go.
 
-        Thread replies stay: Slack keeps a thread's read mark apart from the channel's, so only
-        a click (or a delete) clears them.
+        Slack keeps a thread's read mark apart from the channel's, so the channel's mark never
+        clears thread replies, and a thread's mark clears only that thread.
         """
         with self._lock:
             for key in [k for k, r in self._rows.items()
-                        if k[0] == channel and not r["thread"] and stamp(k[1]) <= stamp(last_read)]:
+                        if k[0] == channel and r["thread"] == thread and stamp(k[1]) <= stamp(last_read)]:
                 del self._rows[key]
 
     def forget_channel(self, channel):
@@ -277,6 +300,11 @@ class Inbox:
     def channels(self):
         with self._lock:
             return {channel for channel, _ in self._rows}
+
+    def threads(self):
+        """(channel, thread) for every thread that has rows."""
+        with self._lock:
+            return {(channel, r["thread"]) for (channel, _), r in self._rows.items() if r["thread"]}
 
     def summary(self, now):
         """What the page shows: the full count, and up to MAX_ROWS rows per tab, newest first."""
@@ -365,13 +393,14 @@ def mention_queries(look, settings):
     if settings["count_here"]:
         queries += ["@here", "@channel", "@everyone"]
     if settings["count_groups"]:
-        queries += [f"<!subteam^{group}>" for group in sorted(look.me["groups"])]
+        queries += [f"<@{group}>" for group in sorted(look.me["groups"])]     # <!subteam^…> matches everything
     return queries
 
 
 def mention_check(look, settings, inbox, since):
     """Unread channel mentions of you (and @here, your groups...) sent after `since`."""
     asked = {}      # channel -> its info, asked once per check (last_read must be fresh)
+    marks = {}      # (channel, thread) -> your read mark in that thread
     for query in mention_queries(look, settings):
         for match in search(look.client, query, since):
             where = match.get("channel", {})
@@ -382,11 +411,27 @@ def mention_check(look, settings, inbox, since):
             info = asked[where["id"]]
             if not info.get("is_member") or info.get("is_archived"):
                 continue        # Slack doesn't notify you there either
-            if stamp(match["ts"]) <= stamp(info.get("last_read")):
+            read = info.get("last_read")
+            parent = thread_of(match)
+            if parent:
+                if (where["id"], parent) not in marks:
+                    marks[(where["id"], parent)] = thread_mark(look.client, where["id"], parent)
+                read = marks[(where["id"], parent)] or read
+            if stamp(match["ts"]) <= stamp(read):
                 continue        # already read
             counted = what_counts(match, "channel", look.me, settings)
             if counted and counted[0] == "mention":
                 inbox.add(make_row(match, where["id"], *counted, look))
+
+
+def recent_dms(client, since):
+    """DMs and group DMs with messages to you since that time, found by one search (backup mode)."""
+    ids = []
+    for match in search(client, "to:me", since):
+        where = match.get("channel", {})
+        if (where.get("is_im") or where.get("is_mpim")) and where["id"] not in ids:
+            ids.append(where["id"])
+    return ids
 
 
 def search(client, query, since):
@@ -416,6 +461,10 @@ def read_check(look, inbox):
             continue
         if info.get("last_read"):
             inbox.drop_read(channel, info["last_read"])
+    for channel, parent in inbox.threads():
+        mark = thread_mark(look.client, channel, parent)
+        if mark:
+            inbox.drop_read(channel, mark, thread=parent)
 
 
 def plain_error(err):

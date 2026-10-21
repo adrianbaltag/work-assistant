@@ -37,9 +37,10 @@ def in_thread(job):
     threading.Thread(target=job, daemon=True).start()      # daemon: it ends when the app ends
 
 
-def dm_batch(poll_seconds, searches):
-    """How many DMs one backup round asks about: what is left of the round's calls after the searches."""
-    return max(1, CALLS_PER_MINUTE * poll_seconds // 60 - searches - READ_RESERVE)
+def dm_batch(poll_seconds, used):
+    """How many DMs one backup round's slow loop asks about: what is left of the round's calls after
+    `used` (the searches, and the DMs the "to:me" search already found)."""
+    return max(1, CALLS_PER_MINUTE * poll_seconds // 60 - used - READ_RESERVE)
 
 
 class Gate:
@@ -212,15 +213,19 @@ class Live:
         self.next_round = self.clock() + self.settings["poll_seconds"]
 
     def _backup_round(self):
-        """New mentions since the last round, then the next batch of DMs (round and round)."""
+        """New mentions since the last round, DMs a "to:me" search finds, then the next batch of
+        DMs in a slow loop (round and round), which catches anything the search missed."""
         started = self.now()
         try:
             slack_inbox.mention_check(self.look, self.settings, self.inbox, self.since)
+            found = slack_inbox.recent_dms(self.client, self.since)
+            for channel in found:
+                slack_inbox.check_dm(self.look, self.settings, self.inbox, channel)
             self.since = started - timedelta(seconds=SEARCH_MARGIN)
             if self.dm_next >= len(self.dms):
                 self.dms, self.dm_next = slack_inbox.dm_ids(self.client), 0
-            searches = len(slack_inbox.mention_queries(self.look, self.settings))
-            for channel in self.dms[self.dm_next:self.dm_next + dm_batch(self.settings["poll_seconds"], searches)]:
+            used = len(slack_inbox.mention_queries(self.look, self.settings)) + 1 + len(found)
+            for channel in self.dms[self.dm_next:self.dm_next + dm_batch(self.settings["poll_seconds"], used)]:
                 slack_inbox.check_dm(self.look, self.settings, self.inbox, channel)
                 self.dm_next += 1
         finally:        # failed or not, the next round waits its turn

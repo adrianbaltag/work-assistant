@@ -45,6 +45,7 @@ class FakeSlack:
         self.history = {}       # channel -> messages
         self.dm_pages = [[{"id": DM_MIKE, "is_im": True, "user": MIKE}, {"id": GDM, "is_mpim": True}]]
         self.matches = {}       # search query (without after:) -> matches
+        self.threads = {}       # (channel, parent ts) -> your read mark in that thread
         self.groups = [{"id": MY_GROUP, "handle": "rf-team", "users": [ME, MIKE]},
                        {"id": OTHER_GROUP, "handle": "sales", "users": [DANA]}]
 
@@ -90,6 +91,12 @@ class FakeSlack:
         page = int(cursor or 0)
         more = str(page + 1) if page + 1 < len(self.dm_pages) else ""
         return {"ok": True, "channels": self.dm_pages[page], "response_metadata": {"next_cursor": more}}
+
+    def conversations_replies(self, channel, ts, **kwargs):
+        self.call("conversations_replies", channel=channel, ts=ts)
+        if (channel, ts) not in self.threads:
+            raise error("thread_not_found")
+        return {"ok": True, "messages": [{"ts": ts, "last_read": self.threads[(channel, ts)], "subscribed": True}]}
 
     def search_messages(self, query, page=1, **kwargs):
         self.call("search_messages", query=query, page=page)
@@ -202,6 +209,13 @@ def test_my_group_counts_other_groups_do_not():
     assert counts(msg(f"<!subteam^{MY_GROUP}> look"), settings={**SETTINGS, "count_groups": False}, me=me) is None
 
 
+def test_group_mention_written_like_a_person_counts():
+    # Search results write a group mention as <@S…>, not <!subteam^S…> (real Slack, 2026-10-20)
+    me = {"user": ME, "team": TEAM, "groups": {MY_GROUP}, "group_names": {MY_GROUP: "rf-team"}}
+    assert counts(msg(f"<@{MY_GROUP}> please look"), me=me) == ("mention", ["@rf-team"])
+    assert counts(msg(f"<@{OTHER_GROUP}> please look"), me=me) is None
+
+
 def test_my_own_messages_never_count():
     assert counts(msg("note to self", user=ME), "im") is None
     assert counts(msg(f"<@{ME}> reminder", user=ME)) is None
@@ -233,6 +247,10 @@ def test_preview_turns_codes_into_names(look):
     text = (f"<@{MIKE}> and <!subteam^{MY_GROUP}|@rf-team> <!here> see <#{OPS}|ops> "
             "&lt;now&gt; &amp; later")
     assert slack_inbox.preview(msg(text), look) == "@Mike and @rf-team @here see #ops <now> & later"
+
+
+def test_preview_names_a_group_written_like_a_person(look):
+    assert slack_inbox.preview(msg(f"<@{MY_GROUP}> and <@{OTHER_GROUP}> look"), look) == "@rf-team and @sales look"
 
 
 def test_preview_marks_links(look):
@@ -454,13 +472,14 @@ def test_catch_up_finds_unread_mentions_in_the_lookback(look, slack):
 def test_catch_up_searches_here_and_my_groups_since_the_lookback(look, slack):
     slack.dm_pages = [[]]
     slack.matches["@here"] = [found(msg("<!here> moved", minutes_ago=5))]
-    slack.matches[f"<!subteam^{MY_GROUP}>"] = [found(msg(f"<!subteam^{MY_GROUP}> look", minutes_ago=6))]
+    slack.matches[f"<@{MY_GROUP}>"] = [found(msg(f"<@{MY_GROUP}> look", minutes_ago=6))]
     slack.channels[OPS]["last_read"] = ts(60)
     inbox = slack_inbox.Inbox()
     slack_inbox.catch_up(look, SETTINGS, inbox, NOW)
     assert inbox.summary(NOW)["count"] == 2
     queries = [kw["query"] for name, kw in slack.calls if name == "search_messages"]
     assert f"<@{ME}> after:2026-10-12" in queries and len(queries) == 5      # me, here, channel, everyone, rf-team
+    assert f"<@{MY_GROUP}> after:2026-10-12" in queries     # <!subteam^…> would match every message
     slack.calls.clear()
     slack_inbox.catch_up(look, {**SETTINGS, "count_here": False, "count_groups": False}, inbox, NOW)
     assert [kw["query"] for name, kw in slack.calls if name == "search_messages"] == [f"<@{ME}> after:2026-10-12"]
@@ -535,14 +554,88 @@ def test_read_check_asks_only_about_channels_with_rows(look, slack):
     assert inbox.summary(NOW)["mentions"] == [] and len(inbox.summary(NOW)["dms"]) == 1
 
 
-def test_read_check_leaves_thread_replies_for_a_click(look, slack):
+def test_read_check_uses_the_threads_own_read_mark(look, slack):
     # Slack keeps a thread's read mark apart from the channel's: reading newer channel messages
-    # must not clear an unread thread mention.
+    # must not clear an unread thread mention, but reading the thread must.
     inbox = slack_inbox.Inbox()
     inbox.add(row(look, msg(f"<@{ME}> in a thread", minutes_ago=5, thread_ts=ts(20))))
     slack.channels[OPS]["last_read"] = ts(1)
+    slack.threads[(OPS, ts(20))] = ts(10)                       # thread not read since
     slack_inbox.read_check(look, inbox)
     assert inbox.summary(NOW)["count"] == 1
+    slack.threads[(OPS, ts(20))] = ts(5)                        # now read in Slack
+    slack_inbox.read_check(look, inbox)
+    assert inbox.summary(NOW)["count"] == 0
+
+
+def test_read_check_asks_about_each_thread_once(look, slack):
+    inbox = slack_inbox.Inbox()
+    for minutes in (5, 6):
+        inbox.add(row(look, msg(f"<@{ME}> reply {minutes}", minutes_ago=minutes, thread_ts=ts(20))))
+    slack.threads[(OPS, ts(20))] = ts(30)
+    slack.calls.clear()
+    slack_inbox.read_check(look, inbox)
+    assert slack.names().count("conversations_replies") == 1
+
+
+def test_read_check_keeps_a_thread_row_slack_will_not_show(look, slack):
+    inbox = slack_inbox.Inbox()
+    inbox.add(row(look, msg(f"<@{ME}> in a thread", minutes_ago=5, thread_ts=ts(20))))
+    slack_inbox.read_check(look, inbox)                         # thread_not_found: no error, row stays
+    assert inbox.summary(NOW)["count"] == 1
+    slack.fail["conversations_replies"] = error("invalid_auth")
+    with pytest.raises(SlackApiError):
+        slack_inbox.read_check(look, inbox)
+
+
+def in_thread(m, parent):
+    """A thread reply as search returns it: no thread_ts field, the thread only in the permalink."""
+    return {**found(m), "permalink": f"https://example.slack.com/archives/{OPS}/p{m['ts'].replace('.', '')}"
+                                     f"?thread_ts={parent}&cid={OPS}"}
+
+
+def test_catch_up_judges_a_thread_mention_by_the_threads_read_mark(look, slack):
+    slack.dm_pages = [[]]
+    read, unread = msg(f"<@{ME}> read reply", minutes_ago=5), msg(f"<@{ME}> unread reply", minutes_ago=6)
+    slack.matches[f"<@{ME}>"] = [in_thread(read, ts(30)), in_thread(unread, ts(40))]
+    slack.channels[OPS]["last_read"] = ts(1)        # channel read after both replies
+    slack.threads[(OPS, ts(30))] = ts(5)
+    slack.threads[(OPS, ts(40))] = ts(41)
+    inbox = slack_inbox.Inbox()
+    slack_inbox.catch_up(look, SETTINGS, inbox, NOW)
+    assert [r["text"] for r in inbox.summary(NOW)["mentions"]] == ["@Adrian unread reply"]
+    slack_inbox.read_check(look, inbox)             # it is a thread row: the channel mark doesn't clear it
+    assert inbox.summary(NOW)["count"] == 1
+
+
+def test_catch_up_thread_without_a_read_mark_uses_the_channels(look, slack):
+    slack.dm_pages = [[]]
+    slack.matches[f"<@{ME}>"] = [in_thread(msg(f"<@{ME}> reply", minutes_ago=5), ts(30))]
+    slack.channels[OPS]["last_read"] = ts(1)
+    slack.threads[(OPS, ts(30))] = None
+    inbox = slack_inbox.Inbox()
+    slack_inbox.catch_up(look, SETTINGS, inbox, NOW)
+    assert inbox.summary(NOW)["count"] == 0
+
+
+def test_the_first_message_of_a_thread_is_not_a_reply(look, slack):
+    slack.dm_pages = [[]]
+    parent = msg(f"<@{ME}> start", minutes_ago=5)
+    slack.matches[f"<@{ME}>"] = [in_thread(parent, parent["ts"])]
+    slack.channels[OPS]["last_read"] = ts(60)
+    inbox = slack_inbox.Inbox()
+    slack_inbox.catch_up(look, SETTINGS, inbox, NOW)
+    assert inbox.summary(NOW)["count"] == 1 and "conversations_replies" not in slack.names()
+
+
+# ---------- recent_dms: backup mode's quick look for new DMs ----------
+
+def test_recent_dms_lists_each_dm_found_by_search_once(slack):
+    slack.matches["to:me"] = [{**msg("a"), "channel": {"id": DM_MIKE, "is_im": True}},
+                              {**msg("b"), "channel": {"id": DM_MIKE, "is_im": True}},
+                              {**msg("c"), "channel": {"id": GDM, "is_mpim": True}},
+                              found(msg("not a DM"))]
+    assert slack_inbox.recent_dms(slack, NOW - timedelta(minutes=10)) == [DM_MIKE, GDM]
 
 
 def test_read_check_forgets_a_channel_that_is_gone(look, slack):

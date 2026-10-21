@@ -370,8 +370,8 @@ def test_backup_rounds_check_the_next_batch_of_dms_each_time():
     for d in many:
         rig.slack.channels[d] = {"id": d, "is_im": True, "user": MIKE, "last_read": ts(60), "unread_count_display": 0}
     rig.live.tick()                             # full catch-up asks about all 25
-    batch = slack_live.dm_batch(30, 5)
-    assert batch == 10
+    batch = slack_live.dm_batch(30, 6)        # 5 mention searches + the "to:me" DM search
+    assert batch == 9
 
     def asked():
         got = [kw["channel"] for name, kw in rig.slack.calls if name == "conversations_info" and kw["channel"] in many]
@@ -379,13 +379,13 @@ def test_backup_rounds_check_the_next_batch_of_dms_each_time():
         return got
     asked()
     rig.later(30)
-    assert asked() == many[0:10]
+    assert asked() == many[0:9]
     rig.later(30)
-    assert asked() == many[10:20]
+    assert asked() == many[9:18]
     rig.later(30)
-    assert asked() == many[20:25]
+    assert asked() == many[18:25]
     rig.later(30)
-    assert asked() == many[0:10]                # round and round
+    assert asked() == many[0:9]                 # round and round
 
 
 def test_dm_batch_never_drops_below_one():
@@ -399,6 +399,21 @@ def test_backup_round_finds_a_new_dm():
     rig.slack.history[DM_MIKE] = [msg("you there?", minutes_ago=-0.2)]
     rig.later(30)
     assert [r["text"] for r in rig.status()["dms"]] == ["you there?"]
+
+
+def test_backup_round_searches_for_new_dms_before_the_slow_loop():
+    rig = Rig({"slack_mode": "backup"})
+    many = [f"D0{n:03}" for n in range(25)]
+    rig.slack.dm_pages = [[{"id": d, "is_im": True, "user": MIKE} for d in many]]
+    for d in many:
+        rig.slack.channels[d] = {"id": d, "is_im": True, "user": MIKE, "last_read": ts(60), "unread_count_display": 0}
+    rig.live.tick()
+    new = msg("found by search", minutes_ago=-0.2)
+    rig.slack.channels["D0020"]["unread_count_display"] = 1         # far past the first batch of the loop
+    rig.slack.history["D0020"] = [new]
+    rig.slack.matches["to:me"] = [{**new, "channel": {"id": "D0020", "is_im": True}}]
+    rig.later(30)
+    assert [r["text"] for r in rig.status()["dms"]] == ["found by search"]
 
 
 # ---------- errors ----------
