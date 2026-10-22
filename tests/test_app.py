@@ -744,3 +744,14 @@ def test_real_run_starts_slack_with_the_settings_ini_lines(tmp_path, monkeypatch
                         lambda settings, inbox: started.append(settings) or FakeLive())
     create_app()
     assert len(started) == 1 and started[0]["poll_seconds"] == 45 and started[0]["mode"] == "instant"
+
+
+def test_real_run_with_a_bad_setting_stops_before_slack_starts(tmp_path, monkeypatch):
+    started = []
+    monkeypatch.setattr(app_module, "load_settings",
+                        lambda: {"projects_folder": str(tmp_path), "text_limit": "lots"})
+    monkeypatch.setattr(app_module.slack_live, "start",
+                        lambda settings, inbox: started.append(settings) or FakeLive())
+    with pytest.raises(SystemExit):
+        create_app()
+    assert started == []        # no Slack threads left running behind the error message

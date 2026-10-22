@@ -61,17 +61,22 @@ def slack_settings(settings):
             "count_groups": yes_no("slack_count_groups")}
 
 
-def who_am_i(client):
-    """Your user ID, workspace ID, the user groups you are in, and every group's @handle."""
+def who_am_i(client, groups=True):
+    """Your user ID, workspace ID, the user groups you are in, and every group's @handle.
+
+    groups=False (slack_count_groups=no): groups aren't asked for, so usergroups:read isn't needed.
+    """
     login = client.auth_test()
     me = {"user": login["user_id"], "team": login["team_id"], "groups": set(), "group_names": {}}
+    if not groups:
+        return me
     try:
-        groups = client.usergroups_list(include_users=True)["usergroups"]
+        found = client.usergroups_list(include_users=True)["usergroups"]
     except SlackApiError as err:
         if err.response.get("error") in LOGIN_ERRORS:
             raise
         return me       # free Slack plans have no user groups
-    for group in groups:
+    for group in found:
         me["group_names"][group["id"]] = group["handle"]
         if me["user"] in group.get("users", []):
             me["groups"].add(group["id"])
@@ -407,7 +412,12 @@ def mention_check(look, settings, inbox, since):
             if where.get("is_im") or where.get("is_mpim") or stamp(match["ts"]) < Decimal(since.timestamp()):
                 continue        # DMs are checked on their own
             if where["id"] not in asked:
-                asked[where["id"]] = look.fresh_info(where["id"])
+                try:
+                    asked[where["id"]] = look.fresh_info(where["id"])
+                except SlackApiError as err:
+                    if err.response.get("error") != "channel_not_found":
+                        raise
+                    asked[where["id"]] = {}     # you left it, or it was deleted
             info = asked[where["id"]]
             if not info.get("is_member") or info.get("is_archived"):
                 continue        # Slack doesn't notify you there either

@@ -199,6 +199,21 @@ def test_instant_start_connects_the_doorbell_then_catches_up():
     assert s["count"] == 1
 
 
+def test_groups_switched_off_works_without_the_user_groups_permission():
+    rig = Rig({"slack_count_groups": "no"})
+    rig.slack.fail["usergroups_list"] = error("missing_scope", needed="usergroups:read")
+    rig.live.tick()
+    assert rig.status()["state"] == "connected"
+    assert "usergroups_list" not in rig.slack.names()
+
+
+def test_groups_switched_on_without_the_permission_stops_and_names_it():
+    rig = Rig()
+    rig.slack.fail["usergroups_list"] = error("missing_scope", needed="usergroups:read")
+    rig.live.tick()
+    assert rig.status()["state"] == "error" and "usergroups:read" in rig.status()["message"]
+
+
 def test_status_says_checking_before_the_first_tick():
     assert Rig().status()["state"] == "checking"
 
@@ -332,6 +347,26 @@ def test_read_check_runs_every_10_seconds_only_while_there_are_rows():
     rig.slack.channels[OPS]["last_read"] = ts(0)                 # you read it in Slack
     rig.later(5)
     assert rig.status()["count"] == 0
+
+
+def test_read_check_of_many_channels_waits_longer_so_it_uses_at_most_half_the_calls():
+    rig = Rig()
+    rig.live.tick()
+    channels = [f"C0CH{i}" for i in range(5)]
+    for channel in channels:
+        rig.slack.channels[channel] = {"id": channel, "name": channel.lower(), "is_member": True,
+                                       "last_read": ts(60)}
+        rig.socket.push({**msg(f"<@{ME}> look"), "channel": channel, "channel_type": "channel"})
+    checked_at = rig.clock.t + 10
+    rig.later(10)
+    assert rig.slack.names().count("conversations_info") >= 5
+    rig.slack.calls.clear()
+    rig.clock.t = checked_at + 14                   # 5 calls x 3 s = 15 s, not the usual 10
+    rig.live.tick()
+    assert "conversations_info" not in rig.slack.names()
+    rig.clock.t = checked_at + 15
+    rig.live.tick()
+    assert rig.slack.names().count("conversations_info") == 5
 
 
 # ---------- backup mode ----------

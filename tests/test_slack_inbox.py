@@ -163,6 +163,13 @@ def test_who_am_i_bad_login_is_not_hidden(slack):
         slack_inbox.who_am_i(slack)
 
 
+def test_who_am_i_with_groups_switched_off_never_asks_for_them(slack):
+    slack.fail["usergroups_list"] = error("missing_scope", needed="usergroups:read")
+    me = slack_inbox.who_am_i(slack, groups=False)      # slack_count_groups=no: that permission isn't needed
+    assert me["user"] == ME and me["groups"] == set()
+    assert "usergroups_list" not in slack.names()
+
+
 # ---------- what_counts: does this message make the button glow? ----------
 
 @pytest.fixture
@@ -539,6 +546,22 @@ def test_mention_check_only_keeps_mentions_since_the_time_given(look, slack):
     slack_inbox.mention_check(look, SETTINGS, inbox, NOW - timedelta(minutes=5))
     assert [r["text"] for r in inbox.summary(NOW)["mentions"]] == ["@Adrian new"]
     assert "users_conversations" not in slack.names()       # no DM work
+
+
+def test_mention_check_skips_a_channel_slack_will_not_show(look, slack):
+    slack.channels[OPS]["last_read"] = ts(60)
+    slack.matches[f"<@{ME}>"] = [found(msg(f"<@{ME}> gone", minutes_ago=1), "C0GONE", "gone"),
+                                 found(msg(f"<@{ME}> here", minutes_ago=2))]
+    inbox = slack_inbox.Inbox()
+    slack_inbox.mention_check(look, SETTINGS, inbox, NOW - timedelta(minutes=5))   # no error
+    assert [r["text"] for r in inbox.summary(NOW)["mentions"]] == ["@Adrian here"]
+
+
+def test_mention_check_still_stops_on_login_errors(look, slack):
+    slack.matches[f"<@{ME}>"] = [found(msg(f"<@{ME}> hi", minutes_ago=1))]
+    slack.fail["conversations_info"] = error("invalid_auth")
+    with pytest.raises(SlackApiError):
+        slack_inbox.mention_check(look, SETTINGS, slack_inbox.Inbox(), NOW - timedelta(minutes=5))
 
 
 # ---------- read_check: did you read it in the Slack app? ----------

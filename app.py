@@ -58,13 +58,14 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     claude = a function that returns the Claude client; tests pass one that returns a fake.
     slack = the running Slack part (slack_live.Live); tests pass a fake, or none = "not connected".
     """
+    slack_settings = None
     if projects_folder is None:
         settings = load_settings()
         projects_folder = settings["projects_folder"]
         jira_url = settings.get("jira_url", "")
         model = settings.get("model", "")
         text_limit = settings.get("text_limit", "")
-        slack = slack_live.start(slack_inbox.slack_settings(settings), slack_inbox.Inbox())
+        slack_settings = slack_inbox.slack_settings(settings)
     model = model.strip() or claude_chat.DEFAULT_MODEL
     text_limit = str(text_limit).strip().replace("_", "")
     if not text_limit:
@@ -77,6 +78,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     jira_url = jira_url.strip().rstrip("/")
     if not jira_url.startswith(("http://", "https://")):
         jira_url = ""       # "jira.example.com" alone would open as a page of this app, not Jira
+    if slack_settings is not None:      # last: a bad setting above stops the app with no Slack threads running
+        slack = slack_live.start(slack_settings, slack_inbox.Inbox())
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
 

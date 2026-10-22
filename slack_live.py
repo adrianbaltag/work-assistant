@@ -2,8 +2,8 @@
 
 Instant mode: Slack pushes each new message over the "doorbell" (Socket Mode) within a second.
 Backup mode: no doorbell; every slack_poll_seconds the app looks for new mentions and a batch of DMs.
-Both: a full catch-up on start and after every lost connection, and a read check every 10 seconds
-while anything is unread. The rules (what glows, what a row shows) live in slack_inbox.py.
+Both: a full catch-up on start and after every lost connection, and a read check while anything is
+unread: every 10 seconds, or less often when many conversations have rows (it uses at most half the calls). The rules (what glows, what a row shows) live in slack_inbox.py.
 
 Every Slack call goes through one Gate, so all of this together stays under Slack's limits.
 """
@@ -23,6 +23,7 @@ import slack_inbox
 TICK_SECONDS = 2            # how often the ticker looks at the doorbell and the clocks
 READ_CHECK_SECONDS = 10     # "did you read it in Slack?" while anything is unread
 CALLS_PER_MINUTE = 40       # all jobs together; Slack allows about 50 a minute
+READ_CALL_SECONDS = 2 * 60 / CALLS_PER_MINUTE   # read check: one call per 3 s at most = half the calls
 TRIES = 3                   # a call Slack refuses with "too many calls" is tried this often
 READ_RESERVE = 5            # calls per backup round kept free for the read check
 SEARCH_MARGIN = 120         # backup searches look this many seconds before the last round (search is a bit slow)
@@ -156,7 +157,8 @@ class Live:
 
     def _tick(self):
         if self.look is None:
-            self.look = slack_inbox.Lookup(self.client, slack_inbox.who_am_i(self.client))
+            self.look = slack_inbox.Lookup(
+                self.client, slack_inbox.who_am_i(self.client, groups=self.settings["count_groups"]))
         down = self.mode == "instant" and not self._doorbell_up()
         if down:
             self.need_catch_up = True       # whatever arrives now is missed: look for it once back
@@ -169,7 +171,8 @@ class Live:
             elif self.mode == "backup" and self.clock() >= self.next_round:
                 self._start(self._backup_round)
         if self.inbox.channels() and self.clock() >= self.next_read:
-            self.next_read = self.clock() + READ_CHECK_SECONDS
+            calls = len(self.inbox.channels()) + len(self.inbox.threads())
+            self.next_read = self.clock() + max(READ_CHECK_SECONDS, calls * READ_CALL_SECONDS)
             slack_inbox.read_check(self.look, self.inbox)
 
     def _doorbell_up(self):
