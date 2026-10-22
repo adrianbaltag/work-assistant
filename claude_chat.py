@@ -101,6 +101,26 @@ def make_client():
     return anthropic.Anthropic()
 
 
+def plain_error(err, model):
+    """Any error from a Claude call, in plain English for the page (and for check_setup.py)."""
+    if isinstance(err, anthropic.AuthenticationError):
+        return ("Claude login failed. Check ANTHROPIC_API_KEY (home) or "
+                "ANTHROPIC_AUTH_TOKEN (work), then restart the app.")
+    if isinstance(err, anthropic.PermissionDeniedError):
+        return "Your Claude login is not allowed to use this model or feature."
+    if isinstance(err, anthropic.NotFoundError):
+        return f'Model "{model}" not found. Check the model= line in settings.ini.'
+    if isinstance(err, anthropic.RateLimitError):
+        return "Claude is busy (rate limit). Wait a minute and ask again."
+    if isinstance(err, anthropic.APIStatusError) and err.status_code >= 500:
+        return f"Claude is having trouble right now (error {err.status_code}). Wait a minute and try again."
+    if isinstance(err, anthropic.APIStatusError):
+        return f"Claude answered with error {err.status_code}: {err.message}"
+    if isinstance(err, anthropic.APIConnectionError):
+        return "Could not reach Claude. Check the internet / VPN, and ANTHROPIC_BASE_URL at work."
+    return f"Claude call failed: {err}"
+
+
 def over(cap):
     """Why a file was left out, and how to fix it."""
     return f"over the {cap:,}-character limit: raise text_limit= in settings.ini"
@@ -225,19 +245,8 @@ def ask(client, model, context, history, question, can_propose=False, system=SYS
     extra = {"system": system + PROPOSE_SYSTEM, "tools": [PROPOSE_TOOL]} if can_propose else {"system": system}
     try:
         response = client.messages.create(model=model, max_tokens=MAX_TOKENS, messages=messages, **extra)
-    except anthropic.AuthenticationError:
-        raise ClaudeError("Claude login failed. Check ANTHROPIC_API_KEY (home) or "
-                          "ANTHROPIC_AUTH_TOKEN (work), then restart the app.")
-    except anthropic.PermissionDeniedError:
-        raise ClaudeError("Your Claude login is not allowed to use this model or feature.")
-    except anthropic.NotFoundError:
-        raise ClaudeError(f'Model "{model}" not found. Check the model= line in settings.ini.')
-    except anthropic.RateLimitError:
-        raise ClaudeError("Claude is busy (rate limit). Wait a minute and ask again.")
-    except anthropic.APIStatusError as err:
-        raise ClaudeError(f"Claude answered with error {err.status_code}: {err.message}")
-    except anthropic.APIConnectionError:
-        raise ClaudeError("Could not reach Claude. Check the internet / VPN, and ANTHROPIC_BASE_URL at work.")
+    except anthropic.APIError as err:
+        raise ClaudeError(plain_error(err, model))
 
     if response.stop_reason == "refusal":
         return "Claude declined to answer this one. Try asking it a different way.", None

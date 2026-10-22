@@ -1,0 +1,39 @@
+{
+  "_metadata": {
+    "major_version": 2
+  },
+  "display_information": {
+    "name": "Work Assistant",
+    "description": "Lights up the Slack button in my Work Assistant page for my unread mentions and DMs. Read-only."
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": [
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "mpim:history",
+        "mpim:read",
+        "search:read",
+        "users:read",
+        "usergroups:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "user_events": [
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim"
+      ]
+    },
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false,
+    "org_deploy_enabled": false
+  }
+}

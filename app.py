@@ -42,6 +42,25 @@ def load_settings(path=SETTINGS_FILE):
     return dict(parser["settings"])
 
 
+def read_text_limit(value):
+    """text_limit= as a number of characters (empty = the default). A bad value stops the app."""
+    value = str(value).strip().replace("_", "")
+    if not value:
+        return claude_chat.TEXT_CAP
+    if value.isdecimal() and int(value) > 0:
+        return int(value)
+    raise SystemExit(f'text_limit= in settings.ini must be a whole number of characters, like 200000 '
+                     f'(no commas). It is "{value}".')
+
+
+def read_jira_url(value):
+    """jira_url= without a trailing /, or "" (Open in Jira off) when it isn't a web address."""
+    value = value.strip().rstrip("/")
+    if not value.startswith(("http://", "https://")):
+        return ""       # "jira.example.com" alone would open as a page of this app, not Jira
+    return value
+
+
 def open_in_file_manager(path):
     """Show a folder in Windows Explorer (Finder on a Mac). Tests swap this for a fake."""
     if sys.platform == "win32":
@@ -67,17 +86,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         text_limit = settings.get("text_limit", "")
         slack_settings = slack_inbox.slack_settings(settings)
     model = model.strip() or claude_chat.DEFAULT_MODEL
-    text_limit = str(text_limit).strip().replace("_", "")
-    if not text_limit:
-        text_limit = claude_chat.TEXT_CAP
-    elif text_limit.isdecimal() and int(text_limit) > 0:
-        text_limit = int(text_limit)
-    else:
-        raise SystemExit(f'text_limit= in settings.ini must be a whole number of characters, like 200000 '
-                         f'(no commas). It is "{text_limit}".')
-    jira_url = jira_url.strip().rstrip("/")
-    if not jira_url.startswith(("http://", "https://")):
-        jira_url = ""       # "jira.example.com" alone would open as a page of this app, not Jira
+    text_limit = read_text_limit(text_limit)
+    jira_url = read_jira_url(jira_url)
     if slack_settings is not None:      # last: a bad setting above stops the app with no Slack threads running
         slack = slack_live.start(slack_settings, slack_inbox.Inbox())
     app = Flask(__name__)

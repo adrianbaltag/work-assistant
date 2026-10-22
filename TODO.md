@@ -22,3 +22,12 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   on its own thread like catch-up.
 - **slack_sdk errors are silent.** It logs to nowhere (NullHandler), so a stuck reconnect leaves no
   trace. To be covered in the logging lesson.
+
+## Setup check (check_setup.py)
+
+- **One shared settings check.** check_setup.py re-runs create_app's checks piece by piece, so a new
+  setting must be added in both places. Also app.py itself still shows a raw traceback when
+  projects_folder= is missing (KeyError) or settings.ini has an unreadable line. Fix: one
+  `validate_settings()` in app.py that both use.
+- **Unverified Slack button labels in README.** "Generate Token and Scopes" and "Request to Install"
+  were written from memory: check them the next time an app is made (office).

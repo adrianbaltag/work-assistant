@@ -331,6 +331,19 @@ def test_ask_turns_api_errors_into_plain_english(error, words):
         claude_chat.ask(FakeClaude(error=error), "m", CONTEXT, [], "q")
 
 
+def test_plain_error_names_the_model_when_it_is_not_found():
+    assert '"claude-x"' in claude_chat.plain_error(status_error(anthropic.NotFoundError, 404), "claude-x")
+
+
+def test_plain_error_when_the_login_may_not_use_the_model():
+    assert "not allowed" in claude_chat.plain_error(status_error(anthropic.PermissionDeniedError, 403), "m")
+
+
+def test_plain_error_for_a_server_problem_says_what_to_do():
+    words = claude_chat.plain_error(status_error(anthropic.InternalServerError, 529), "m")
+    assert "529" in words and "Wait a minute" in words
+
+
 def test_make_client_without_any_login_says_how_to_fix_it(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
