@@ -82,6 +82,15 @@
           <input id="np-title" autocomplete="off"></label>
         <label>Status
           <select id="np-status"><option>active</option><option>pending</option><option>idea</option></select></label>
+        <label class="np-check"><input type="checkbox" id="np-work" {{ "checked" if work_jira else "disabled" }}>
+          <span>Work project
+          <span class="hint">{% if work_jira %}Also makes work_jira\&lt;ID&gt;\ so Claude sets it up and keeps this card in sync. Untick for personal ideas.{% else %}Greyed: add work_jira_folder= to settings.ini to use it.{% endif %}</span></span></label>
+        <div class="np-work-fields" id="np-work-fields"{% if not work_jira %} hidden{% endif %}>
+          <label>Created by <span class="hint">Optional. Who opened the ticket.</span>
+            <input id="np-by" autocomplete="off"></label>
+          <label>Ticket description <span class="hint">Optional. Paste it from Jira: Claude reads it from ticket.md.</span>
+            <textarea id="np-desc" rows="5"></textarea></label>
+        </div>
         <div id="np-alert"></div>
         <div class="row"><button class="btn primary" type="submit" id="np-create">Create</button></div>
       </div>

@@ -459,6 +459,62 @@ def test_new_project_null_id_or_non_object_body_is_a_400(tmp_path, client, body)
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.fixture
+def work_client(tmp_path):
+    (tmp_path / "projects").mkdir()
+    (tmp_path / "work_jira").mkdir()
+    app = create_app(tmp_path / "projects", work_jira_folder=str(tmp_path / "work_jira"))
+    app.config.update(TESTING=True)
+    return app.test_client()
+
+
+def test_new_work_project_also_makes_the_work_jira_folder(tmp_path, work_client):
+    response = work_client.post("/api/projects", json={"id": "ABC-123", "title": "Alarms", "status": "active",
+                                                       "work": True, "description": "Fix it.", "created_by": "Mike"})
+    assert response.json == {"id": "ABC-123"}
+    ticket = (tmp_path / "work_jira" / "ABC-123" / "ticket.md").read_text(encoding="utf-8")
+    assert "Created by: Mike" in ticket and "Fix it." in ticket
+    card = work_client.get("/api/projects/ABC-123").json["project"]
+    assert (card["source"], card["folder"]) == ("work_jira", str(tmp_path / "work_jira" / "ABC-123"))
+
+
+def test_new_personal_project_stays_out_of_work_jira(tmp_path, work_client):
+    work_client.post("/api/projects", json={"id": "my idea", "status": "idea", "work": False})
+    assert list((tmp_path / "work_jira").iterdir()) == []
+    assert "source" not in work_client.get("/api/projects/my_idea").json["project"]
+
+
+def test_new_work_project_keeps_an_existing_work_jira_folder(tmp_path, work_client):
+    (tmp_path / "work_jira" / "ABC-1").mkdir()
+    (tmp_path / "work_jira" / "ABC-1" / "notes.md").write_text("mine", encoding="utf-8")
+    response = work_client.post("/api/projects", json={"id": "ABC-1", "status": "active", "work": True, "description": "x"})
+    assert [p.name for p in (tmp_path / "work_jira" / "ABC-1").iterdir()] == ["notes.md"]
+    assert work_client.get("/api/projects/ABC-1").json["project"]["source"] == "work_jira"
+    assert "already existed" in response.json["note"]      # the page tells the person the description was not used
+
+
+def test_new_work_project_in_a_new_folder_has_no_note(work_client):
+    response = work_client.post("/api/projects", json={"id": "ABC-2", "status": "active", "work": True})
+    assert "note" not in response.json
+
+
+def test_new_work_project_without_the_setting_is_refused_and_changes_nothing(tmp_path, client):
+    response = client.post("/api/projects", json={"id": "ABC-1", "status": "active", "work": True})
+    assert response.status_code == 400 and "work_jira_folder=" in response.json["error"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_new_work_project_name_taken_leaves_work_jira_alone(tmp_path, work_client):
+    make_project(tmp_path / "projects", "P", {"title": "old"})
+    response = work_client.post("/api/projects", json={"id": "P", "status": "active", "work": True})
+    assert response.status_code == 400 and list((tmp_path / "work_jira").iterdir()) == []
+
+
+def test_home_page_greys_the_work_box_without_the_setting(client, work_client):
+    assert b'id="np-work" disabled' in client.get("/").data
+    assert b'id="np-work" checked' in work_client.get("/").data
+
+
 def test_new_project_null_title_means_no_title(client):
     client.post("/api/projects", json={"id": "P", "title": None, "status": "active"})
     assert client.get("/api/projects/P").json["project"]["title"] == "P"

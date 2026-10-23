@@ -159,10 +159,36 @@ def create(projects_folder, work_folder, title, goal, now):
     if (Path(work_folder) / TRACKING_LOG).is_file():
         sync(projects_folder, work_folder, now)
     else:                                   # created before the md set exists: just link the card
-        note = card / notes.NOTE_FILE
-        note.write_text(notes.set_fields(note.read_text(encoding="utf-8-sig"),
-                                         {"source": SOURCE, "folder": str(work_folder)}), encoding="utf-8")
+        link_card(card, work_folder)
     return card, what
+
+
+def link_card(card, work_folder):
+    """Mark the card as following this work_jira folder (source: + folder:)."""
+    note = Path(card) / notes.NOTE_FILE
+    note.write_text(notes.set_fields(note.read_text(encoding="utf-8-sig"),
+                                     {"source": SOURCE, "folder": str(work_folder)}), encoding="utf-8")
+
+
+def start_work_folder(work_jira_folder, name, description, created_by):
+    """The app's + New project with "Work project" ticked: make work_jira\\<name>\\ and its ticket.md.
+
+    Returns (folder, made). An existing folder is never touched (made = False).
+    No description and no "created by" = an empty folder. Raises FileNotFoundError if work_jira is missing.
+    """
+    work_jira = Path(work_jira_folder)
+    if not work_jira.is_dir():
+        raise FileNotFoundError(2, "folder not found", str(work_jira))
+    folder = work_jira / name
+    if folder.exists():
+        return folder, False
+    folder.mkdir()
+    description = "\n".join(description.strip().splitlines())      # pasted text may have Windows line ends
+    created_by = created_by.strip()
+    if description or created_by:
+        (folder / "ticket.md").write_text(f"# {name}\n\nCreated by: {created_by}\n\n"
+                                          f"## Description (pasted from Jira)\n{description}\n", encoding="utf-8")
+    return folder, True
 
 
 def newest_archived(projects_folder, name):

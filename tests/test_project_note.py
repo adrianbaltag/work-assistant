@@ -309,3 +309,33 @@ def test_command_errors_are_plain_english(tmp_path, capsys, args, says):
 def test_command_without_work_jira_folder_setting_says_what_to_add(tmp_path, capsys):
     assert pn.main(["sync", "DEMO-42"], settings_ini(tmp_path, work_jira=False), NOW) == 1
     assert "work_jira_folder=" in capsys.readouterr().err
+
+
+# ---------- slice 3: the app's + New project makes the work_jira folder ----------
+
+def test_start_work_folder_makes_folder_and_ticket_md(tmp_path):
+    wj = tmp_path / "work_jira"
+    wj.mkdir()
+    folder, made = pn.start_work_folder(wj, "ABC-123", "Line one\r\nLine two\n", " Mike ")
+    assert (folder, made) == (wj / "ABC-123", True)
+    assert (folder / "ticket.md").read_text(encoding="utf-8") == (
+        "# ABC-123\n\nCreated by: Mike\n\n## Description (pasted from Jira)\nLine one\nLine two\n")
+
+
+def test_start_work_folder_without_text_makes_an_empty_folder(tmp_path):
+    (tmp_path / "work_jira").mkdir()
+    folder, made = pn.start_work_folder(tmp_path / "work_jira", "beaver_reports", "", "")
+    assert made and list(folder.iterdir()) == []
+
+
+def test_start_work_folder_never_touches_an_existing_folder(tmp_path):
+    work = work_project(tmp_path, log=LOG, files=["ticket.md"])
+    before = sorted((p.name, p.read_text(encoding="utf-8")) for p in work.iterdir())
+    folder, made = pn.start_work_folder(tmp_path / "work_jira", "DEMO-42", "new text", "me")
+    assert (folder, made) == (work, False)
+    assert sorted((p.name, p.read_text(encoding="utf-8")) for p in work.iterdir()) == before
+
+
+def test_start_work_folder_needs_the_work_jira_folder_to_exist(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        pn.start_work_folder(tmp_path / "missing", "ABC-1", "", "")

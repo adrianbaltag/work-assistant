@@ -112,6 +112,10 @@ td:first-child{box-shadow:inset 3px 0 0 var(--stripe,transparent)}
 .modal.small{width:min(480px,100%);height:auto}     /* + New project form */
 @media (max-width:700px){.modal.small{height:auto;border-radius:22px;margin:16px}}
 .np-body{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.np-check{flex-direction:row;align-items:flex-start;gap:10px;font-size:.82rem;color:var(--fg)}
+.np-check input{width:auto;margin-top:2px;accent-color:var(--ok)}
+.np-check .hint{display:block;margin-top:3px}
+.np-work-fields{display:flex;flex-direction:column;gap:14px}
 .m-head{display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .m-head .t{flex:1;min-width:0}
 .m-head .path{font-family:var(--mono);font-size:.7rem;color:var(--dim);overflow-wrap:anywhere}

@@ -4,6 +4,11 @@
 # Folder that holds one sub-folder per project (each with a note.md).
 projects_folder=C:\Users\YOUR-NAME\Desktop\projects
 
+# Folder that holds your work_jira project folders (one per ticket or work project).
+# Used by "+ New project" (box "Work project") and by the work_jira hooks (README: Sync with work_jira).
+# Empty or missing = the box is greyed and the hooks do nothing.
+work_jira_folder=C:\Users\YOUR-NAME\Desktop\work_jira
+
 # Base URL of your Jira, used by "Open in Jira" (it adds /browse/TICKET-ID).
 jira_url=https://jira.example.com
 

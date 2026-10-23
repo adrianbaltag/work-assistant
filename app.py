@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 
 import claude_chat
 import notes
+import project_note
 import slack_inbox
 import slack_live
 
@@ -54,12 +55,13 @@ def open_in_file_manager(path):
 
 
 def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client, model="", text_limit="",
-               slack=None):
+               slack=None, work_jira_folder=""):
     """Build the Flask app. No folder given = a real run: read it (and jira_url, model, text_limit,
     the slack_ lines) from settings.ini, and start the Slack part.
 
     claude = a function that returns the Claude client; tests pass one that returns a fake.
     slack = the running Slack part (slack_live.Live); tests pass a fake, or none = "not connected".
+    work_jira_folder = where + New project also makes a folder when "Work project" is ticked ("" = box greyed).
     """
     slack_settings = None
     if projects_folder is None:
@@ -68,8 +70,10 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         jira_url = settings.get("jira_url", "")
         model = settings.get("model", "")
         text_limit = settings.get("text_limit", "")
+        work_jira_folder = settings.get("work_jira_folder", "")
         slack_settings = slack_inbox.slack_settings(settings)
     model = model.strip() or claude_chat.DEFAULT_MODEL
+    work_jira_folder = work_jira_folder.strip()
     text_limit = read_text_limit(text_limit)
     jira_url = read_jira_url(jira_url)
     if slack_settings is not None:      # last: a bad setting above stops the app with no Slack threads running
@@ -90,7 +94,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     @app.get("/")
     def home():
-        return render_template("index.html")
+        return render_template("index.html", work_jira=bool(work_jira_folder))
 
     @app.get("/api/projects")
     def api_projects():
@@ -102,7 +106,11 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     @app.post("/api/projects")
     def api_new_project():
-        """+ New project. JSON {id, title, status}. The ID is cleaned ("my idea" -> "my_idea") and becomes the folder."""
+        """+ New project. JSON {id, title, status, work, description, created_by}.
+
+        The ID is cleaned ("my idea" -> "my_idea") and becomes the folder.
+        work = true: also make work_jira\\<ID>\\ with a ticket.md, and mark the card as following it.
+        """
         data = request.get_json(silent=True)
         data = data if isinstance(data, dict) else {}
         project_id = secure_filename(str(data.get("id") or ""))     # "or": a JSON null must not become "None"
@@ -111,6 +119,10 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
             return jsonify(error="Type a ticket ID or a short name (letters, digits, - or _)."), 400
         if status not in CHOICES["status"]:
             return jsonify(error=f"Unknown status: {status}."), 400
+        work = data.get("work") is True
+        if work and not work_jira_folder:
+            return jsonify(error="To make a work project, add work_jira_folder= to settings.ini and restart the app. "
+                                 "For a personal idea, untick Work project."), 400
         try:
             notes.new_project(projects_folder, project_id, str(data.get("title") or ""), status)
         except FileExistsError:
@@ -119,6 +131,19 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
             return jsonify(error=f'"{project_id}" can\'t be used as a folder name. Pick another name.'), 400
         except OSError as err:
             return jsonify(error=f"Could not create the folder: {err}. Is the projects folder reachable?"), 400
+        if work:
+            try:
+                folder, made = project_note.start_work_folder(work_jira_folder, project_id,
+                                                           str(data.get("description") or ""),
+                                                           str(data.get("created_by") or ""))
+                project_note.link_card(Path(projects_folder) / project_id, folder)
+            except OSError as err:
+                return jsonify(error=f"The card {project_id} was made, but not its work_jira folder "
+                                     f"({err.strerror or err}). Is {work_jira_folder} reachable? "
+                                     "Make the folder there by hand."), 400
+            if not made:
+                return jsonify(id=project_id, note=f"work_jira\\{project_id}\\ already existed: kept as it was, "
+                                                   "so Created by and the description were not saved.")
         return jsonify(id=project_id)
 
     def folder_or_404(project_id):

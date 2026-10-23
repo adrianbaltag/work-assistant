@@ -16,12 +16,13 @@ const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-$
 const api = path => `/api/projects/${encodeURIComponent(card.id)}/${path}`;
 const fileApi = (dir, name) => `files/${dir}/${encodeURIComponent(name)}`;
 
-function toast(message) {
+// A short message at the bottom of the page. seconds = how long it stays (default 3).
+function toast(message, seconds = 3) {
   const t = $("toast");
   t.textContent = message;
   t.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.hidden = true, 3000);
+  toast.timer = setTimeout(() => t.hidden = true, seconds * 1000);
 }
 
 async function fetchCard(id) {
