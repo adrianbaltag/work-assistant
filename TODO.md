@@ -36,8 +36,8 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
 
 - **Archive message not seen in VS Code.** Office test 2026-10-23: the SessionStart hook archived
   TEST-1 correctly, but "Dashboard: moved ... to the Archive page" never showed in the VS Code
-  Claude chat. Likely the extension doesn't display hook `systemMessage`. Check in the terminal CLI
-  before changing anything.
+  Claude chat. Confirmed 2026-10-23: the terminal CLI (`claude` in PowerShell) DOES show the line,
+  so the hook works and only the VS Code extension hides hook `systemMessage`. Nothing to fix in our code.
 - **Lowercase ticket folders import as lowercase cards.** A folder `work_jira\abc-123` gets card
   `abc-123` with an empty `jira:` (no Jira button), unlike + New project, which uppercases.
   Fix idea: rename the folder to capitals, or fill `jira:` with the uppercased name on import.
