@@ -62,7 +62,9 @@ def write_settings(tmp_path, body):
 
 def test_good_settings(tmp_path):
     (tmp_path / "projects").mkdir()
-    path = write_settings(tmp_path, f"projects_folder={tmp_path / 'projects'}\njira_url=https://jira.example.com\n")
+    (tmp_path / "work_jira").mkdir()
+    path = write_settings(tmp_path, f"projects_folder={tmp_path / 'projects'}\njira_url=https://jira.example.com\n"
+                                    f"work_jira_folder={tmp_path / 'work_jira'}\n")
     lines, settings, _ = check_setup.check_settings(path)
     assert set(marks(lines)) == {OK} and settings["jira_url"] == "https://jira.example.com"
 
@@ -93,6 +95,31 @@ def test_jira_url_that_is_not_a_web_address_is_a_warning(tmp_path):
                                                                    "jira_url=jira.example.com\n"))
     assert WARN in marks(lines) and "Open in Jira" in text(lines)
 
+
+
+def test_work_jira_folder_blank_is_skipped_not_a_problem(tmp_path):
+    (tmp_path / "p").mkdir()
+    lines, _, _ = check_setup.check_settings(write_settings(tmp_path, f"projects_folder={tmp_path / 'p'}\n"
+                                                                   "work_jira_folder=\n"))
+    assert marks(lines) == [OK, OK, SKIP] and "optional" in text(lines)
+
+
+def test_work_jira_folder_that_does_not_exist(tmp_path):
+    (tmp_path / "p").mkdir()
+    lines, _, _ = check_setup.check_settings(write_settings(tmp_path, f"projects_folder={tmp_path / 'p'}\n"
+                                                                   f"work_jira_folder={tmp_path / 'nope'}\n"))
+    assert BAD in marks(lines) and "work_jira_folder=" in text(lines) and "does not exist" in text(lines)
+
+
+def test_work_jira_folder_counts_project_folders_only(tmp_path):
+    (tmp_path / "p").mkdir()
+    work = tmp_path / "work_jira"
+    for name in ["DEMO-1", "DEMO-2", "_templates", ".claude"]:
+        (work / name).mkdir(parents=True)
+    (work / "CLAUDE.md").write_text("rules", encoding="utf-8")
+    lines, _, _ = check_setup.check_settings(write_settings(tmp_path, f"projects_folder={tmp_path / 'p'}\n"
+                                                                   f"work_jira_folder={work}\n"))
+    assert set(marks(lines)) == {OK} and f"work_jira_folder: {work} (2 project folders)" in text(lines)
 
 # ----- Claude -----
 

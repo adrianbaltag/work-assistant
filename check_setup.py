@@ -101,6 +101,7 @@ def check_settings(path):
                                "Check the path, the VPN (for a network drive) and that you may open it."))
         else:
             lines.append((OK, f"projects_folder: {folder} ({count} projects)"))
+    lines.append(check_work_jira(settings.get("work_jira_folder", "").strip()))
     try:
         app.read_text_limit(settings.get("text_limit", ""))
     except SystemExit as err:
@@ -112,6 +113,21 @@ def check_settings(path):
     if settings.get("jira_url", "").strip() and not app.read_jira_url(settings["jira_url"]):
         lines.append((WARN, "jira_url= must start with https:// (or http://). Until then, Open in Jira is off."))
     return lines, settings, slack_cfg
+
+
+def check_work_jira(folder):
+    """One line for work_jira_folder=. Blank is fine: sync with work_jira is optional."""
+    if not folder:
+        return SKIP, "work_jira_folder= not set: sync with work_jira and the Work project box are off (optional)."
+    if not Path(folder).is_dir():
+        return BAD, (f"work_jira_folder= {folder} does not exist. Fix the path in settings.ini, "
+                     "or leave it blank to turn sync with work_jira off.")
+    try:
+        count = sum(1 for f in Path(folder).iterdir() if f.is_dir() and not f.name.startswith(("_", ".")))
+    except OSError as err:
+        return BAD, (f"work_jira_folder= {folder} can't be read ({err.strerror or err}). "
+                     "Check the path and that you may open it.")
+    return OK, f"work_jira_folder: {folder} ({count} project folders)"
 
 
 def check_claude(env, settings, make_client):

@@ -83,6 +83,8 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
   `settings.ini` (see Part 1, Step 3).
 - Your code stays where it is (for example in `work_jira`). Write its path in the `folder:` field
   so you can find it from the card.
+- If you set `work_jira_folder=`, cards can follow your work folders by themselves.
+  See [Sync with work_jira](#sync-with-work_jira-optional).
 
 ### The dashboard
 
@@ -167,6 +169,10 @@ Notepad opens. Each line explains itself. The two you must change:
   The app uses it for the **Open in Jira** button on each project card: it adds `/browse/` and the
   ticket ID from the card's **Jira** field. So a card whose Jira field says `ABC-123` opens
   `https://jira.yourcompany.com/browse/ABC-123`. Leave `jira_url=` empty and the button stays off.
+
+Optional: `work_jira_folder=` is the folder that holds your work project folders, for example
+`C:\Users\YOUR-NAME\Desktop\work_jira`. Leave it empty if you don't use one. See
+[Sync with work_jira](#sync-with-work_jira-optional).
 
 Save and close Notepad. `settings.ini` is yours alone: it is never uploaded anywhere.
 
@@ -285,7 +291,7 @@ $env:SLACK_APP_TOKEN = Read-Host "Paste SLACK_APP_TOKEN (xapp-...)"
 .venv\Scripts\python check_setup.py
 ```
 
-Every line should say `[ OK ]` (or `[SKIP]` for Slack if you don't use it). A `[FAIL]` line says what
+Every line should say `[ OK ]` (or `[SKIP]` for Slack or `work_jira_folder=` if you don't use them). A `[FAIL]` line says what
 to fix. Fix it and run the check again. It never prints your tokens, so it's safe to show a colleague.
 
 **4. Start the app:**
@@ -296,6 +302,132 @@ to fix. Fix it and run the check again. It never prints your tokens, so it's saf
 
 Open http://127.0.0.1:5050 in your browser. **Leave the PowerShell window open** while you use the
 app. To stop the app, click the PowerShell window and press **Ctrl+C**.
+
+---
+
+## Sync with work_jira (optional)
+
+For people who keep one folder per ticket in a `work_jira` folder and work on it with Claude Code.
+With this set up, the dashboard follows that work by itself:
+
+| When | What happens | Tokens? |
+|---|---|---|
+| You click **+ New project** with the box **Work project** ticked | The app makes the card and `work_jira\<ID>\`, with your Jira description and "Created by" in `ticket.md`. If that folder already exists, the app leaves it as it was and tells you for 5 seconds that the description was not saved. | none |
+| You open a new project folder in VS Code and start Claude | A hook tells Claude to set the folder up from `work_jira\_templates`, read `ticket.md`, then run clear-requirements and grill-me. | Claude's normal work |
+| The folder has a `tracking_log.md` but no card yet | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
+| Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. | none |
+| You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Archive page. **Restore** brings it back. | none |
+
+Only cards made this way (they have `source: work_jira`) are ever archived by the hook. Your other
+cards and ideas are never touched. Nothing ever changes `priority`.
+
+> **Open the project folder, not the whole `work_jira`.** In VS Code: File → Open Folder →
+> `work_jira\ABC-123`. The hooks know the project from the folder you opened. If you open all of
+> `work_jira`, the hooks only keep existing cards up to date and never ask Claude for anything.
+
+### Set it up (once)
+
+**1. Add the folder to `settings.ini`** (Part 1, Step 3), then run `.venv\Scripts\python check_setup.py`.
+The `work_jira_folder:` line should say `[ OK ]`.
+
+**2. Find your exact paths.** In PowerShell:
+
+```powershell
+"$HOME\Desktop\work-assistant".Replace('\', '/')
+```
+
+It prints something like `C:/Users/YOUR-NAME/Desktop/work-assistant`. Use that in step 3 wherever
+you see `C:/Users/YOUR-NAME/Desktop/work-assistant`.
+
+> Why forward slashes? Windows accepts them, and in JSON a backslash must be written twice (`\\`).
+> Forward slashes avoid that mistake.
+
+**3. Add the hooks to your Claude Code user settings.** Open the file in VS Code:
+
+```powershell
+code $HOME\.claude\settings.json
+```
+
+The file is one `{ ... }` block. Add the `"hooks"` and `"permissions"` parts below inside it, next to
+what is already there (put a comma between parts). If the file is empty, paste all of this.
+If you already have a `"permissions"` part with an `"allow"` list, add the two lines to that list instead.
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [ { "type": "command", "timeout": 30,
+          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
+          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "stop"] } ] }
+    ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "timeout": 30,
+          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
+          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-start"] } ] }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "PowerShell(C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe C:/Users/YOUR-NAME/Desktop/work-assistant/project_note.py *)",
+      "Bash(C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe C:/Users/YOUR-NAME/Desktop/work-assistant/project_note.py *)"
+    ]
+  }
+}
+```
+
+Save. VS Code underlines a JSON mistake in red: fix it before you go on.
+
+What each part does:
+
+- `"command"` + `"args"`: runs the app's own Python with `work_jira_hooks.py` directly, with no
+  shell in between, so spaces and quotes can't break it. Why not one line like
+  `"command": "python work_jira_hooks.py stop"`? That goes through a shell, and on Windows the
+  shell may not be the one you expect.
+- `Stop` runs after every Claude reply. `SessionStart` runs when a Claude session starts.
+  Both finish in well under a second and send nothing over the network.
+- The two `allow` lines let Claude run `project_note.py` without asking you each time. There is
+  one for PowerShell and one for Git Bash, because Claude Code on Windows can use either.
+  If Claude still asks, it typed the command a little differently: answer Yes.
+
+**4. Move your old allow rules (if you have any).** If `work_jira\.claude\settings.local.json` has a
+`"permissions"` → `"allow"` list, copy those lines into the `"allow"` list from step 3. When you open
+one project folder, Claude Code no longer reads the settings inside `work_jira\.claude`.
+
+**5. Add these lines to `work_jira\CLAUDE.md`:**
+
+```markdown
+## Dashboard sync
+- Started inside a project folder (work_jira\<name>) = that is the project. Don't ask which one.
+- Every project, Jira ticket or not, has the same md set from _templates.
+- Project paused: start "## Now working on" with PENDING (who, date): reason
+- Never edit the dashboard note.md by hand. The hooks keep it in sync.
+  If a hook asks, run the project_note.py command it gives you.
+```
+
+**6. Trust the folder once.** Open `work_jira` in VS Code and start Claude. When Claude Code asks
+whether you trust this folder, say yes. Hooks only run in trusted folders, and trusting `work_jira`
+covers the project folders inside it.
+
+**7. Check it.** In the Claude panel type `/hooks`. You should see one `Stop` and one `SessionStart`
+hook, both running `work_jira_hooks.py`.
+
+### The tracking_log.md headings the hooks read
+
+The hooks copy from these headings in each project's `tracking_log.md` (the layout in `_templates`):
+
+```markdown
+## Now working on
+PENDING (you, 2026-10-22): waiting for the lab slot.  <!-- only when paused -->
+
+## Next up
+What comes next, one or more lines.
+
+## Last update
+2026-10-22 — what was done
+```
+
+If a heading is missing, the Stop hook asks Claude once to put it back. You can also update a card
+by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
 
 ---
 
@@ -312,6 +444,8 @@ Run `.venv\Scripts\python check_setup.py` first. The most common answers:
 | `missing permissions` | Your Slack app was made by hand and missed some. Easiest fix: make a new app from the manifest (Step 5). |
 | `the instant connection did not open` | The work network may block it. Put `slack_mode=backup` in `settings.ini`: the app then checks Slack every 30 seconds instead. |
 | Slack button says "reconnecting…" for minutes | Same as above: `slack_mode=backup`. |
+| A card doesn't follow its work_jira folder | Check you opened the project folder itself in VS Code (not all of `work_jira`), the folder is trusted, and `/hooks` shows both hooks. Then run `.venv\Scripts\python project_note.py sync <ID>` to see the error in plain English. |
+| A message starting `work_jira hook` in the Claude panel | The hook hit a problem; Claude carries on. The message says what. Often `settings.ini` was moved or a note.md is open in another program. |
 | `Address already in use` or `WinError 10048` | The app is already running in another PowerShell window. Use that one, or close it first. |
 
 ## Get the newest version

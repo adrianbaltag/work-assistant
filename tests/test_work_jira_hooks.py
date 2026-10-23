@@ -6,6 +6,7 @@ import io
 import json
 import os
 from datetime import datetime
+from pathlib import PureWindowsPath
 
 import notes
 import project_note as pn
@@ -50,6 +51,13 @@ def test_stop_asks_claude_once_to_create_the_card(tmp_path):
     assert "project_note.py" in message and "create DEMO-42" in message and "--goal" in message
     assert stop(settings, work, active=True) == (0, "")         # never loops
 
+
+
+def test_command_paths_for_claude_use_forward_slashes():
+    """Git Bash eats backslashes; PowerShell, Git Bash and cmd all accept C:/Users/... ."""
+    assert hooks.quoted(PureWindowsPath(r"C:\Users\demo\work-assistant\.venv\Scripts\python.exe")) == \
+        "C:/Users/demo/work-assistant/.venv/Scripts/python.exe"
+    assert hooks.quoted(PureWindowsPath(r"C:\Users\Demo Person\project_note.py")) == '"C:/Users/Demo Person/project_note.py"'
 
 def test_stop_syncs_a_stale_card_without_claude(tmp_path):
     settings, projects = setup(tmp_path)

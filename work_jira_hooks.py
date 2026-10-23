@@ -12,7 +12,7 @@ import json
 import os
 import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import notes
 import project_note as pn
@@ -95,7 +95,8 @@ def settings_paths(settings):
 
 
 def quoted(path):
-    path = str(path)
+    """A path ready to paste into a command. Forward slashes: Git Bash eats backslashes, PowerShell and cmd don't mind."""
+    path = path.as_posix() if isinstance(path, PurePath) else Path(path).as_posix()
     return f'"{path}"' if " " in path else path
 
 
