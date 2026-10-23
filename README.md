@@ -471,6 +471,42 @@ top or the bottom. Several lines with that same date each become a History line 
 If a heading is missing, the Stop hook asks Claude once to put it back. You can also update a card
 by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
 
+### Own skills instead of the superpowers plugin (optional)
+
+The superpowers plugin pushes Claude to "check skills and brainstorm first" at every start and saves
+plans outside the ticket's md files. `work_jira_skills\` holds our own versions of the four
+superpowers skills a ticket uses, adapted to the ticket files (milestones in `requirements.md`,
+steps in `PLAN.md`, proof from `Done when:`). Adapted from
+[obra/superpowers](https://github.com/obra/superpowers), MIT license (`work_jira_skills\LICENSE-superpowers.txt`).
+
+| Skill | Phase | What it does |
+|---|---|---|
+| `writing-plans` | 2-Plan | Milestone lines in `requirements.md`, steps per milestone in `PLAN.md` |
+| `test-driven-development` | 3-Build | Failing pytest first, then the smallest code that passes |
+| `verification-before-completion` | 3-Build, 4-Review | Tick a box only after the proof its `Done when:` asks for |
+| `receiving-code-review` | 4-Review | Check each review finding before fixing it; fix one at a time |
+
+**1. Copy the skills** into your Claude skills folder:
+
+```powershell
+cd $HOME\Desktop\work-assistant
+Copy-Item .\work_jira_skills\* $HOME\.claude\skills -Recurse -Force -Exclude *.txt
+```
+
+**2. Turn off the plugins you don't need.** In Claude Code type `/plugin` (VS Code panel: `/plugins`),
+go to the **Installed** tab, select each plugin and turn it off: `superpowers`, `playground`,
+`skill-creator`, `claude-code-setup`. This turns them off in every folder; turning one back on works
+the same way.
+
+**3. Rename the skills in your ticket files.** Ask Claude, started in `work_jira`:
+
+```text
+In work_jira, in _templates\CLAUDE.md and every ticket CLAUDE.md, delete the text "superpowers:" only. Change nothing else. List the files you changed.
+```
+
+**4. Check it.** Close Claude and start it again in a ticket folder. `/hooks` no longer lists a
+superpowers `SessionStart` hook, and asking for "the plan" uses `writing-plans`.
+
 ---
 
 ## When something is wrong
