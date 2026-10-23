@@ -21,7 +21,9 @@ HELPER = Path(__file__).with_name("project_note.py")
 
 CREATE_CARD = """This project has no dashboard card yet. Create it now with one command, then carry on:
   {python} {helper} create {name} --title "<short project name>" --goal "<one or two lines: what this project must achieve>"
-Don't edit the dashboard note.md by hand: the hooks keep it in sync."""
+{powershell}Don't edit the dashboard note.md by hand: the hooks keep it in sync."""
+
+POWERSHELL = "In PowerShell, put & and a space in front of that command (the first path is in quotes).\n"
 
 NEW_FOLDER = """This is a new project folder: {name}. Before anything else, set it up with the same md set every \
 project has, copied from {templates} (CLAUDE.md, requirements.md, tracking_log.md and the rest).{ticket} \
@@ -49,10 +51,15 @@ def stop(event, settings, now):
 
     try:
         card = notes.find_project(projects, work.name)
-        if card is None and pn.newest_archived(projects, work.name):
+        archived = None if card else pn.newest_archived(projects, work.name)
+        if archived and pn.last_event(archived / notes.NOTE_FILE) == pn.MOVED_TO_PROD:
             pn.create(projects, work, "", "", now)   # folder came back from prod: restore the card, no Claude needed
+        elif archived:
+            return 0, ""                             # you archived it yourself: it stays archived
         elif card is None:
-            return (2, CREATE_CARD.format(python=quoted(sys.executable), helper=quoted(HELPER), name=work.name)) \
+            python = quoted(Path(sys.executable))
+            return (2, CREATE_CARD.format(python=python, helper=quoted(HELPER), name=work.name,
+                                          powershell=POWERSHELL if python.startswith('"') else "")) \
                 if blocked_ok else (0, "")
         elif pn.needs_sync(card, work):
             pn.sync(projects, work, now)
@@ -65,7 +72,7 @@ def sync_all(projects, work_jira, now):
     """Sync every card whose work_jira folder has a newer tracking_log.md. Problems are skipped silently."""
     for folder in Path(work_jira).iterdir():
         card = notes.find_project(projects, folder.name)
-        if card and folder.is_dir() and not folder.name.startswith(("_", ".")) and pn.needs_sync(card, folder):
+        if card and pn.is_project_folder(folder) and pn.needs_sync(card, folder):
             try:
                 pn.sync(projects, folder, now)
             except (pn.SyncError, OSError):
@@ -91,11 +98,19 @@ def session_start(event, settings, now):
 
 
 def settings_paths(settings):
-    return settings.get("projects_folder", "").strip(), settings.get("work_jira_folder", "").strip()
+    """(projects_folder, work_jira_folder). A bad projects_folder= stops the hook (exit 1, message shown to you)."""
+    projects, work_jira = settings.get("projects_folder", "").strip(), settings.get("work_jira_folder", "").strip()
+    if work_jira and not (projects and Path(projects).is_dir()):
+        raise SystemExit("settings.ini projects_folder= is empty or not a folder. "
+                         "Set it to your dashboard projects folder; until then the dashboard is not updated.")
+    return projects, work_jira
 
 
 def quoted(path):
-    """A path ready to paste into a command. Forward slashes: Git Bash eats backslashes, PowerShell and cmd don't mind."""
+    """A path ready to paste into a command. Forward slashes: Git Bash eats backslashes, PowerShell and cmd don't mind.
+
+    A path with a space gets quotes; PowerShell then needs & in front to run it (see POWERSHELL).
+    """
     path = path.as_posix() if isinstance(path, PurePath) else Path(path).as_posix()
     return f'"{path}"' if " " in path else path
 

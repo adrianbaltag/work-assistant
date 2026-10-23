@@ -321,6 +321,11 @@ With this set up, the dashboard follows that work by itself:
 Only cards made this way (they have `source: work_jira`) are ever archived by the hook. Your other
 cards and ideas are never touched. Nothing ever changes `priority`.
 
+- A card the hook archived comes back by itself when its folder comes back to `work_jira`.
+- A card you archived yourself (**Mark done & archive**) stays archived, even if its folder is still there.
+- A card you bring back with **Restore** stays, even if its folder is gone. Once Claude works in that
+  folder again, the normal rules apply again.
+
 > **Open the project folder, not the whole `work_jira`.** In VS Code: File → Open Folder →
 > `work_jira\ABC-123`. The hooks know the project from the folder you opened. If you open all of
 > `work_jira`, the hooks only keep existing cards up to date and never ask Claude for anything.

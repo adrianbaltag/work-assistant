@@ -24,6 +24,9 @@ TRACKING_LOG = "tracking_log.md"
 SOURCE = "work_jira"        # source: work_jira = this card follows a work_jira folder (and may be auto-archived)
 WHO = "Claude"
 MOVED_TO_PROD = "Folder left work_jira (moved to prod): archived automatically"
+BACK_FROM_PROD = "Folder back in work_jira: restored automatically"
+RESTORED_BY_HAND = "Restored from archive"          # the app's Restore button (notes.restore_project)
+CARD_EVENTS = {MOVED_TO_PROD, BACK_FROM_PROD, RESTORED_BY_HAND, "Marked done and archived"}
 SECTIONS = {"now working on": "now", "next up": "next", "last update": "last"}
 HEADINGS = {"now": "## Now working on", "next": "## Next up", "last": "## Last update"}
 
@@ -39,11 +42,15 @@ class NoCard(Exception):
 # ---------- reading tracking_log.md ----------
 
 def read_tracking_log(text):
-    """The three sections of tracking_log.md as one-line texts: {"now": ..., "next": ..., "last": ...}."""
+    """The three sections of tracking_log.md as one-line texts: {"now": ..., "next": ..., "last": ...}.
+
+    Only "# " and "## " lines are headings: "### Phase 2" or "#42 needs review" are part of the section.
+    "last" is the first line only (the newest entry, if someone kept older ones below it).
+    """
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)       # the rules comment at the top is not content
     found, key = {}, None
     for line in text.splitlines():
-        if line.startswith("#"):
+        if re.match(r"#{1,2}\s", line):
             key = SECTIONS.get(line.lstrip("#").strip().lower())     # None for headings we don't use
             if key:
                 found[key] = []
@@ -53,7 +60,9 @@ def read_tracking_log(text):
     if missing:
         raise SyncError(f"tracking_log.md has no {', '.join(missing)} heading. "
                         "Put the headings back (as in _templates), then run project_note.py sync again.")
-    return {k: " ".join(part for part in lines if part) for k, lines in found.items()}
+    log = {k: " ".join(part for part in lines if part) for k, lines in found.items()}
+    log["last"] = next((part for part in found["last"] if part), "")
+    return log
 
 
 def status_from(now_working_on):
@@ -68,18 +77,24 @@ def status_from(now_working_on):
 
 
 def last_update(text, now):
-    """(date, text) from "## Last update", e.g. "2026-10-21 — M1 ticked". No date = today. Empty = None."""
-    text = text.strip()
+    """(date, text) from "## Last update", e.g. "2026-10-21 — M1 ticked". No date = (None, text). Empty = None."""
+    text = re.sub(r"^[-*]\s+", "", text.strip())             # "- 2026-10-21 — x" written as a bullet
     if not text:
         return None
     match = re.match(r"(\d{4}-\d{2}-\d{2})\s*[—–-]+\s*(.*)", text)
-    return match.groups() if match else (now.strftime("%Y-%m-%d"), text)
+    return match.groups() if match else (None, text)
 
 
 # ---------- which folder is a work_jira project ----------
 
 def same_folder(a, b):
     return os.path.normcase(str(a)) == os.path.normcase(str(b))     # Windows: case does not matter
+
+
+def is_project_folder(path):
+    """A work_jira project folder: a folder whose name doesn't start with _ (e.g. _templates) or . (e.g. .claude)."""
+    path = Path(path)
+    return not path.name.startswith(("_", ".")) and path.is_dir()
 
 
 def work_project(work_jira_folder, cwd):
@@ -93,7 +108,7 @@ def work_project(work_jira_folder, cwd):
     here = Path(cwd).resolve()
     for folder in [here, *here.parents]:
         if same_folder(folder.parent, work_jira) and folder != folder.parent:
-            return None if folder.name.startswith(("_", ".")) else folder
+            return folder if is_project_folder(folder) else None
     return None
 
 
@@ -116,14 +131,16 @@ def sync(projects_folder, work_folder, now):
                                    "source": SOURCE, "folder": str(work_folder)})
     entry = last_update(log["last"], now)
     if entry and not already_in_history(text, *entry):
-        text = notes.add_history(text, entry[1], entry[0], who=WHO)
+        text = notes.add_history(text, entry[1], entry[0] or now.strftime("%Y-%m-%d"), who=WHO)
     note.write_text(text, encoding="utf-8")     # always written, so the card is now newer than the log
     return card
 
 
 def already_in_history(text, date, said):
+    """date None (the line had no date) = the same text on any day counts."""
     said = " ".join(said.split())
-    return any(h["date"] == date and h["who"] == WHO and h["text"] == said for h in notes.read_history(text))
+    return any((date is None or h["date"] == date) and h["who"] == WHO and h["text"] == said
+               for h in notes.read_history(text))
 
 
 def needs_sync(card, work_folder):
@@ -144,10 +161,13 @@ def create(projects_folder, work_folder, title, goal, now):
     """
     name = Path(work_folder).name
     card = notes.find_project(projects_folder, name)
+    archived = None if card else newest_archived(projects_folder, name)
     if card:
         what = "exists"
-    elif newest_archived(projects_folder, name):
-        notes.restore_project(projects_folder, newest_archived(projects_folder, name), now, name=name)
+    elif archived:
+        if (Path(projects_folder) / name).exists():       # a stray folder or file: restoring would add a suffix
+            raise FileExistsError(name)
+        notes.restore_project(projects_folder, archived, now, name=name, said=BACK_FROM_PROD)
         card, what = Path(projects_folder) / name, "restored"
     else:
         card, what = notes.new_project(projects_folder, name, title), "created"
@@ -191,6 +211,16 @@ def start_work_folder(work_jira_folder, name, description, created_by):
     return folder, True
 
 
+def last_event(note_file):
+    """The newest archive/restore line in a card's History (e.g. MOVED_TO_PROD), or "" if none.
+
+    A sync line from Claude newer than it counts as an event too ("" back): the folder was worked on since.
+    """
+    history = notes.read_history(Path(note_file).read_text(encoding="utf-8-sig"))
+    return next((h["text"] if h["text"] in CARD_EVENTS else "" for h in history
+                 if h["text"] in CARD_EVENTS or h["who"] == WHO), "")
+
+
 def newest_archived(projects_folder, name):
     """The newest archived card for this name ("ABC-1" or "ABC-1 (2026-10-24 10-00)"), or None."""
     archive = Path(projects_folder) / notes.ARCHIVE_FOLDER
@@ -205,25 +235,32 @@ def archive_gone(projects_folder, work_jira_folder, now):
     """Archive every work_jira card whose folder is no longer in work_jira (moved to prod). Returns their IDs.
 
     Does nothing when work_jira is missing, unreadable or has no project folders: better no archive than a wrong one.
-    Cards without source: work_jira (personal ideas, + New project unticked) are never touched.
+    Cards without source: work_jira (personal ideas, + New project unticked) are never touched,
+    nor a card you brought back yourself with Restore (until it is archived again).
+    Reads only each note.md, not every file in every project: this runs at every session start.
     """
     if not str(work_jira_folder).strip():
         return []
     try:
-        here = {f.name.casefold() for f in Path(work_jira_folder).iterdir()
-                if f.is_dir() and not f.name.startswith(("_", "."))}
+        here = {f.name.casefold() for f in Path(work_jira_folder).iterdir() if is_project_folder(f)}
     except OSError:
         return []
     if not here:
         return []
     archived = []
-    for project in notes.list_projects(projects_folder):
-        if project.get("source") == SOURCE and project["id"].casefold() not in here:
-            try:
-                notes.archive_project(projects_folder, Path(projects_folder) / project["id"], now, said=MOVED_TO_PROD)
-            except OSError:
-                continue        # a file is open (e.g. in Excel): try again next session
-            archived.append(project["id"])
+    for card in sorted(Path(projects_folder).iterdir()):
+        note = card / notes.NOTE_FILE
+        if card.name == notes.ARCHIVE_FOLDER or card.name.startswith(".") or card.name.casefold() in here:
+            continue
+        try:
+            if not note.is_file() or notes.parse_note(note.read_text(encoding="utf-8-sig"))[0].get("source") != SOURCE:
+                continue
+            if last_event(note) == RESTORED_BY_HAND:
+                continue
+            notes.archive_project(projects_folder, card, now, said=MOVED_TO_PROD)
+        except OSError:
+            continue            # a file is open (e.g. in Excel): try again next session
+        archived.append(card.name)
     return archived
 
 
@@ -247,9 +284,15 @@ def main(argv, settings_path=notes.SETTINGS_FILE, now=None):
     work_jira = settings.get("work_jira_folder", "").strip()
     if not work_jira:
         return fail("settings.ini has no work_jira_folder=. Add it: the folder that holds your project folders.")
+    if not projects_folder or not Path(projects_folder).is_dir():
+        return fail(f"settings.ini projects_folder= is {'empty' if not projects_folder else 'not a folder: ' + projects_folder}. "
+                    "Set it to your dashboard projects folder, then try again.")
     work = Path(work_jira) / args.name
     if not notes.plain_name(args.name) or not work.is_dir():
         return fail(f"No folder {args.name} in {work_jira}. Use the project folder's exact name.")
+    if not is_project_folder(work):
+        return fail(f"{args.name} is not a project folder (names starting with _ or . are skipped). "
+                    "Use a project folder's name.")
 
     try:
         if args.action == "create":
@@ -269,7 +312,7 @@ def main(argv, settings_path=notes.SETTINGS_FILE, now=None):
         return fail(f"Something named {args.name} is already in {projects_folder} but it is not a card "
                     "(no note.md). Rename or move it, then try again.")
     except OSError as err:
-        return fail(f"Could not update the card ({err.strerror}). Is note.md open in another program? "
+        return fail(f"Could not update the card ({err.strerror or err}). Is note.md open in another program? "
                     "Close it and try again.")
     return 0
 

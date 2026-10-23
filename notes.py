@@ -403,14 +403,15 @@ def archive_project(projects_folder, folder, now, said="Marked done and archived
     return target
 
 
-def restore_project(projects_folder, archived, now, name=None):
+def restore_project(projects_folder, archived, now, name=None, said="Restored from archive"):
     """Move an archived project back to the projects folder as active. Returns its (maybe suffixed) ID.
 
     name: the ID to restore it as (e.g. without the archive's time suffix). Default = its archived name.
+    said: the history line (the work_jira hooks use their own, so a hand Restore can be told apart).
     """
     target = free_name(projects_folder, name or Path(archived).name, now, folder=True)
     os.rename(archived, target)
-    mark(target, "active", "Restored from archive", now)
+    mark(target, "active", said, now)
     return target.name
 
 

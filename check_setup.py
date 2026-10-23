@@ -122,8 +122,9 @@ def check_work_jira(folder):
     if not Path(folder).is_dir():
         return BAD, (f"work_jira_folder= {folder} does not exist. Fix the path in settings.ini, "
                      "or leave it blank to turn sync with work_jira off.")
+    import project_note
     try:
-        count = sum(1 for f in Path(folder).iterdir() if f.is_dir() and not f.name.startswith(("_", ".")))
+        count = sum(1 for f in Path(folder).iterdir() if project_note.is_project_folder(f))
     except OSError as err:
         return BAD, (f"work_jira_folder= {folder} can't be read ({err.strerror or err}). "
                      "Check the path and that you may open it.")

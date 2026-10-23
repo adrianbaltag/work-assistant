@@ -5,7 +5,10 @@ Hook input is fake JSON, folders are fake (tmp_path), all text is made up.
 import io
 import json
 import os
+from contextlib import redirect_stderr
 from datetime import datetime
+
+import pytest
 from pathlib import PureWindowsPath
 
 import notes
@@ -22,6 +25,12 @@ def setup(tmp_path):
     projects.mkdir()
     (tmp_path / "work_jira").mkdir(exist_ok=True)
     return {"projects_folder": str(projects), "work_jira_folder": str(tmp_path / "work_jira")}, projects
+
+
+def settings_ini(tmp_path, settings):
+    ini = tmp_path / "settings.ini"
+    ini.write_text("".join(f"{k}={v}\n" for k, v in settings.items()), encoding="utf-8")
+    return ini
 
 
 def stop(settings, cwd, active=False):
@@ -59,6 +68,18 @@ def test_command_paths_for_claude_use_forward_slashes():
         "C:/Users/demo/work-assistant/.venv/Scripts/python.exe"
     assert hooks.quoted(PureWindowsPath(r"C:\Users\Demo Person\project_note.py")) == '"C:/Users/Demo Person/project_note.py"'
 
+
+def test_create_card_command_with_a_space_in_the_path_says_how_to_run_it_in_powershell(tmp_path, monkeypatch):
+    settings, _ = setup(tmp_path)
+    work = work_project(tmp_path)
+    monkeypatch.setattr(hooks.sys, "executable", str(tmp_path / "Demo Person" / "python.exe"))
+    _, message = stop(settings, work)
+    assert "PowerShell" in message and "&" in message
+    monkeypatch.setattr(hooks, "HELPER", tmp_path / "project_note.py")
+    monkeypatch.setattr(hooks.sys, "executable", str(tmp_path / "python.exe"))
+    _, message = stop(settings, work)
+    assert "PowerShell" not in message
+
 def test_stop_syncs_a_stale_card_without_claude(tmp_path):
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path)
@@ -87,13 +108,35 @@ def test_stop_with_bad_log_headings_asks_claude_once(tmp_path):
     assert stop(settings, work, active=True) == (0, "")
 
 
-def test_stop_brings_an_archived_card_back_without_claude(tmp_path):
+def test_stop_brings_a_card_back_when_its_folder_came_back_from_prod(tmp_path):
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path)
-    notes.archive_project(projects, notes.new_project(projects, "DEMO-42"), NOW)
+    notes.archive_project(projects, notes.new_project(projects, "DEMO-42"), NOW, said=pn.MOVED_TO_PROD)
     assert stop(settings, work) == (0, "")
     card = projects / "DEMO-42"
     assert fields_of(card)["status"] == "active" and fields_of(card)["next"].startswith("M3")
+    assert history_of(card)[1]["text"] == pn.BACK_FROM_PROD       # [0] = the Last update line from the log
+
+
+def test_stop_leaves_a_card_you_archived_yourself_in_the_archive(tmp_path):
+    settings, projects = setup(tmp_path)
+    work = work_project(tmp_path)
+    notes.archive_project(projects, notes.new_project(projects, "DEMO-42"), NOW)    # Mark done & archive
+    assert stop(settings, work) == (0, "")                          # no card, and no asking Claude for one
+    assert notes.find_project(projects, "DEMO-42") is None and notes.find_archived(projects, "DEMO-42")
+
+
+@pytest.mark.parametrize("value", ["", "missing"])
+def test_hooks_with_a_bad_projects_folder_stop_with_a_plain_message(tmp_path, value):
+    settings, _ = setup(tmp_path)
+    settings["projects_folder"] = "" if value == "" else str(tmp_path / "nope")
+    work = work_project(tmp_path)
+    for which in ("stop", "session-start"):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = hooks.main([which], io.StringIO(json.dumps({"cwd": str(work)})), settings_ini(tmp_path, settings))
+        assert code == 1 and "projects_folder=" in err.getvalue()
+    assert not (work / "DEMO-42").exists() and not (work / "_archive").exists()
 
 
 def test_stop_in_the_whole_work_jira_folder_syncs_cards_but_never_asks(tmp_path):

@@ -96,8 +96,19 @@ def test_last_update_splits_date_and_text_with_any_dash():
     assert pn.last_update("2026-10-21 — grill-me done: D1-D9 decided.", NOW) == (
         "2026-10-21", "grill-me done: D1-D9 decided.")
     assert pn.last_update("2026-10-21 - short dash", NOW) == ("2026-10-21", "short dash")
-    assert pn.last_update("no date here", NOW) == ("2026-10-23", "no date here")
+    assert pn.last_update("no date here", NOW) == (None, "no date here")      # sync then uses today
+    assert pn.last_update("- 2026-10-21 — as a bullet", NOW) == ("2026-10-21", "as a bullet")
     assert pn.last_update("", NOW) is None
+
+
+def test_read_tracking_log_only_level_1_and_2_headings_end_a_section():
+    log = pn.read_tracking_log(LOG.replace("then run it in Spyder.", "### Phase 2\n#42 needs review."))
+    assert log["next"] == "M3 — email the report, ### Phase 2 #42 needs review."
+
+
+def test_read_tracking_log_last_update_is_its_first_line_only():
+    log = pn.read_tracking_log(LOG.replace("4 tests green.\n", "4 tests green.\n2026-10-21 — older entry.\n"))
+    assert log["last"] == "2026-10-22 — M1 ticked, 4 tests green."
 
 
 # ---------- which work_jira folder is a project ----------
@@ -148,6 +159,14 @@ def test_sync_never_repeats_a_history_line_and_never_touches_priority(tmp_path):
     pn.sync(projects(tmp_path), work, NOW)
     assert len(history_of(card)) == 1
     assert fields_of(card)["priority"] == "critical"
+
+
+def test_sync_never_repeats_an_undated_last_update_on_a_later_day(tmp_path):
+    work = work_project(tmp_path, log=LOG.replace("2026-10-22 — M1 ticked", "M1 ticked"))
+    card = notes.new_project(projects(tmp_path), "DEMO-42")
+    pn.sync(projects(tmp_path), work, NOW)
+    pn.sync(projects(tmp_path), work, datetime(2026, 10, 24, 9, 0))
+    assert [(h["date"], h["text"]) for h in history_of(card)] == [("2026-10-23", "M1 ticked, 4 tests green.")]
 
 
 def test_sync_adds_a_new_history_line_on_top_when_last_update_changes(tmp_path):
@@ -236,6 +255,15 @@ def test_create_restores_the_newest_archived_card_instead_of_making_a_second(tmp
     assert len(list((projects(tmp_path) / "_archive").iterdir())) == 1
 
 
+def test_create_refuses_to_restore_when_the_name_is_taken_by_a_plain_folder(tmp_path):
+    work = work_project(tmp_path)
+    notes.archive_project(projects(tmp_path), notes.new_project(projects(tmp_path), "DEMO-42"), NOW)
+    (projects(tmp_path) / "DEMO-42").mkdir()                       # stray folder, no note.md
+    with pytest.raises(FileExistsError):
+        pn.create(projects(tmp_path), work, "", "", NOW)
+    assert notes.find_archived(projects(tmp_path), "DEMO-42")      # still safe in the Archive
+
+
 # ---------- archive check: folders that left work_jira ----------
 
 def test_archive_gone_archives_only_work_jira_cards_whose_folder_left(tmp_path):
@@ -269,6 +297,46 @@ def test_archive_gone_does_nothing_when_work_jira_is_missing_or_empty(tmp_path, 
     assert notes.find_project(projects(tmp_path), "DEMO-1")
 
 
+def test_archive_gone_leaves_a_card_you_restored_by_hand(tmp_path):
+    wj = tmp_path / "work_jira"
+    work_project(tmp_path, "DEMO-1")
+    gone = work_project(tmp_path, "DEMO-2")
+    pn.create(projects(tmp_path), gone, "", "", NOW)
+    os.rename(gone, tmp_path / "prod_DEMO-2")
+    assert pn.archive_gone(projects(tmp_path), wj, NOW) == ["DEMO-2"]
+    notes.restore_project(projects(tmp_path), notes.find_archived(projects(tmp_path), "DEMO-2"), NOW)  # Restore button
+    assert pn.archive_gone(projects(tmp_path), wj, NOW) == []
+    assert notes.find_project(projects(tmp_path), "DEMO-2")
+
+
+def test_archive_gone_again_after_a_hand_restore_once_the_folder_was_worked_on(tmp_path):
+    wj = tmp_path / "work_jira"
+    work_project(tmp_path, "DEMO-1")
+    gone = work_project(tmp_path, "DEMO-2")
+    pn.create(projects(tmp_path), gone, "", "", NOW)
+    os.rename(gone, tmp_path / "prod_DEMO-2")
+    pn.archive_gone(projects(tmp_path), wj, NOW)
+    notes.restore_project(projects(tmp_path), notes.find_archived(projects(tmp_path), "DEMO-2"), NOW)  # Restore button
+    os.rename(tmp_path / "prod_DEMO-2", gone)                       # back, and Claude works in it
+    (gone / "tracking_log.md").write_text(LOG.replace("M1 ticked, 4 tests green.", "Hotfix done."), encoding="utf-8")
+    pn.sync(projects(tmp_path), gone, NOW)
+    os.rename(gone, tmp_path / "prod_DEMO-2")                        # and to prod again
+    assert pn.archive_gone(projects(tmp_path), wj, NOW) == ["DEMO-2"]
+
+
+def test_archive_gone_again_after_the_folder_came_back_and_left_again(tmp_path):
+    wj = tmp_path / "work_jira"
+    work_project(tmp_path, "DEMO-1")
+    gone = work_project(tmp_path, "DEMO-2")
+    pn.create(projects(tmp_path), gone, "", "", NOW)
+    os.rename(gone, tmp_path / "prod_DEMO-2")
+    pn.archive_gone(projects(tmp_path), wj, NOW)
+    os.rename(tmp_path / "prod_DEMO-2", gone)                       # back from prod
+    pn.create(projects(tmp_path), gone, "", "", NOW)                 # what the Stop hook does
+    os.rename(gone, tmp_path / "prod_DEMO-2")                        # and to prod again
+    assert pn.archive_gone(projects(tmp_path), wj, NOW) == ["DEMO-2"]
+
+
 def test_archive_gone_compares_names_ignoring_case(tmp_path):
     work = work_project(tmp_path, "demo-1")
     pn.create(projects(tmp_path), work, "", "", NOW)
@@ -299,9 +367,13 @@ def test_command_create_then_sync(tmp_path, capsys):
     (["create", "NOPE-1"], "No folder NOPE-1 in"),
     (["sync", "DEMO-42"], "no dashboard card"),
     (["create", "../x"], "No folder"),
+    (["create", "_templates"], "not a project folder"),
+    (["create", "_archive"], "not a project folder"),
 ])
 def test_command_errors_are_plain_english(tmp_path, capsys, args, says):
     work_project(tmp_path)
+    (tmp_path / "work_jira" / "_templates").mkdir()
+    (tmp_path / "work_jira" / "_archive").mkdir()
     assert pn.main(args, settings_ini(tmp_path), NOW) == 1
     assert says in capsys.readouterr().err
 
@@ -309,6 +381,25 @@ def test_command_errors_are_plain_english(tmp_path, capsys, args, says):
 def test_command_without_work_jira_folder_setting_says_what_to_add(tmp_path, capsys):
     assert pn.main(["sync", "DEMO-42"], settings_ini(tmp_path, work_jira=False), NOW) == 1
     assert "work_jira_folder=" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["", "missing"])
+def test_command_with_a_bad_projects_folder_says_what_to_fix(tmp_path, capsys, value, monkeypatch):
+    work = work_project(tmp_path)
+    ini = tmp_path / "settings.ini"
+    ini.write_text(f"projects_folder={'' if value == '' else tmp_path / 'nope'}\n"
+                   f"work_jira_folder={tmp_path / 'work_jira'}\n", encoding="utf-8")
+    monkeypatch.chdir(work)                                          # where Claude runs it
+    assert pn.main(["create", "DEMO-42"], ini, NOW) == 1
+    assert "projects_folder=" in capsys.readouterr().err
+    assert not (work / "DEMO-42").exists()
+
+
+def test_is_project_folder(tmp_path):
+    for name in ["DEMO-1", "_templates", ".claude"]:
+        (tmp_path / name).mkdir()
+    (tmp_path / "CLAUDE.md").write_text("x", encoding="utf-8")
+    assert sorted(f.name for f in tmp_path.iterdir() if pn.is_project_folder(f)) == ["DEMO-1"]
 
 
 # ---------- slice 3: the app's + New project makes the work_jira folder ----------
