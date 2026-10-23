@@ -108,7 +108,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     def api_new_project():
         """+ New project. JSON {id, title, status, work, description, created_by}.
 
-        The ID is cleaned ("my idea" -> "my_idea") and becomes the folder.
+        The ID is cleaned ("my idea" -> "my_idea"; work "abc-123" -> "ABC-123") and becomes the folder.
         work = true: also make work_jira\\<ID>\\ with a ticket.md, and mark the card as following it.
         """
         data = request.get_json(silent=True)
@@ -120,6 +120,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         if status not in CHOICES["status"]:
             return jsonify(error=f"Unknown status: {status}."), 400
         work = data.get("work") is True
+        if work and notes.TICKET_ID.fullmatch(project_id.upper()):
+            project_id = project_id.upper()     # work "vzwdac-123" = Jira key VZWDAC-123 (card, folders, jira:)
         if work and not work_jira_folder:
             return jsonify(error="To make a work project, add work_jira_folder= to settings.ini and restart the app. "
                                  "For a personal idea, untick Work project."), 400

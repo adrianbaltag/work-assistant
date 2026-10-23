@@ -478,6 +478,18 @@ def test_new_work_project_also_makes_the_work_jira_folder(tmp_path, work_client)
     assert (card["source"], card["folder"]) == ("work_jira", str(tmp_path / "work_jira" / "ABC-123"))
 
 
+def test_new_work_project_with_a_lowercase_ticket_id_uses_capitals_everywhere(tmp_path, work_client):
+    response = work_client.post("/api/projects", json={"id": "abc-123", "title": "Alarms", "status": "active",
+                                                       "work": True})
+    assert response.json == {"id": "ABC-123"}
+    assert [f.name for f in (tmp_path / "work_jira").iterdir()] == ["ABC-123"]
+    assert work_client.get("/api/projects/ABC-123").json["project"]["jira"] == "ABC-123"
+
+
+def test_new_personal_project_name_is_never_capitalised(work_client):
+    assert work_client.post("/api/projects", json={"id": "phase-2", "status": "idea"}).json == {"id": "phase-2"}
+
+
 def test_new_personal_project_stays_out_of_work_jira(tmp_path, work_client):
     work_client.post("/api/projects", json={"id": "my idea", "status": "idea", "work": False})
     assert list((tmp_path / "work_jira").iterdir()) == []
