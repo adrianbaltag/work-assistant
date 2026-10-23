@@ -8,12 +8,14 @@ Each project is a folder (named after its ticket ID) holding a note.md:
     ---
     # Notes ...
 """
+import configparser
 import os
 import re
 import shutil
 from datetime import datetime
 from pathlib import Path
 
+SETTINGS_FILE = Path(__file__).parent / "settings.ini"
 NOTE_FILE = "note.md"
 ARCHIVE_FOLDER = "_archive"     # archived projects, inside the projects folder
 FILE_ARCHIVE = "archive"        # archived files, inside one project folder
@@ -26,6 +28,21 @@ FILE_DIRS = ("sessions", "raw")    # the only sub-folders the card shows and edi
 UPLOAD_DIR = "raw"
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 TEXT_LIMIT = 1_000_000          # bigger text files are not opened in the editor (the page would hang)
+
+
+def load_settings(path=SETTINGS_FILE):
+    """Read key=value lines from settings.ini into a dict.
+
+    The file has no [section] header, so we add one before parsing.
+    Raw mode: backslashes and % in paths/URLs are kept as typed.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise SystemExit(f"{path} not found. Copy settings.ini.example to "
+                         "settings.ini and set projects_folder= to your notes folder.")
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string("[settings]\n" + path.read_text(encoding="utf-8-sig"))
+    return dict(parser["settings"])
 
 
 def parse_note(text):
@@ -373,7 +390,7 @@ def mark(folder, status, said, now):
     note.write_text(add_history(text, said, now.strftime("%Y-%m-%d")), encoding="utf-8")
 
 
-def archive_project(projects_folder, folder, now):
+def archive_project(projects_folder, folder, now, said="Marked done and archived"):
     """"Mark done & archive": move the whole project folder into _archive, then mark it done.
 
     Moved first, so a locked folder (a file open in Excel on Windows) changes nothing at all.
@@ -382,13 +399,16 @@ def archive_project(projects_folder, folder, now):
     archive.mkdir(exist_ok=True)
     target = free_name(archive, Path(folder).name, now, folder=True)
     os.rename(folder, target)
-    mark(target, "done", "Marked done and archived", now)
+    mark(target, "done", said, now)
     return target
 
 
-def restore_project(projects_folder, archived, now):
-    """Move an archived project back to the projects folder as active. Returns its (maybe suffixed) ID."""
-    target = free_name(projects_folder, Path(archived).name, now, folder=True)
+def restore_project(projects_folder, archived, now, name=None):
+    """Move an archived project back to the projects folder as active. Returns its (maybe suffixed) ID.
+
+    name: the ID to restore it as (e.g. without the archive's time suffix). Default = its archived name.
+    """
+    target = free_name(projects_folder, name or Path(archived).name, now, folder=True)
     os.rename(archived, target)
     mark(target, "active", "Restored from archive", now)
     return target.name
