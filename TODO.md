@@ -43,3 +43,7 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   Fix idea: rename the folder to capitals, or fill `jira:` with the uppercased name on import.
 - **Import and Stop each hold a copy of the "archived by you vs moved to prod" rule**
   (`import_missing`, `stop`). If one changes, change both, or move it into one helper.
+- **Stop hook's "update tracking_log.md" shows as "Stop hook error".** Office test 2026-10-23: the
+  block works (Claude adds the line, asks once), but CC 2.1.267 labels any exit-2 message "error".
+  Nothing is wrong. Fix idea if it confuses colleagues: Stop JSON `{"decision": "block", "reason": ...}`
+  instead of exit 2 (check the docs first for how that one is labelled).

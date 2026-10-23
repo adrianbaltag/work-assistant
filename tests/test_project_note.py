@@ -127,6 +127,45 @@ def test_read_tracking_log_last_update_keeps_every_line_of_the_newest_day():
         "2026-10-22 — one.", "2026-10-22 — two."]
 
 
+# ---------- reading milestones from requirements.md ----------
+
+REQUIREMENTS = """# DEMO-42 — Requirements
+
+<!-- - [ ] M9 — a commented-out line is not a milestone -->
+## Milestones
+- [ ] M<n> — <what it delivers> · Done when: <proof>
+- [x] M1 — read the alarm file · Done when: test_read_alarms passes
+- [X] M2 — parse it · Done when: user check — numbers match Spyder
+- [ ] M3a — email the report · Done when: test_email passes
+* [ ] M3b — schedule it · Done when: user check — it runs at 6:00
+- [x] Mx — not a milestone ID
+  - [ ] m4 — written in lower case · Done when: user check — ok
+"""
+
+
+def test_read_milestones_in_file_order_with_ticked_or_not():
+    assert pn.read_milestones(REQUIREMENTS) == {"M1": True, "M2": True, "M3a": False, "M3b": False, "M4": False}
+
+
+def test_template_lines_with_placeholders_are_not_milestones():
+    assert pn.read_milestones("- [ ] M1 — <what it delivers> · Done when: <proof>\n") == {}
+    assert pn.read_milestones("none yet — waiting for approval\n") == {}
+
+
+def test_milestone_lines_written_a_little_differently_still_count():
+    text = ("- [x] **M1** — bold ID\n- [x] M3A — capital letter\n"
+            "- [x] M4 — latency < 5 ms and > 2 ms · Done when: test_latency passes\n")
+    assert pn.read_milestones(text) == {"M1": True, "M3a": True, "M4": True}
+
+
+def test_milestones_in_a_folder_without_requirements_md_is_empty(tmp_path):
+    assert pn.folder_milestones(tmp_path) == {}
+    (tmp_path / "requirements.md").write_text("﻿" + REQUIREMENTS, encoding="utf-8")   # Notepad adds a BOM
+    assert pn.folder_milestones(tmp_path)["M1"] is True
+    (tmp_path / "requirements.md").write_bytes("- [x] M1 — caf\u00e9 \u2013 a\n".encode("cp1252"))  # saved as ANSI
+    assert pn.folder_milestones(tmp_path) == {"M1": True}
+
+
 # ---------- which work_jira folder is a project ----------
 
 def test_work_project_is_the_folder_right_under_work_jira(tmp_path):

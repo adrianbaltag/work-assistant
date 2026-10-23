@@ -313,10 +313,15 @@ With this set up, the dashboard follows that work by itself:
 | When | What happens | Tokens? |
 |---|---|---|
 | You click **+ New project** with the box **Work project** ticked | The app makes the card and `work_jira\<ID>\`, with your Jira description and "Created by" in `ticket.md`. If that folder already exists, the app leaves it as it was and tells you for 5 seconds that the description was not saved. | none |
-| You open a new project folder in VS Code and start Claude | A hook tells Claude to set the folder up from `work_jira\_templates`, read `ticket.md`, then run clear-requirements and grill-me. | Claude's normal work |
+| You open a new project folder in VS Code and start Claude | A hook tells Claude to set the folder up from `work_jira\_templates` and read `ticket.md`, then stop and tell you to start a new session. clear-requirements and grill-me come in that new session. | Claude's normal work |
+| You start Claude in a project whose `requirements.md` has no milestones yet (and it is not PENDING) | A hook tells Claude to ask you whether to run clear-requirements (then grill-me) to write them. | a few |
 | A folder in `work_jira` has no card (an older folder, or one you made by hand) | The next time Claude Code starts, a hook makes a card, named after the folder. If the folder has a `tracking_log.md`, the card is filled from it at once; if not, it fills in once Claude works in that folder. Type a better name on the card any time: the sync never changes it. | none |
 | The folder has a `tracking_log.md` but still no card (rare: the start-up hook could not make it) | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
 | Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. | none |
+| You send any message to Claude, in any folder | A hook reminds Claude: when you must do something, give you ONE step, then wait for your result. | ~25 per message |
+| Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: `/code-review low` for code, update `tracking_log.md`, Phase, tell you what's next, then stop. Every later message in that session reminds Claude: one milestone per session, start a new session. | ~80 once, then ~40 per message |
+| Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
+| You close the session | A hook deletes the session's small notepad file in the project's `.claude` folder (it remembers which milestones were ticked when the session started). Left-over notepads older than 2 days are deleted at a later start. | none |
 | You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Archive page. **Restore** brings it back. | none |
 
 Only cards made this way (they have `source: work_jira`) are ever archived by the hook. Your other
@@ -372,6 +377,22 @@ If you already have a `"permissions"` part with an `"allow"` list, add the two l
       { "hooks": [ { "type": "command", "timeout": 30,
           "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
           "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-start"] } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "timeout": 30,
+          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
+          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "prompt"] } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit",
+        "hooks": [ { "type": "command", "timeout": 30,
+          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
+          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "after-edit"] } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "timeout": 10,
+          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
+          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-end"] } ] }
     ]
   },
   "permissions": {
@@ -392,7 +413,13 @@ What each part does:
   `"command": "python work_jira_hooks.py stop"`? That goes through a shell, and on Windows the
   shell may not be the one you expect.
 - `Stop` runs after every Claude reply. `SessionStart` runs when a Claude session starts.
-  Both finish in well under a second and send nothing over the network.
+  `UserPromptSubmit` runs when you send a message. `PostToolUse` runs after Claude edits or writes
+  a file; the `"matcher"` limits it to those tools, so it never runs after a search or a command.
+  `SessionEnd` runs when the session closes. All of them finish in well under a second and send
+  nothing over the network.
+- Why `"timeout": 10` on `SessionEnd`? Claude Code gives that hook only 1.5 seconds unless you
+  give it more, and Python can be slow to start on Windows. If it still doesn't run (the window
+  was closed hard), the 2-day clean-up at a later start deletes the notepad.
 - The two `allow` lines let Claude run `project_note.py` without asking you each time. There is
   one for PowerShell and one for Git Bash, because Claude Code on Windows can use either.
   If Claude still asks, it typed the command a little differently: answer Yes.
@@ -412,12 +439,16 @@ one project folder, Claude Code no longer reads the settings inside `work_jira\.
   If a hook asks, run the project_note.py command it gives you.
 ```
 
+Then add the milestone rules: copy the block from `work_jira_rules.md` (in the work-assistant folder)
+into `work_jira\CLAUDE.md`, in place of the old "End of milestone" sentence.
+
 **6. Trust the folder once.** Open `work_jira` in VS Code and start Claude. When Claude Code asks
 whether you trust this folder, say yes. Hooks only run in trusted folders, and trusting `work_jira`
 covers the project folders inside it.
 
-**7. Check it.** In the Claude panel type `/hooks`. You should see one `Stop` and one `SessionStart`
-hook, both running `work_jira_hooks.py`.
+**7. Check it.** Close Claude and start it again (hooks are read when a session starts). In the
+Claude panel type `/hooks`. You should see five hooks: `Stop`, `SessionStart`, `UserPromptSubmit`,
+`PostToolUse` and `SessionEnd`, all running `work_jira_hooks.py`.
 
 ### The tracking_log.md headings the hooks read
 
