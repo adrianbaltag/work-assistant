@@ -34,7 +34,7 @@ def settings_ini(tmp_path, settings):
 
 
 def stop(settings, cwd, active=False):
-    return hooks.stop({"cwd": str(cwd), "stop_hook_active": active}, settings, NOW)
+    return hooks.stop({"cwd": str(cwd), "stop_hook_active": active, "session_id": SESSION}, settings, NOW)
 
 
 # ---------- Stop hook ----------
@@ -209,6 +209,7 @@ def test_session_start_in_an_old_folder_builds_missing_md_without_grilling(tmp_p
 def test_session_start_in_a_set_up_folder_or_elsewhere_says_nothing(tmp_path):
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path)
+    (work / "requirements.md").write_text("- [ ] M1 — demo · Done when: test_demo passes\n", encoding="utf-8")
     pn.create(projects, work, "", "", NOW)
     assert start(settings, work) == ("", "")
     assert start(settings, tmp_path) == ("", "")
@@ -263,3 +264,283 @@ def test_main_problems_never_block_claude(tmp_path, capsys):
     assert hooks.main(["stop"], stdin, tmp_path / "missing.ini", NOW) == 1      # exit 1 = shown, not blocking
     assert "settings.ini" in capsys.readouterr().err
     assert hooks.main(["stop"], io.StringIO("not json"), write_ini(tmp_path, setup(tmp_path)[0]), NOW) == 0
+
+
+# ---------- milestone guard: one milestone per session ----------
+
+SESSION = "demo-session-1"
+REQS = """## Milestones
+- [ ] M<n> — <what it delivers> · Done when: <proof>
+- [x] M1 — read the file · Done when: test_read passes
+- [ ] M2 — parse the alarm file · Done when: test_parse passes
+- [ ] M3 — email the report · Done when: user check — report arrives
+"""
+
+
+def ticket(tmp_path, reqs=REQS, log=LOG):
+    """A set-up work_jira ticket with requirements.md (M1 ticked, M2 next) and a card."""
+    settings, projects = setup(tmp_path)
+    work = work_project(tmp_path, log=log)
+    if reqs is not None:
+        (work / "requirements.md").write_text(reqs, encoding="utf-8")
+    pn.create(projects, work, "", "", NOW)
+    return settings, work
+
+
+def begin(settings, work, source="startup", session=SESSION):
+    return hooks.session_start({"cwd": str(work), "source": source, "session_id": session}, settings, NOW)
+
+
+def tick(work, milestone="M2"):
+    reqs = work / "requirements.md"
+    reqs.write_text(reqs.read_text(encoding="utf-8").replace(f"- [ ] {milestone} ", f"- [x] {milestone} "),
+                    encoding="utf-8")
+    return reqs
+
+
+def edited(path, session=SESSION):
+    return hooks.after_edit({"session_id": session, "cwd": str(path.parent),
+                             "tool_name": "Edit", "tool_input": {"file_path": str(path)}}, NOW)
+
+
+def notepad(work, session=SESSION):
+    return work / ".claude" / f"milestone-{session}.json"
+
+
+def test_session_start_writes_a_notepad_of_what_is_ticked_now(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    assert json.loads(notepad(work).read_text(encoding="utf-8"))["ticked"] == ["M1"]
+
+
+def test_session_start_after_compact_or_resume_keeps_the_notepad(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    tick(work)
+    for source in ("compact", "resume"):
+        begin(settings, work, source)
+        assert json.loads(notepad(work).read_text(encoding="utf-8"))["ticked"] == ["M1"]
+    begin(settings, work, "clear")                       # /clear = a fresh start
+    assert json.loads(notepad(work).read_text(encoding="utf-8"))["ticked"] == ["M1", "M2"]
+
+
+def test_session_start_deletes_notepads_older_than_two_days(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work, session="old")
+    begin(settings, work, session="yesterday")
+    age(notepad(work, "old"), 3 * 24 * 3600)
+    age(notepad(work, "yesterday"), 24 * 3600)
+    begin(settings, work)
+    assert not notepad(work, "old").exists() and notepad(work, "yesterday").exists() and notepad(work).exists()
+
+
+def test_session_start_without_a_session_id_or_outside_a_ticket_writes_no_notepad(tmp_path):
+    settings, work = ticket(tmp_path)
+    hooks.session_start({"cwd": str(work), "source": "startup"}, settings, NOW)
+    begin(settings, tmp_path)
+    assert not (work / ".claude").exists() and not (tmp_path / ".claude").exists()
+
+
+def test_session_start_in_a_ticket_without_real_milestones_asks_about_clear_requirements(tmp_path):
+    settings, work = ticket(tmp_path, reqs="## Milestones\n- [ ] M<n> — <what> · Done when: <proof>\n")
+    context, _ = begin(settings, work)
+    assert "no milestones" in context and "ask the user" in context and "clear-requirements" in context
+    (tmp_path / "b").mkdir()
+    settings, work = ticket(tmp_path / "b", reqs=None)
+    assert "clear-requirements" in begin(settings, work)[0]
+
+
+def test_session_start_in_a_paused_ticket_without_milestones_says_nothing(tmp_path):
+    settings, work = ticket(tmp_path, reqs="none yet — waiting for approval\n",
+                            log=LOG.replace("M2 — parse the alarm file", "PENDING (user, 2026-10-22): waiting."))
+    assert begin(settings, work) == ("", "")
+
+
+def test_session_start_in_a_new_folder_says_setup_only_then_a_new_session(tmp_path):
+    settings, projects = setup(tmp_path)
+    work = work_project(tmp_path, log=None, files=["ticket.md"])
+    context, _ = begin(settings, work)
+    assert "_templates" in context and "ticket.md" in context
+    assert "new session" in context and "Only set up" in context
+
+
+def test_editing_another_file_says_nothing(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    assert edited(work / "tracking_log.md") == ""
+    assert edited(work / "src" / "requirements.md") == ""       # not the ticket's own requirements.md
+
+
+def test_ticking_a_milestone_gives_claude_the_checklist_once(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    message = edited(tick(work))
+    assert "M2 ticked" in message and "/code-review low" in message
+    assert "## Last update" in message and "2026-10-23 — M2 ticked" in message
+    assert "Phase" in message and "STOP" in message and "do not start the next one" in message
+    assert edited(work / "requirements.md") == ""              # told once, not on every later edit
+
+
+def test_an_edit_without_a_new_tick_says_nothing(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    assert edited(work / "requirements.md") == ""               # M1 was ticked before the session
+
+
+def test_no_notepad_means_no_milestone_checks(tmp_path):
+    settings, work = ticket(tmp_path)
+    tick(work)
+    assert edited(work / "requirements.md") == ""
+    assert hooks.prompt({"session_id": SESSION, "cwd": str(work)}) == hooks.ONE_STEP
+    assert stop(settings, work) == (0, "")
+
+
+def test_every_prompt_gets_the_one_step_reminder_anywhere():
+    assert hooks.prompt({}) == hooks.ONE_STEP
+    assert "ONE step" in hooks.ONE_STEP and "wait" in hooks.ONE_STEP
+
+
+def test_after_a_tick_every_prompt_also_says_start_a_new_session(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    assert hooks.prompt({"session_id": SESSION, "cwd": str(work / "tests")}) == hooks.ONE_STEP
+    tick(work)
+    said = hooks.prompt({"session_id": SESSION, "cwd": str(work / "tests")})
+    assert said.startswith(hooks.ONE_STEP) and "M2" in said and "new session" in said
+
+
+def test_stop_after_a_tick_asks_once_for_the_tracking_log_update(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    tick(work)
+    code, message = stop(settings, work)
+    assert code == 2 and "2026-10-23 — M2 ticked" in message
+    assert "## Now working on still names M2" in message and "M3" in message
+    assert stop(settings, work, active=True) == (0, "")
+
+
+def test_stop_is_quiet_once_the_tracking_log_is_updated(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    tick(work)
+    (work / "tracking_log.md").write_text(
+        LOG.replace("M2 — parse the alarm file\nand write its tests.", "M3 — email the report")
+           .replace("2026-10-22 — M1 ticked, 4 tests green.", "2026-10-23 — M2 ticked, test_parse passes."),
+        encoding="utf-8")
+    assert stop(settings, work) == (0, "")
+
+
+def test_stop_names_only_what_is_still_missing(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    tick(work)
+    (work / "tracking_log.md").write_text(LOG.replace("2026-10-22 — M1", "2026-10-23 — M2"), encoding="utf-8")
+    code, message = stop(settings, work)
+    assert code == 2 and "Now working on still names M2" in message and "## Last update" not in message
+
+
+def test_session_end_deletes_this_sessions_notepad_only(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    begin(settings, work, session="other")
+    hooks.session_end({"session_id": SESSION, "cwd": str(work / "tests"), "reason": "prompt_input_exit"})
+    assert not notepad(work).exists() and notepad(work, "other").exists()
+    hooks.session_end({"session_id": "never-started", "cwd": str(work)})       # nothing to delete: no error
+
+
+def test_a_session_id_cannot_point_outside_the_claude_folder(tmp_path):
+    assert hooks.notepad_file(tmp_path, "../../evil") is None
+    assert hooks.notepad_file(tmp_path, "") is None
+
+
+def test_main_prompt_prints_context_json_even_without_settings(tmp_path, capsys):
+    stdin = io.StringIO(json.dumps({"session_id": SESSION, "cwd": str(tmp_path)}))
+    assert hooks.main(["prompt"], stdin, tmp_path / "missing.ini", NOW) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"] == {"hookEventName": "UserPromptSubmit", "additionalContext": hooks.ONE_STEP}
+    assert hooks.main(["prompt"], io.StringIO("not json"), tmp_path / "missing.ini", NOW) == 0
+
+
+def test_main_after_edit_prints_context_json_only_after_a_tick(tmp_path, capsys):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    event = {"session_id": SESSION, "cwd": str(work), "tool_name": "Edit",
+             "tool_input": {"file_path": str(work / "requirements.md")}}
+    assert hooks.main(["after-edit"], io.StringIO(json.dumps(event)), tmp_path / "missing.ini", NOW) == 0
+    assert capsys.readouterr().out == ""
+    tick(work)
+    assert hooks.main(["after-edit"], io.StringIO(json.dumps(event)), tmp_path / "missing.ini", NOW) == 0
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PostToolUse" and "M2 ticked" in out["additionalContext"]
+
+
+def test_main_session_end_exits_0(tmp_path):
+    stdin = io.StringIO(json.dumps({"session_id": SESSION, "cwd": str(tmp_path)}))
+    assert hooks.main(["session-end"], stdin, tmp_path / "missing.ini", NOW) == 0
+
+
+def test_a_session_that_writes_requirements_md_has_no_milestone_checks(tmp_path):
+    settings, work = ticket(tmp_path, reqs=None)
+    begin(settings, work)
+    assert not notepad(work).exists()
+    (work / "requirements.md").write_text(REQS.replace("- [ ] M2", "- [x] M2"), encoding="utf-8")
+    assert edited(work / "requirements.md") == ""
+
+
+def test_now_working_on_counts_only_when_it_starts_with_the_ticked_milestone(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    tick(work)
+    (work / "tracking_log.md").write_text(
+        LOG.replace("M2 — parse the alarm file\nand write its tests.", "M3 — extend the M2 parser")
+           .replace("2026-10-22 — M1 ticked", "2026-10-23 — M2 ticked"), encoding="utf-8")
+    assert stop(settings, work) == (0, "")
+
+
+def test_todays_line_must_name_the_ticked_milestone(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    tick(work)
+    (work / "tracking_log.md").write_text(
+        LOG.replace("M2 — parse the alarm file", "M3 — email the report")
+           .replace("2026-10-22 — M1 ticked, 4 tests green.", "2026-10-23 — started M2 this morning, then M3 prep."),
+        encoding="utf-8")
+    code, message = stop(settings, work)
+    assert code == 2 and "2026-10-23 — M2 ticked" in message
+
+
+def test_stop_asks_about_each_milestone_once_per_session(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    tick(work)
+    assert stop(settings, work)[0] == 2
+    assert stop(settings, work) == (0, "")              # a later reply, log still not updated: not asked again
+    tick(work, "M3")
+    code, message = stop(settings, work)
+    assert code == 2 and "M3" in message and "M2" not in message.split(":")[0]
+
+
+def test_a_locked_old_notepad_does_not_stop_this_sessions_notepad(tmp_path):
+    settings, work = ticket(tmp_path)
+    stuck = work / ".claude" / "milestone-stuck.json"
+    stuck.mkdir(parents=True)                            # can't be deleted like a file (like a locked file)
+    age(stuck, 3 * 24 * 3600)
+    begin(settings, work)
+    assert notepad(work).exists()
+
+
+def test_each_prompt_keeps_a_long_session_notepad_fresh(tmp_path):
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    age(notepad(work), 3 * 24 * 3600)
+    hooks.prompt({"session_id": SESSION, "cwd": str(work)})
+    begin(settings, work, session="second-window")
+    assert notepad(work).exists()
+
+
+def test_a_milestone_hook_problem_says_what_to_do(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(hooks, "find_notepad", lambda *a: (_ for _ in ()).throw(OSError("locked")))
+    stdin = io.StringIO(json.dumps({"session_id": SESSION, "cwd": str(tmp_path)}))
+    assert hooks.main(["prompt"], stdin, tmp_path / "missing.ini", NOW) == 0
+    out = capsys.readouterr()
+    assert hooks.ONE_STEP in out.out and "close" in out.err and "milestone-" in out.err

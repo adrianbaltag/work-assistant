@@ -21,6 +21,7 @@ from pathlib import Path
 import notes
 
 TRACKING_LOG = "tracking_log.md"
+REQUIREMENTS = "requirements.md"     # its "- [x] M1 — ..." lines are the milestones (the hooks check them)
 SOURCE = "work_jira"        # source: work_jira = this card follows a work_jira folder (and may be auto-archived)
 WHO = "Claude"
 MOVED_TO_PROD = "Folder left work_jira (moved to prod): archived automatically"
@@ -87,6 +88,33 @@ def last_update(text, now):
         return None
     match = re.match(r"(\d{4}-\d{2}-\d{2})\s*[—–-]+\s*(.*)", text)
     return match.groups() if match else (None, text)
+
+
+# ---------- reading milestones from requirements.md ----------
+
+def read_milestones(text):
+    """{"M1": True, "M3a": False, ...}: each milestone line in requirements.md, in file order, True = ticked.
+
+    A milestone line is "- [x] M<number><optional letter> ..." (the ID may be **bold**). Lines with
+    <placeholders> are the template, not a real milestone ("< 5 ms" is not a placeholder: it starts
+    with a space). Commented-out lines don't count.
+    """
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    found = {}
+    for line in text.splitlines():
+        match = re.match(r"\s*[-*]\s+\[([ xX])\]\s+(?:\*\*)?[Mm](\d+[A-Za-z]?)\b", line)
+        if match and not re.search(r"<[^\s<>][^<>]*>", line):
+            found["M" + match.group(2).lower()] = match.group(1) != " "
+    return found
+
+
+def folder_milestones(work_folder):
+    """read_milestones of the folder's requirements.md; {} when there is none yet.
+
+    Odd characters (a file saved as ANSI by Notepad) are replaced, never an error: only the M-lines matter.
+    """
+    file = Path(work_folder) / REQUIREMENTS
+    return read_milestones(file.read_text(encoding="utf-8-sig", errors="replace")) if file.is_file() else {}
 
 
 # ---------- which folder is a work_jira project ----------
