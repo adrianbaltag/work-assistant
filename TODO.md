@@ -31,3 +31,10 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   `validate_settings()` in app.py that both use.
 - **Unverified Slack button labels in README.** "Generate Token and Scopes" and "Request to Install"
   were written from memory: check them the next time an app is made (office).
+
+## work_jira sync
+
+- **Archive message not seen in VS Code.** Office test 2026-10-23: the SessionStart hook archived
+  TEST-1 correctly, but "Dashboard: moved ... to the Archive page" never showed in the VS Code
+  Claude chat. Likely the extension doesn't display hook `systemMessage`. Check in the terminal CLI
+  before changing anything.
