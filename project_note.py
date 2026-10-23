@@ -8,7 +8,7 @@ Work Claude runs it (when a hook asks), and the hooks in work_jira_hooks.py call
 Each work_jira project folder has a tracking_log.md with three sections:
     ## Now working on   -> status (PENDING ... = pending + blocked_by)
     ## Next up          -> next:
-    ## Last update      -> one "date · Claude · text" history line
+    ## Last update      -> "date · Claude · text" history line(s) from the newest-dated line(s)
 Paths come from settings.ini: projects_folder= and work_jira_folder=.
 """
 import argparse
@@ -42,10 +42,11 @@ class NoCard(Exception):
 # ---------- reading tracking_log.md ----------
 
 def read_tracking_log(text):
-    """The three sections of tracking_log.md as one-line texts: {"now": ..., "next": ..., "last": ...}.
+    """The sections of tracking_log.md: {"now": one line, "next": one line, "last": [lines]}.
 
     Only "# " and "## " lines are headings: "### Phase 2" or "#42 needs review" are part of the section.
-    "last" is the first line only (the newest entry, if someone kept older ones below it).
+    "last" = the line(s) with the newest "YYYY-MM-DD — " date, wherever they are in the section
+    (Claude may add new entries at the top or the bottom). No dated line = the first line. Empty = [].
     """
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)       # the rules comment at the top is not content
     found, key = {}, None
@@ -61,7 +62,10 @@ def read_tracking_log(text):
         raise SyncError(f"tracking_log.md has no {', '.join(missing)} heading. "
                         "Put the headings back (as in _templates), then run project_note.py sync again.")
     log = {k: " ".join(part for part in lines if part) for k, lines in found.items()}
-    log["last"] = next((part for part in found["last"] if part), "")
+    lines = [part for part in found["last"] if part]
+    dates = [last_update(part, None)[0] for part in lines]
+    newest = max((d for d in dates if d), default=None)          # "YYYY-MM-DD" sorts like a date
+    log["last"] = [part for part, d in zip(lines, dates) if d == newest] if newest else lines[:1]
     return log
 
 
@@ -129,9 +133,10 @@ def sync(projects_folder, work_folder, now):
     status, blocked_by = status_from(log["now"])
     text = notes.set_fields(text, {"next": log["next"], "status": status, "blocked_by": blocked_by,
                                    "source": SOURCE, "folder": str(work_folder)})
-    entry = last_update(log["last"], now)
-    if entry and not already_in_history(text, *entry):
-        text = notes.add_history(text, entry[1], entry[0] or now.strftime("%Y-%m-%d"), who=WHO)
+    for line in reversed(log["last"]):        # each goes on top, so reversed keeps tracking_log's order
+        entry = last_update(line, now)
+        if not already_in_history(text, *entry):
+            text = notes.add_history(text, entry[1], entry[0] or now.strftime("%Y-%m-%d"), who=WHO)
     note.write_text(text, encoding="utf-8")     # always written, so the card is now newer than the log
     return card
 

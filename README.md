@@ -431,6 +431,9 @@ What comes next, one or more lines.
 2026-10-22 — what was done
 ```
 
+Under *Last update*, the line with the newest date becomes the History line, whether it is at the
+top or the bottom. Several lines with that same date each become a History line (never twice).
+
 If a heading is missing, the Stop hook asks Claude once to put it back. You can also update a card
 by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
 

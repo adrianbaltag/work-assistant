@@ -71,12 +71,12 @@ def test_read_tracking_log_joins_each_section_into_one_line_and_skips_comments()
     log = pn.read_tracking_log(LOG)
     assert log == {"now": "M2 — parse the alarm file and write its tests.",
                    "next": "M3 — email the report, then run it in Spyder.",
-                   "last": "2026-10-22 — M1 ticked, 4 tests green."}
+                   "last": ["2026-10-22 — M1 ticked, 4 tests green."]}
 
 
 def test_read_tracking_log_headings_are_case_insensitive_and_sections_may_be_empty():
     log = pn.read_tracking_log("## NOW WORKING ON\n\n## next up\n\n## Last Update\n")
-    assert log == {"now": "", "next": "", "last": ""}
+    assert log == {"now": "", "next": "", "last": []}
 
 
 def test_read_tracking_log_missing_headings_is_a_plain_error():
@@ -106,9 +106,25 @@ def test_read_tracking_log_only_level_1_and_2_headings_end_a_section():
     assert log["next"] == "M3 — email the report, ### Phase 2 #42 needs review."
 
 
-def test_read_tracking_log_last_update_is_its_first_line_only():
-    log = pn.read_tracking_log(LOG.replace("4 tests green.\n", "4 tests green.\n2026-10-21 — older entry.\n"))
-    assert log["last"] == "2026-10-22 — M1 ticked, 4 tests green."
+def last_lines(*lines):
+    """LOG with these lines under ## Last update (instead of the one it has)."""
+    return pn.read_tracking_log(LOG.replace("2026-10-22 — M1 ticked, 4 tests green.\n", "\n".join(lines) + "\n"))["last"]
+
+
+def test_read_tracking_log_last_update_is_the_newest_dated_line_wherever_it_is():
+    assert last_lines("2026-10-22 — newer.", "2026-10-21 — older.") == ["2026-10-22 — newer."]   # newest on top
+    assert last_lines("2026-10-21 — older.", "2026-10-22 — newer.") == ["2026-10-22 — newer."]   # appended at bottom
+    assert last_lines("- 2026-10-21 — older.", "- 2026-10-22 — bullet.") == ["- 2026-10-22 — bullet."]
+    assert last_lines("no date here", "2026-10-21 — dated.") == ["2026-10-21 — dated."]       # a dated line wins
+
+
+def test_read_tracking_log_last_update_without_dates_is_the_first_line():
+    assert last_lines("first undated.", "second undated.") == ["first undated."]
+
+
+def test_read_tracking_log_last_update_keeps_every_line_of_the_newest_day():
+    assert last_lines("2026-10-22 — one.", "2026-10-21 — older.", "2026-10-22 — two.") == [
+        "2026-10-22 — one.", "2026-10-22 — two."]
 
 
 # ---------- which work_jira folder is a project ----------
@@ -177,6 +193,17 @@ def test_sync_adds_a_new_history_line_on_top_when_last_update_changes(tmp_path):
                                                       "2026-10-23 — M2 ticked."), encoding="utf-8")
     pn.sync(projects(tmp_path), work, NOW)
     assert [h["text"] for h in history_of(card)] == ["M2 ticked.", "M1 ticked, 4 tests green."]
+
+
+def test_sync_adds_every_line_of_the_newest_day_once_in_file_order(tmp_path):
+    work = work_project(tmp_path, log=LOG.replace("2026-10-22 — M1 ticked, 4 tests green.",
+                                                  "2026-10-23 — M2 ticked.\n2026-10-22 — M1 ticked.\n"
+                                                  "2026-10-23 — M3 started."))
+    card = notes.new_project(projects(tmp_path), "DEMO-42")
+    pn.sync(projects(tmp_path), work, NOW)
+    pn.sync(projects(tmp_path), work, NOW)
+    assert [(h["date"], h["text"]) for h in history_of(card)] == [
+        ("2026-10-23", "M2 ticked."), ("2026-10-23", "M3 started.")]
 
 
 def test_sync_keeps_body_and_unknown_fields(tmp_path):
