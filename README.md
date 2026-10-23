@@ -314,7 +314,8 @@ With this set up, the dashboard follows that work by itself:
 |---|---|---|
 | You click **+ New project** with the box **Work project** ticked | The app makes the card and `work_jira\<ID>\`, with your Jira description and "Created by" in `ticket.md`. If that folder already exists, the app leaves it as it was and tells you for 5 seconds that the description was not saved. | none |
 | You open a new project folder in VS Code and start Claude | A hook tells Claude to set the folder up from `work_jira\_templates`, read `ticket.md`, then run clear-requirements and grill-me. | Claude's normal work |
-| The folder has a `tracking_log.md` but no card yet | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
+| A folder in `work_jira` has no card (an older folder, or one you made by hand) | The next time Claude Code starts, a hook makes a card, named after the folder. If the folder has a `tracking_log.md`, the card is filled from it at once; if not, it fills in once Claude works in that folder. Type a better name on the card any time: the sync never changes it. | none |
+| The folder has a `tracking_log.md` but still no card (rare: the start-up hook could not make it) | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
 | Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. | none |
 | You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Archive page. **Restore** brings it back. | none |
 
@@ -325,6 +326,8 @@ cards and ideas are never touched. Nothing ever changes `priority`.
 - A card you archived yourself (**Mark done & archive**) stays archived, even if its folder is still there.
 - A card you bring back with **Restore** stays, even if its folder is gone. Once Claude works in that
   folder again, the normal rules apply again.
+- Every folder in `work_jira` has a card, on the Dashboard or on the Archive page. A card you delete by
+  hand comes back at the next start while its folder is still there: archive it instead, or move the folder out.
 
 > **Open the project folder, not the whole `work_jira`.** In VS Code: File → Open Folder →
 > `work_jira\ABC-123`. The hooks know the project from the folder you opened. If you open all of

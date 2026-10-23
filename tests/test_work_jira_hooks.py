@@ -167,9 +167,31 @@ def test_session_start_archives_cards_whose_folder_left(tmp_path):
     assert notes.find_archived(projects, "DEMO-2") and history_of(notes.find_archived(projects, "DEMO-2"))[0]["text"] == pn.MOVED_TO_PROD
 
 
+def test_session_start_adds_cards_for_folders_without_one(tmp_path):
+    settings, projects = setup(tmp_path)
+    work_project(tmp_path, "DEMO-1")
+    work_project(tmp_path, "boss_rpa", log=None, files=["note.md"])
+    context, for_user = start(settings, tmp_path)
+    assert for_user == "Dashboard: added cards for DEMO-1, boss_rpa (folders in work_jira)."
+    assert notes.find_project(projects, "DEMO-1") and notes.find_project(projects, "boss_rpa")
+    assert start(settings, tmp_path) == ("", "")                     # next time: nothing new to say
+
+
+def test_session_start_can_archive_and_add_in_one_go(tmp_path):
+    settings, projects = setup(tmp_path)
+    gone = work_project(tmp_path, "DEMO-2")
+    pn.create(projects, gone, "", "", NOW)
+    os.rename(gone, tmp_path / "prod")
+    work_project(tmp_path, "DEMO-3")
+    _, for_user = start(settings, tmp_path)
+    assert for_user == ("Dashboard: moved DEMO-2 to the Archive page (folder no longer in work_jira). "
+                        "Added cards for DEMO-3 (folders in work_jira).")
+
+
 def test_session_start_in_a_new_folder_asks_for_full_setup(tmp_path):
-    settings, _ = setup(tmp_path)
+    settings, projects = setup(tmp_path)
     work = work_project(tmp_path, log=None, files=["ticket.md"])
+    pn.create(projects, work, "Alarm update", "", NOW)           # + New project made the card and the folder
     context, for_user = start(settings, work)
     assert "new project folder" in context and "_templates" in context
     assert "ticket.md" in context and "clear-requirements" in context and "grill-me" in context
@@ -185,8 +207,9 @@ def test_session_start_in_an_old_folder_builds_missing_md_without_grilling(tmp_p
 
 
 def test_session_start_in_a_set_up_folder_or_elsewhere_says_nothing(tmp_path):
-    settings, _ = setup(tmp_path)
+    settings, projects = setup(tmp_path)
     work = work_project(tmp_path)
+    pn.create(projects, work, "", "", NOW)
     assert start(settings, work) == ("", "")
     assert start(settings, tmp_path) == ("", "")
 
@@ -208,14 +231,24 @@ def test_main_stop_block_goes_to_stderr_with_exit_2(tmp_path, capsys):
 
 
 def test_main_session_start_prints_hook_json(tmp_path, capsys):
-    settings, _ = setup(tmp_path)
+    settings, projects = setup(tmp_path)
     work = work_project(tmp_path, log=None)
+    pn.create(projects, work, "", "", NOW)
     stdin = io.StringIO(json.dumps({"cwd": str(work), "source": "startup"}))
     assert hooks.main(["session-start"], stdin, write_ini(tmp_path, settings), NOW) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     assert "new project folder" in out["hookSpecificOutput"]["additionalContext"]
     assert "systemMessage" not in out
+
+
+def test_main_session_start_tells_you_about_new_cards(tmp_path, capsys):
+    settings, _ = setup(tmp_path)
+    work_project(tmp_path, "DEMO-1")
+    stdin = io.StringIO(json.dumps({"cwd": str(tmp_path), "source": "startup"}))
+    assert hooks.main(["session-start"], stdin, write_ini(tmp_path, settings), NOW) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out == {"systemMessage": "Dashboard: added cards for DEMO-1 (folders in work_jira)."}
 
 
 def test_main_prints_nothing_when_there_is_nothing_to_say(tmp_path, capsys):

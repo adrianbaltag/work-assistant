@@ -227,10 +227,15 @@ def last_event(note_file):
 
 
 def newest_archived(projects_folder, name):
-    """The newest archived card for this name ("ABC-1" or "ABC-1 (2026-10-24 10-00)"), or None."""
+    """The newest archived card for this name ("ABC-1" or "ABC-1 (2026-10-24 10-00)"), or None.
+
+    Capitals don't count (abc-1 = ABC-1), as on Windows.
+    """
     archive = Path(projects_folder) / notes.ARCHIVE_FOLDER
+    name = name.casefold()
     found = [f for f in (archive.iterdir() if archive.is_dir() else [])
-             if (f.name == name or f.name.startswith(name + " (")) and (f / notes.NOTE_FILE).is_file()]
+             if (f.name.casefold() == name or f.name.casefold().startswith(name + " ("))
+             and (f / notes.NOTE_FILE).is_file()]
     return max(found, key=lambda f: (f / notes.NOTE_FILE).stat().st_mtime_ns, default=None)
 
 
@@ -267,6 +272,51 @@ def archive_gone(projects_folder, work_jira_folder, now):
             continue            # a file is open (e.g. in Excel): try again next session
         archived.append(card.name)
     return archived
+
+
+# ---------- import: a card for every work_jira folder ----------
+
+def import_missing(projects_folder, work_jira_folder, now):
+    """Make a card for every work_jira project folder that has none. Returns their IDs, A-Z.
+
+    Rule: every folder in work_jira has a card, on the Dashboard or on the Archive page.
+    A card you archived yourself stays archived; one archived because the folder left (prod) comes back.
+    No tracking_log.md yet = a bare card (title = folder name), filled in once Claude works in the folder.
+    A card that can't be made (a stray file has the name, a file is open) is skipped: tried again next session.
+    """
+    if not str(work_jira_folder).strip():
+        return []
+    try:
+        folders = sorted(f for f in Path(work_jira_folder).iterdir() if is_project_folder(f))
+    except OSError:
+        return []
+    added = []
+    for folder in folders:
+        try:
+            if notes.find_project(projects_folder, folder.name):
+                continue
+            archived = newest_archived(projects_folder, folder.name)
+            if archived and last_event(archived / notes.NOTE_FILE) != MOVED_TO_PROD:
+                continue                                    # you archived it yourself
+            create(projects_folder, folder, "", "", now)
+        except SyncError:                                   # bad tracking_log.md headings: the card is made, link it
+            try:
+                card = notes.find_project(projects_folder, folder.name)
+                link_card(card, folder)
+                mark_older_than_log(card, folder)
+            except OSError:
+                continue
+        except (OSError, ValueError):
+            continue
+        added.append(folder.name)
+    return added
+
+
+def mark_older_than_log(card, work_folder):
+    """Make note.md look older than tracking_log.md, so the Stop hook tries to sync and says what to fix."""
+    log_time = (Path(work_folder) / TRACKING_LOG).stat().st_mtime_ns
+    one_second = 1_000_000_000
+    os.utime(Path(card) / notes.NOTE_FILE, ns=(log_time - one_second, log_time - one_second))
 
 
 # ---------- command line ----------

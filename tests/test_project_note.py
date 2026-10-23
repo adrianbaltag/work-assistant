@@ -372,6 +372,95 @@ def test_archive_gone_compares_names_ignoring_case(tmp_path):
     assert pn.archive_gone(projects(tmp_path), tmp_path / "work_jira", NOW) == []
 
 
+# ---------- import: a card for every work_jira folder ----------
+
+def test_import_missing_makes_a_bare_card_for_a_folder_without_tracking_log(tmp_path):
+    work = work_project(tmp_path, "boss_rpa", log=None, files=["note.md", "plan.md"])
+    assert pn.import_missing(projects(tmp_path), tmp_path / "work_jira", NOW) == ["boss_rpa"]
+    f = fields_of(projects(tmp_path) / "boss_rpa")
+    assert (f["title"], f["status"], f["source"], f["folder"]) == ("boss_rpa", "active", "work_jira", str(work))
+
+
+def test_import_missing_fills_the_card_from_tracking_log(tmp_path):
+    work_project(tmp_path, "DEMO-42")
+    assert pn.import_missing(projects(tmp_path), tmp_path / "work_jira", NOW) == ["DEMO-42"]
+    card = projects(tmp_path) / "DEMO-42"
+    assert fields_of(card)["next"].startswith("M3") and fields_of(card)["jira"] == "DEMO-42"
+    assert history_of(card)[0]["text"] == "M1 ticked, 4 tests green."
+
+
+def test_import_missing_skips_cards_that_exist_and_non_project_folders(tmp_path):
+    wj = tmp_path / "work_jira"
+    pn.create(projects(tmp_path), work_project(tmp_path, "DEMO-1"), "Mine", "", NOW)
+    (wj / "_templates").mkdir()
+    (wj / ".claude").mkdir()
+    (wj / "readme.txt").write_text("x", encoding="utf-8")         # a file, not a folder
+    assert pn.import_missing(projects(tmp_path), wj, NOW) == []
+    assert {p["id"] for p in notes.list_projects(projects(tmp_path))} == {"DEMO-1"}
+    assert fields_of(projects(tmp_path) / "DEMO-1")["title"] == "Mine"
+
+
+def test_import_missing_never_brings_back_a_card_you_archived_yourself(tmp_path):
+    work = work_project(tmp_path, "DEMO-1")
+    card, _ = pn.create(projects(tmp_path), work, "", "", NOW)
+    notes.archive_project(projects(tmp_path), card, NOW)            # the card's Archive button
+    assert pn.import_missing(projects(tmp_path), tmp_path / "work_jira", NOW) == []
+    assert notes.find_project(projects(tmp_path), "DEMO-1") is None
+
+
+def test_import_missing_restores_a_card_whose_folder_came_back_from_prod(tmp_path):
+    wj = tmp_path / "work_jira"
+    work_project(tmp_path, "DEMO-1")
+    gone = work_project(tmp_path, "DEMO-2")
+    pn.create(projects(tmp_path), gone, "Two", "", NOW)
+    os.rename(gone, tmp_path / "prod_DEMO-2")
+    pn.archive_gone(projects(tmp_path), wj, NOW)
+    pn.create(projects(tmp_path), wj / "DEMO-1", "", "", NOW)
+    os.rename(tmp_path / "prod_DEMO-2", gone)                       # back from prod
+    assert pn.import_missing(projects(tmp_path), wj, NOW) == ["DEMO-2"]
+    assert fields_of(projects(tmp_path) / "DEMO-2")["title"] == "Two"
+    assert history_of(projects(tmp_path) / "DEMO-2")[0]["text"] in (pn.BACK_FROM_PROD, "M1 ticked, 4 tests green.")
+
+
+def test_import_missing_with_bad_log_headings_still_makes_a_linked_card(tmp_path):
+    work = work_project(tmp_path, "DEMO-1", log="# just notes, no headings\n")
+    assert pn.import_missing(projects(tmp_path), tmp_path / "work_jira", NOW) == ["DEMO-1"]
+    f = fields_of(projects(tmp_path) / "DEMO-1")
+    assert (f["source"], f["folder"]) == ("work_jira", str(work))
+    assert pn.needs_sync(projects(tmp_path) / "DEMO-1", work)    # so the Stop hook still says what to fix
+
+
+def test_import_missing_never_brings_back_a_card_you_archived_with_other_capitals(tmp_path):
+    card = notes.new_project(projects(tmp_path), "DEMO-1")
+    notes.archive_project(projects(tmp_path), card, NOW)
+    work_project(tmp_path, "demo-1")                                # same folder on Windows
+    assert pn.import_missing(projects(tmp_path), tmp_path / "work_jira", NOW) == []
+
+
+def test_import_missing_skips_a_folder_when_linking_its_card_fails(tmp_path, monkeypatch):
+    work_project(tmp_path, "DEMO-1", log="# just notes, no headings\n")
+    work_project(tmp_path, "DEMO-2")
+
+    def locked(card, folder):
+        raise PermissionError("note.md is open in another program")
+    monkeypatch.setattr(pn, "link_card", locked)
+    assert pn.import_missing(projects(tmp_path), tmp_path / "work_jira", NOW) == ["DEMO-2"]
+
+
+def test_import_missing_skips_a_folder_whose_card_cannot_be_made(tmp_path):
+    wj = tmp_path / "work_jira"
+    work_project(tmp_path, "DEMO-1")
+    work_project(tmp_path, "DEMO-2")
+    (projects(tmp_path) / "DEMO-1").write_text("x", encoding="utf-8")   # a stray file has the name
+    assert pn.import_missing(projects(tmp_path), wj, NOW) == ["DEMO-2"]
+
+
+@pytest.mark.parametrize("problem", ["missing", "not set"])
+def test_import_missing_does_nothing_without_a_work_jira_folder(tmp_path, problem):
+    wj = "" if problem == "not set" else tmp_path / "nowhere"
+    assert pn.import_missing(projects(tmp_path), wj, NOW) == []
+
+
 # ---------- command line (what Claude runs) ----------
 
 def settings_ini(tmp_path, work_jira=True):

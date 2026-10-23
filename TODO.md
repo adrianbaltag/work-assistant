@@ -38,3 +38,8 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   TEST-1 correctly, but "Dashboard: moved ... to the Archive page" never showed in the VS Code
   Claude chat. Likely the extension doesn't display hook `systemMessage`. Check in the terminal CLI
   before changing anything.
+- **Lowercase ticket folders import as lowercase cards.** A folder `work_jira\abc-123` gets card
+  `abc-123` with an empty `jira:` (no Jira button), unlike + New project, which uppercases.
+  Fix idea: rename the folder to capitals, or fill `jira:` with the uppercased name on import.
+- **Import and Stop each hold a copy of the "archived by you vs moved to prod" rule**
+  (`import_missing`, `stop`). If one changes, change both, or move it into one helper.

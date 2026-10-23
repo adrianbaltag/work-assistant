@@ -83,8 +83,14 @@ def session_start(event, settings, now):
     """When a session starts. Returns (context for Claude, note for the user); "" = nothing to say."""
     projects, work_jira = settings_paths(settings)
     gone = pn.archive_gone(projects, work_jira, now)
-    for_user = (f"Dashboard: moved {', '.join(gone)} to the Archive page (folder no longer in work_jira)."
-                if gone else "")
+    added = pn.import_missing(projects, work_jira, now)
+    said = []
+    if gone:
+        said.append(f"Dashboard: moved {', '.join(gone)} to the Archive page (folder no longer in work_jira).")
+    if added:
+        start = "Added" if said else "Dashboard: added"
+        said.append(f"{start} cards for {', '.join(added)} (folders in work_jira).")
+    for_user = " ".join(said)
 
     work = pn.work_project(work_jira, event.get("cwd") or os.getcwd())
     if work is None or (work / pn.TRACKING_LOG).is_file():
