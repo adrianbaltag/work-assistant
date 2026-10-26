@@ -316,11 +316,12 @@ With this set up, the dashboard follows that work by itself:
 | You open a new project folder in VS Code and start Claude | A hook tells Claude to set the folder up from `work_jira\_templates` and read `ticket.md`, then stop and tell you to start a new session. clear-requirements and grill-me come in that new session. | Claude's normal work |
 | You start Claude in a project whose `requirements.md` has no milestones yet (and it is not PENDING) | A hook tells Claude to ask you whether to run clear-requirements (then grill-me) to write them. | a few |
 | You start Claude in a project that is not PENDING | A hook reads the `Phase:` line of the ticket's `CLAUDE.md` and names our own skills for that phase (2-Plan, 3-Build, 4-Review; see "Own skills" below). Phase 1, phase 5 or no Phase line: nothing. Phase still the template (`1-Understand \| 2-Plan \| ...`): Claude suggests one and asks you to confirm it. | a few |
+| You start Claude in a set-up project (it has `tracking_log.md`) that is not PENDING and has no `.git` folder | Before anything else, a hook tells Claude to offer you local git (see "Local git in each ticket folder" below). Yes = Claude copies the `.gitignore` from `_templates` and makes the first commit. No = it asks again next session. | a few |
 | A folder in `work_jira` has no card (an older folder, or one you made by hand) | The next time Claude Code starts, a hook makes a card, named after the folder. If the folder has a `tracking_log.md`, the card is filled from it at once; if not, it fills in once Claude works in that folder. Type a better name on the card any time: the sync never changes it. | none |
 | The folder has a `tracking_log.md` but still no card (rare: the start-up hook could not make it) | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
 | Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. | none |
 | You send any message to Claude, in any folder | A hook reminds Claude: when you must do something, give you ONE step, then wait for your result. | ~25 per message |
-| Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: `/code-review low` for code, update `tracking_log.md`, Phase, tell you what's next, then stop. Every later message in that session reminds Claude: one milestone per session, start a new session. | ~80 once, then ~40 per message |
+| Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: `/code-review low` for code, update `tracking_log.md`, Phase, one local git commit (if the folder has git; never pushed), tell you what's next, then stop. Every later message in that session reminds Claude: one milestone per session, start a new session. | ~80 once, then ~40 per message |
 | Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
 | You close the session | A hook deletes the session's small notepad file in the project's `.claude` folder (it remembers which milestones were ticked when the session started). Left-over notepads older than 2 days are deleted at a later start. | none |
 | You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Archive page. **Restore** brings it back. | none |
@@ -507,6 +508,37 @@ In work_jira, in _templates\CLAUDE.md and every ticket CLAUDE.md, delete the tex
 
 **4. Check it.** Close Claude and start it again in a ticket folder. `/hooks` no longer lists a
 superpowers `SessionStart` hook, and asking for "the plan" uses `writing-plans`.
+
+### Local git in each ticket folder (optional)
+
+Each ticket folder gets its own local git history, so `/close-out` and `/code-review` have changes
+to look at. Nothing is ever pushed anywhere. Claude offers to set it up the first time you work in a
+set-up ticket that is not PENDING, and makes one commit at the end of each milestone.
+
+**1. git name.** Check that git knows your name (commits need it):
+
+```powershell
+git config --global user.name
+```
+
+It prints your name: done. It prints nothing: set it once (your own name and work email):
+
+```powershell
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+Claude never changes these settings for you.
+
+**2. .gitignore for ticket folders.** Copy the file that keeps data (csv, Excel), logs and Claude's
+own files out of git into your `_templates` folder (change the `work_jira` path if yours is elsewhere):
+
+```powershell
+Copy-Item $HOME\Desktop\work-assistant\work_jira_templates\.gitignore $HOME\Desktop\work_jira\_templates\
+```
+
+**3. Add the commit step to `work_jira\CLAUDE.md`.** Copy the new step 5 from the "## Milestones" block
+in `work_jira_rules.md` into the same block in `work_jira\CLAUDE.md`.
 
 ---
 

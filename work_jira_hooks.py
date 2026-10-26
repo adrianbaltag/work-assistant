@@ -46,6 +46,14 @@ Do not run clear-requirements or grill-me unless the user asks."""
 NO_MILESTONES = """This project ({name}) has no milestones in requirements.md yet, and it is not PENDING. \
 Before other work, ask the user whether to run the clear-requirements skill now (then grill-me) to write them."""
 
+NO_GIT = """This folder ({name}) has no local git yet, so /close-out and /code-review have no diff. \
+Before other work, offer the user to set it up. Only after they say yes: \
+1. If there is no .gitignore here, copy {gitignore} here. If that file is missing too, stop and tell the user \
+to do the ".gitignore for ticket folders" step in the work-assistant README. \
+2. git init, then git add ., then git commit -m "Start local history". \
+Never push. If the commit fails because git does not know who the user is, tell them to do the "git name" step \
+in the work-assistant README. If they say no, carry on; you will ask again next session."""
+
 PHASE_SKILLS = {        # phase number -> (name, our own skills for it; README "Own skills"). 1 and 5 have none.
     "2": ("2-Plan", ["writing-plans"]),
     "3": ("3-Build", ["test-driven-development", "verification-before-completion"]),
@@ -67,7 +75,8 @@ TICKED = """{ids} ticked in requirements.md. Finish this milestone now, in this 
 2. tracking_log.md: under ## Last update add `{today} — {ids} ticked, <proof>`; put the next unticked milestone \
 under ## Now working on and the one after it under ## Next up.
 3. If the phase changed, update Phase in the ticket CLAUDE.md.
-4. Tell the user what's next, then STOP. One milestone per session: do not start the next one.
+4. If this folder has .git: git add . then git commit -m "{ids} — <what it delivers>". Never push.
+5. Tell the user what's next, then STOP. One milestone per session: do not start the next one.
 A "user check" milestone is ticked only after the user confirmed it in chat. If they haven't, untick it and ask them."""
 
 LOG_NOT_UPDATED = "{ids} ticked this session, but tracking_log.md is not updated yet: {todo}. Then tell the user what's next and stop."
@@ -178,22 +187,25 @@ def session_start(event, settings, now):
     if work is None:
         return "", for_user
     start_notepad(work, event, now)
-    if (work / pn.TRACKING_LOG).is_file():
-        return ticket_context(work), for_user
-    files = {f.name for f in work.iterdir() if not f.name.startswith(".")}
     templates = Path(work_jira) / "_templates"
+    if (work / pn.TRACKING_LOG).is_file():
+        return ticket_context(work, templates), for_user
+    files = {f.name for f in work.iterdir() if not f.name.startswith(".")}
     if files <= {"ticket.md"}:
         ticket = READ_TICKET if files else ""
         return NEW_FOLDER.format(name=work.name, templates=templates, ticket=ticket), for_user
     return OLD_FOLDER.format(name=work.name, templates=templates), for_user
 
 
-def ticket_context(work):
-    """For a set-up ticket: the phase's skills (or ask to set the phase), then the no-milestones nag. PENDING = nothing."""
+def ticket_context(work, templates):
+    """For a set-up ticket: the local git offer, the phase's skills (or ask to set the phase), then the
+    no-milestones nag. PENDING = nothing."""
     if paused(work):
         return ""
     phase = phase_of(work)
     said = []
+    if not (work / ".git").exists():
+        said.append(NO_GIT.format(name=work.name, gitignore=templates / ".gitignore"))
     if phase == "?":
         said.append(PHASE_NOT_SET)
     elif phase in PHASE_SKILLS:

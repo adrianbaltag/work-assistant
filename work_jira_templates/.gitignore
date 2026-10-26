@@ -1,0 +1,23 @@
+# Local git in a work_jira ticket folder: keep data and noise out of every diff and review.
+# Copy this file once to work_jira\_templates\ (README: ".gitignore for ticket folders").
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Claude Code's own files (session notepads, local settings)
+.claude/
+
+# Logins
+.env
+
+# Data and exports: may hold prod data
+*.csv
+*.xlsx
+*.xls
+
+# Noise
+*.log
+*.zip
+*.bak
