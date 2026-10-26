@@ -46,6 +46,18 @@ Do not run clear-requirements or grill-me unless the user asks."""
 NO_MILESTONES = """This project ({name}) has no milestones in requirements.md yet, and it is not PENDING. \
 Before other work, ask the user whether to run the clear-requirements skill now (then grill-me) to write them."""
 
+PHASE_SKILLS = {        # phase number -> (name, our own skills for it; README "Own skills"). 1 and 5 have none.
+    "2": ("2-Plan", ["writing-plans"]),
+    "3": ("3-Build", ["test-driven-development", "verification-before-completion"]),
+    "4": ("4-Review", ["receiving-code-review", "verification-before-completion"]),
+}
+
+USE_SKILLS = "Phase {phase}: use these skills when they apply: {skills}."
+
+PHASE_NOT_SET = """The Phase line in this ticket's CLAUDE.md is not set. Before other work, suggest a phase \
+(1-Understand, 2-Plan, 3-Build, 4-Review, 5-Handover) from requirements.md, ask the user to confirm it, \
+write it in CLAUDE.md, then carry on."""
+
 ONE_STEP = "When the user must act: give ONE step, then wait for their result."
 
 FINISHED = "{ids} ticked this session. One milestone per session: do not start the next one; tell the user to start a new session."
@@ -167,7 +179,7 @@ def session_start(event, settings, now):
         return "", for_user
     start_notepad(work, event, now)
     if (work / pn.TRACKING_LOG).is_file():
-        return (NO_MILESTONES.format(name=work.name) if needs_milestones(work) else ""), for_user
+        return ticket_context(work), for_user
     files = {f.name for f in work.iterdir() if not f.name.startswith(".")}
     templates = Path(work_jira) / "_templates"
     if files <= {"ticket.md"}:
@@ -176,15 +188,45 @@ def session_start(event, settings, now):
     return OLD_FOLDER.format(name=work.name, templates=templates), for_user
 
 
-def needs_milestones(work):
-    """True when requirements.md has no real milestone and the project is not PENDING."""
-    if pn.folder_milestones(work):
-        return False
+def ticket_context(work):
+    """For a set-up ticket: the phase's skills (or ask to set the phase), then the no-milestones nag. PENDING = nothing."""
+    if paused(work):
+        return ""
+    phase = phase_of(work)
+    said = []
+    if phase == "?":
+        said.append(PHASE_NOT_SET)
+    elif phase in PHASE_SKILLS:
+        name, skills = PHASE_SKILLS[phase]
+        said.append(USE_SKILLS.format(phase=name, skills=", ".join(skills)))
+    if not pn.folder_milestones(work):
+        said.append(NO_MILESTONES.format(name=work.name))
+    return " ".join(said)
+
+
+def paused(work):
+    """True when tracking_log.md says PENDING, or its headings are broken (the Stop hook asks to fix them first)."""
     try:
         log = pn.read_tracking_log((work / pn.TRACKING_LOG).read_text(encoding="utf-8-sig"))
     except pn.SyncError:
-        return False                                 # the Stop hook asks to fix the headings first
-    return pn.status_from(log["now"])[0] != "pending"
+        return True
+    return pn.status_from(log["now"])[0] == "pending"
+
+
+def phase_of(work):
+    """Phase number "1".."5" from the ticket CLAUDE.md's "- **Phase:** 3-Build" line.
+    "?" = the line is there but not set (template "1-Understand | 2-Plan | ..." or no number). None = no Phase line."""
+    try:
+        text = (work / "CLAUDE.md").read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return None
+    for line in text.splitlines():
+        found = re.match(r"[\s*-]*phase\s*:[\s*]*(.*)", line, re.I)
+        if found:
+            value = found.group(1)
+            number = re.match(r"([1-5])(?!\d)", value)
+            return number.group(1) if number and "|" not in value else "?"
+    return None
 
 
 # ---------- milestone guard: the notepad ----------

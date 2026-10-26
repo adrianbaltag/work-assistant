@@ -9,7 +9,7 @@ from contextlib import redirect_stderr
 from datetime import datetime
 
 import pytest
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 
 import notes
 import project_note as pn
@@ -307,6 +307,12 @@ def notepad(work, session=SESSION):
     return work / ".claude" / f"milestone-{session}.json"
 
 
+def days_old(path, days):
+    """Make a file look this many days older than NOW (the hooks' clock in these tests, not the real one)."""
+    t = NOW.timestamp() - days * 24 * 3600
+    os.utime(path, (t, t))
+
+
 def test_session_start_writes_a_notepad_of_what_is_ticked_now(tmp_path):
     settings, work = ticket(tmp_path)
     begin(settings, work)
@@ -328,8 +334,8 @@ def test_session_start_deletes_notepads_older_than_two_days(tmp_path):
     settings, work = ticket(tmp_path)
     begin(settings, work, session="old")
     begin(settings, work, session="yesterday")
-    age(notepad(work, "old"), 3 * 24 * 3600)
-    age(notepad(work, "yesterday"), 24 * 3600)
+    days_old(notepad(work, "old"), 3)
+    days_old(notepad(work, "yesterday"), 1)
     begin(settings, work)
     assert not notepad(work, "old").exists() and notepad(work, "yesterday").exists() and notepad(work).exists()
 
@@ -524,7 +530,7 @@ def test_a_locked_old_notepad_does_not_stop_this_sessions_notepad(tmp_path):
     settings, work = ticket(tmp_path)
     stuck = work / ".claude" / "milestone-stuck.json"
     stuck.mkdir(parents=True)                            # can't be deleted like a file (like a locked file)
-    age(stuck, 3 * 24 * 3600)
+    days_old(stuck, 3)
     begin(settings, work)
     assert notepad(work).exists()
 
@@ -532,7 +538,7 @@ def test_a_locked_old_notepad_does_not_stop_this_sessions_notepad(tmp_path):
 def test_each_prompt_keeps_a_long_session_notepad_fresh(tmp_path):
     settings, work = ticket(tmp_path)
     begin(settings, work)
-    age(notepad(work), 3 * 24 * 3600)
+    days_old(notepad(work), 3)
     hooks.prompt({"session_id": SESSION, "cwd": str(work)})
     begin(settings, work, session="second-window")
     assert notepad(work).exists()
@@ -544,3 +550,66 @@ def test_a_milestone_hook_problem_says_what_to_do(tmp_path, capsys, monkeypatch)
     assert hooks.main(["prompt"], stdin, tmp_path / "missing.ini", NOW) == 0
     out = capsys.readouterr()
     assert hooks.ONE_STEP in out.out and "close" in out.err and "milestone-" in out.err
+
+
+# ---------- phase -> skills reminder at session start ----------
+
+PAUSED = LOG.replace("M2 — parse the alarm file", "PENDING (user, 2026-10-22): waiting.")
+TEMPLATE_PHASE = "- **Phase:** 1-Understand | 2-Plan | 3-Build | 4-Review | 5-Handover"
+
+
+def phase_ticket(tmp_path, phase_line, reqs=REQS, log=LOG):
+    """A set-up ticket whose CLAUDE.md has this Phase line (None = no CLAUDE.md at all)."""
+    settings, work = ticket(tmp_path, reqs=reqs, log=log)
+    if phase_line is not None:
+        (work / "CLAUDE.md").write_text(f"# DEMO-42\n\n- **Jira:** DEMO-42\n{phase_line}\n", encoding="utf-8")
+    return settings, work
+
+
+@pytest.mark.parametrize("line, skills", [
+    ("- **Phase:** 2-Plan", ["writing-plans"]),
+    ("- **Phase:** 3-Build", ["test-driven-development", "verification-before-completion"]),
+    ("- **Phase:** 4-Review", ["receiving-code-review", "verification-before-completion"]),
+    ("Phase: 3 - build", ["test-driven-development"]),
+    ("**Phase:** 2", ["writing-plans"]),
+])
+def test_session_start_names_the_skills_for_the_tickets_phase(tmp_path, line, skills):
+    settings, work = phase_ticket(tmp_path, line)
+    context, _ = begin(settings, work)
+    assert all(s in context for s in skills) and "no milestones" not in context
+
+
+@pytest.mark.parametrize("line", [
+    "- **Phase:** 1-Understand",
+    "- **Phase:** 5-Handover",
+    "| `writing-plans` | 2-Plan | Milestone lines |",          # a skills table row is not the Phase line
+    None,                                                     # no CLAUDE.md (folders with only tracking_log.md)
+])
+def test_session_start_says_nothing_for_phases_without_skills_or_no_phase_line(tmp_path, line):
+    settings, work = phase_ticket(tmp_path, line)
+    assert begin(settings, work) == ("", "")
+
+
+@pytest.mark.parametrize("line", [TEMPLATE_PHASE, "- **Phase:** TBD"])
+def test_session_start_with_the_phase_not_set_asks_claude_to_get_it_confirmed(tmp_path, line):
+    settings, work = phase_ticket(tmp_path, line)
+    context, _ = begin(settings, work)
+    assert "Phase" in context and "ask the user to confirm" in context and "CLAUDE.md" in context
+
+
+@pytest.mark.parametrize("line", ["- **Phase:** 3-Build", TEMPLATE_PHASE])
+def test_session_start_in_a_paused_ticket_never_mentions_the_phase(tmp_path, line):
+    settings, work = phase_ticket(tmp_path, line, log=PAUSED)
+    assert begin(settings, work) == ("", "")
+
+
+def test_session_start_asks_for_the_phase_before_the_missing_milestones(tmp_path):
+    settings, work = phase_ticket(tmp_path, TEMPLATE_PHASE, reqs="## Milestones\n")
+    context, _ = begin(settings, work)
+    assert 0 <= context.index("ask the user to confirm") < context.index("no milestones")
+
+
+def test_every_phase_skill_is_one_of_our_own_skills():
+    own = Path(hooks.__file__).with_name("work_jira_skills")
+    named = {s for _, skills in hooks.PHASE_SKILLS.values() for s in skills}
+    assert named and all((own / s / "SKILL.md").is_file() for s in named)
