@@ -18,7 +18,9 @@ The milestone hooks (README, "Sync with work_jira") check part of it.
      `YYYY-MM-DD — M<n> ticked, <proof>`; put the next unticked milestone
      under ## Now working on and the one after it under ## Next up
   4. if the phase changed, update Phase in the ticket CLAUDE.md
-  5. tell the user what's next, then STOP.
+  5. if the folder has .git: `git add .` then
+     `git commit -m "M<n> — <what it delivers>"`. Never push.
+  6. tell the user what's next, then STOP.
 - Phase changes: 1→2 requirements approved by user · 2→3 milestones
   written and approved · 3→4 all build milestones ticked · 4→5 review
   findings fixed or accepted by user.

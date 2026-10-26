@@ -210,6 +210,7 @@ def test_session_start_in_a_set_up_folder_or_elsewhere_says_nothing(tmp_path):
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path)
     (work / "requirements.md").write_text("- [ ] M1 — demo · Done when: test_demo passes\n", encoding="utf-8")
+    (work / ".git").mkdir()                                     # has local git already: no offer
     pn.create(projects, work, "", "", NOW)
     assert start(settings, work) == ("", "")
     assert start(settings, tmp_path) == ("", "")
@@ -277,10 +278,12 @@ REQS = """## Milestones
 """
 
 
-def ticket(tmp_path, reqs=REQS, log=LOG):
-    """A set-up work_jira ticket with requirements.md (M1 ticked, M2 next) and a card."""
+def ticket(tmp_path, reqs=REQS, log=LOG, git=True):
+    """A set-up work_jira ticket with requirements.md (M1 ticked, M2 next) and a card. git=False: no .git folder."""
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path, log=log)
+    if git:
+        (work / ".git").mkdir()
     if reqs is not None:
         (work / "requirements.md").write_text(reqs, encoding="utf-8")
     pn.create(projects, work, "", "", NOW)
@@ -384,6 +387,8 @@ def test_ticking_a_milestone_gives_claude_the_checklist_once(tmp_path):
     assert "M2 ticked" in message and "/code-review low" in message
     assert "## Last update" in message and "2026-10-23 — M2 ticked" in message
     assert "Phase" in message and "STOP" in message and "do not start the next one" in message
+    assert 0 <= message.index("git commit") < message.index("Tell the user")
+    assert "Never push" in message
     assert edited(work / "requirements.md") == ""              # told once, not on every later edit
 
 
@@ -613,3 +618,33 @@ def test_every_phase_skill_is_one_of_our_own_skills():
     own = Path(hooks.__file__).with_name("work_jira_skills")
     named = {s for _, skills in hooks.PHASE_SKILLS.values() for s in skills}
     assert named and all((own / s / "SKILL.md").is_file() for s in named)
+
+
+# ---------- local git offer at session start ----------
+
+def test_session_start_offers_local_git_first_in_a_set_up_folder_without_it(tmp_path):
+    settings, work = phase_ticket(tmp_path, "- **Phase:** 3-Build")
+    (work / ".git").rmdir()
+    context, _ = begin(settings, work)
+    assert "no local git" in context and "git init" in context and "Never push" in context
+    assert str(Path(settings["work_jira_folder"]) / "_templates" / ".gitignore") in context
+    assert '".gitignore for ticket folders"' in context and '"git name"' in context      # README step names
+    assert 0 <= context.index("git init") < context.index("test-driven-development")
+
+
+def test_session_start_never_offers_git_once_the_folder_has_it(tmp_path):
+    settings, work = ticket(tmp_path)
+    assert "git init" not in begin(settings, work)[0]
+
+
+def test_session_start_never_offers_git_in_a_paused_ticket(tmp_path):
+    settings, work = ticket(tmp_path, log=PAUSED, git=False)
+    assert begin(settings, work) == ("", "")
+
+
+def test_session_start_never_offers_git_in_a_folder_still_being_set_up(tmp_path):
+    settings, _ = setup(tmp_path)
+    new = work_project(tmp_path, "DEMO-1", log=None, files=["ticket.md"])
+    old = work_project(tmp_path, "DEMO-2", log=None, files=["notes.md"])
+    for work in (new, old):
+        assert "git init" not in begin(settings, work)[0]
