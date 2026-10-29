@@ -355,7 +355,7 @@ def save_upload(folder, name, data, now):
 
 # ---------- + New project ----------
 
-NEW_FIELDS = ("title", "status", "priority", "next", "blocked_by", "jira", "folder", "tags")
+NEW_FIELDS = ("title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder", "tags")
 TICKET_ID = re.compile(r"[A-Z][A-Z0-9]*-\d+")     # Jira keys: ABC-123, NET5G-42. Not "phase-2" or "my_idea"
 
 

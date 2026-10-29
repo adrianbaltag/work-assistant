@@ -22,7 +22,7 @@ SETTINGS_FILE = notes.SETTINGS_FILE
 load_settings = notes.load_settings     # lives in notes.py so helper scripts can read settings without Flask
 PORT = 5050         # not 5000: macOS AirPlay Receiver uses that port
 CHOICES = {"status": list(notes.STATUSES), "priority": ["critical", "high", "normal"]}
-FORM_FIELDS = ["title", "status", "priority", "next", "blocked_by", "jira", "folder"]
+FORM_FIELDS = ["title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder"]
 UPLOAD_LIMIT_MB = 50
 LOCKED = "Could not change {}. Is it open in another program (e.g. Excel)? Close it and try again."
 

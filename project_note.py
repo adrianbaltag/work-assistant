@@ -6,7 +6,7 @@ Work Claude runs it (when a hook asks), and the hooks in work_jira_hooks.py call
     python project_note.py sync   ABC-123
 
 Each work_jira project folder has a tracking_log.md with three sections:
-    ## Now working on   -> status (PENDING ... = pending + blocked_by)
+    ## Now working on   -> working_on: + status (PENDING ... = pending + blocked_by)
     ## Next up          -> next:
     ## Last update      -> "date · Claude · text" history line(s) from the newest-dated line(s)
 Paths come from settings.ini: projects_folder= and work_jira_folder=.
@@ -70,15 +70,32 @@ def read_tracking_log(text):
     return log
 
 
-def status_from(now_working_on):
-    """(status, blocked_by) from "## Now working on". "PENDING (who, date): reason. More." = pending."""
-    text = now_working_on.strip()
+def pending_parts(now_working_on):
+    """(reason, the rest) of "PENDING (who, date): reason. More.", or None when it is not pending."""
+    text = plain(now_working_on)
     if not re.match(r"pending\b", text, re.I):
-        return "active", ""
+        return None
     rest = re.sub(r"^\s*\([^)]*\)", "", text[len("pending"):])    # drop "(user, 2026-10-22)"
     rest = rest.lstrip(" :—–-")
     sentence = re.match(r"(.+?[.!?])(\s|$)", rest)              # the first sentence is the reason
-    return "pending", sentence.group(1) if sentence else rest
+    return (sentence.group(1), rest[sentence.end():].strip()) if sentence else (rest, "")
+
+
+def status_from(now_working_on):
+    """(status, blocked_by) from "## Now working on". "PENDING (who, date): reason. More." = pending."""
+    parts = pending_parts(now_working_on)
+    return ("pending", parts[0]) if parts else ("active", "")
+
+
+def working_on_from(now_working_on):
+    """The card's working_on: the whole line, or when pending only the text after the reason (it is in blocked_by)."""
+    parts = pending_parts(now_working_on)
+    return parts[1] if parts else plain(now_working_on)
+
+
+def plain(text):
+    """Without Markdown **bold** marks: the dashboard shows text as it is."""
+    return text.replace("**", "").strip()
 
 
 def last_update(text, now):
@@ -147,7 +164,7 @@ def work_project(work_jira_folder, cwd):
 # ---------- sync: tracking_log.md -> dashboard card ----------
 
 def sync(projects_folder, work_folder, now):
-    """Copy next / status / blocked_by and a new history line from tracking_log.md into the card."""
+    """Copy working_on / next / status / blocked_by and a new history line from tracking_log.md into the card."""
     log_file = Path(work_folder) / TRACKING_LOG
     if not log_file.is_file():
         raise SyncError(f"No {TRACKING_LOG} in {work_folder}. Create it from _templates first.")
@@ -159,7 +176,8 @@ def sync(projects_folder, work_folder, now):
     note = card / notes.NOTE_FILE
     text = note.read_text(encoding="utf-8-sig")
     status, blocked_by = status_from(log["now"])
-    text = notes.set_fields(text, {"next": log["next"], "status": status, "blocked_by": blocked_by,
+    text = notes.set_fields(text, {"working_on": working_on_from(log["now"]), "next": plain(log["next"]),
+                                   "status": status, "blocked_by": blocked_by,
                                    "source": SOURCE, "folder": str(work_folder)})
     for line in reversed(log["last"]):        # each goes on top, so reversed keeps tracking_log's order
         entry = last_update(line, now)

@@ -16,7 +16,8 @@ const TABS = {
 let tab = "all";
 let projects = [];
 
-// Re-read the notes from disk on page load and on every tab switch (no timer, no refresh button).
+// Re-read the notes from disk on page load, on every tab switch, every 30 seconds and when you come
+// back to this browser tab (so a card Claude just updated shows without pressing F5).
 async function load() {
   try {
     const response = await fetch("/api/projects");
@@ -50,12 +51,13 @@ function draw() {
     return;
   }
   $("list").innerHTML = `<div class="list"><table>
-    <thead><tr><th>Project</th><th>Status</th><th>Priority</th><th>Next step</th><th>Blocked by</th><th>Updated</th></tr></thead>
+    <thead><tr><th>Project</th><th>Status</th><th>Priority</th><th>Working on</th><th>Next step</th><th>Blocked by</th><th>Updated</th></tr></thead>
     <tbody>${rows.map((p, i) => `
       <tr data-open="${esc(p.id)}" style="--stripe:${stripe(p)};animation-delay:${i * 40}ms">
         <td><span class="pname">${esc(p.title)}</span><span class="pjira">${p.jira ? esc(p.jira) : "no Jira"}</span></td>
         <td><span class="pill st-${esc(p.status)}">${esc(p.status)}</span></td>
         <td><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span></td>
+        <td class="next">${esc(p.working_on) || '<span class="none">—</span>'}</td>
         <td class="next">${esc(p.next) || '<span class="none">—</span>'}</td>
         <td>${p.blocked_by ? `<span class="blk">${esc(p.blocked_by)}</span>` : '<span class="none">—</span>'}</td>
         <td><span class="ago ${p.quiet ? "q" : ""}">${ago(p.days_ago)}</span></td>
@@ -110,5 +112,12 @@ $("list").addEventListener("click", e => {
   const row = e.target.closest("[data-open]");
   if (row) openCard(row.dataset.open);
 });
+
+// Auto refresh, only while the dashboard is the page shown and the browser tab is in front.
+// It redraws only the table: an open project card (a pop-up over it) is not touched.
+const REFRESH_SECONDS = 30;
+const dashShown = () => !$("page-dash").hidden && document.visibilityState === "visible";
+setInterval(() => { if (dashShown()) load(); }, REFRESH_SECONDS * 1000);
+document.addEventListener("visibilitychange", () => { if (dashShown()) load(); });
 
 load();

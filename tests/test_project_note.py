@@ -92,6 +92,17 @@ def test_status_from_now_working_on():
     assert pn.status_from("PENDING") == ("pending", "")
 
 
+def test_working_on_from_now_working_on():
+    assert pn.working_on_from("M2 — parse the file") == "M2 — parse the file"
+    assert pn.working_on_from("**M4 — demo login** · Done when: demo check prints") == (
+        "M4 — demo login · Done when: demo check prints")              # Markdown bold marks dropped
+    # pending: the reason is already in blocked_by, so only the text after it
+    assert pn.working_on_from("PENDING (user, 2026-10-22): waiting for the lab admin. Draft v2. Idea.") == (
+        "Draft v2. Idea.")
+    assert pn.working_on_from("PENDING (user, 2026-10-22): waiting for the lab admin.") == ""
+    assert pn.working_on_from("PENDING") == ""
+
+
 def test_last_update_splits_date_and_text_with_any_dash():
     assert pn.last_update("2026-10-21 — grill-me done: D1-D9 decided.", NOW) == (
         "2026-10-21", "grill-me done: D1-D9 decided.")
@@ -192,6 +203,22 @@ def test_sync_copies_next_status_and_a_claude_history_line(tmp_path):
     assert (f["status"], f["blocked_by"], f["priority"]) == ("active", "", "normal")
     assert (f["source"], f["folder"]) == ("work_jira", str(work))
     assert history_of(card) == [{"date": "2026-10-22", "who": "Claude", "text": "M1 ticked, 4 tests green."}]
+
+
+def test_sync_copies_working_on_and_drops_bold_marks(tmp_path):
+    work = work_project(tmp_path, log=LOG.replace("M3 — email", "**M3 — email**"))
+    card = notes.new_project(projects(tmp_path), "DEMO-42")
+    pn.sync(projects(tmp_path), work, NOW)
+    f = fields_of(card)
+    assert f["working_on"] == "M2 — parse the alarm file and write its tests."
+    assert f["next"] == "M3 — email the report, then run it in Spyder."
+
+
+def test_sync_pending_working_on_is_the_text_after_the_reason(tmp_path):
+    work = work_project(tmp_path, log=PAUSED)
+    card = notes.new_project(projects(tmp_path), "DEMO-42")
+    pn.sync(projects(tmp_path), work, NOW)
+    assert fields_of(card)["working_on"] == "Draft v2 of requirements. Also open: an idea."
 
 
 def test_sync_sets_pending_and_blocked_by_then_clears_them(tmp_path):

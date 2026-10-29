@@ -46,6 +46,7 @@ and at the bottom a **History** list, newest first:
 title: Fix the RAN alarms
 status: active
 priority: critical
+working_on: test the new alarm filter
 next: ask the vendor for the new firmware
 blocked_by: waiting on lab access
 jira: NET5G-42
@@ -66,7 +67,8 @@ Stop the false alarms on the north sites.
 | `title` | The project's name on the dashboard. |
 | `status` | `active` (working on it), `pending` (waiting on something) or `idea` (not started). Finished = Archive it. |
 | `priority` | `critical`, `high` or `normal`. **Only you set it**: Claude never changes it. |
-| `next` | Your next step. |
+| `working_on` | What you're doing right now. |
+| `next` | Your next step, after that. |
 | `blocked_by` | What you're waiting for, if anything. |
 | `jira` | The Jira ticket ID, like `NET5G-42`. Used by the **Open in Jira** button. |
 | `folder` | Where the project's code or scripts live, for example your `work_jira` folder. Information only: the app never opens or changes it. |
@@ -319,7 +321,7 @@ With this set up, the dashboard follows that work by itself:
 | You start Claude in a set-up project (it has `tracking_log.md`) that is not PENDING and has no `.git` folder | Before anything else, a hook tells Claude to offer you local git (see "Local git in each ticket folder" below). Yes = Claude copies the `.gitignore` from `_templates` and makes the first commit. No = it asks again next session. | a few |
 | A folder in `work_jira` has no card (an older folder, or one you made by hand) | The next time Claude Code starts, a hook makes a card, named after the folder. If the folder has a `tracking_log.md`, the card is filled from it at once; if not, it fills in once Claude works in that folder. Type a better name on the card any time: the sync never changes it. | none |
 | The folder has a `tracking_log.md` but still no card (rare: the start-up hook could not make it) | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
-| Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. | none |
+| Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Now working on* → `working_on:`, *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:` (then `working_on:` keeps only the text after the reason). `**bold**` marks are dropped. The dashboard re-reads the cards every 30 seconds. | none |
 | You send any message to Claude, in any folder | A hook reminds Claude: when you must do something, give you ONE step, then wait for your result. | ~25 per message |
 | Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: `/code-review low` for code, update `tracking_log.md`, Phase, one local git commit (if the folder has git; never pushed), tell you what's next, then stop. Every later message in that session reminds Claude: one milestone per session, start a new session. | ~80 once, then ~40 per message |
 | Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
