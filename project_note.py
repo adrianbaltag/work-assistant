@@ -120,14 +120,15 @@ def read_milestones(text):
 
 
 def milestone_names(text):
-    """{"M1": "M1 — read the alarm file", ...}: the short name of each milestone, in file order.
+    """{"M1": "read the alarm file", ...}: the short name of each milestone, in file order ("" = no name).
 
-    Short = the text before "· Done when", without **bold** and `code` marks (the dashboard shows it as it is).
+    Short = the text before "· Done when", without the ID's dash or colon and without **bold** and `code`
+    marks (the dashboard shows it as it is).
     """
     names = {}
     for m, _, rest in milestone_lines(text):
         rest = re.split(r"·|Done when", rest.replace("**", "").replace("`", ""))[0]
-        names[m] = f"{m} {rest.strip()}".strip()
+        names[m] = rest.strip().lstrip("—–-:").strip()
     return names
 
 
@@ -184,9 +185,9 @@ def work_project(work_jira_folder, cwd):
 # ---------- sync: tracking_log.md -> dashboard card ----------
 
 def sync(projects_folder, work_folder, now):
-    """Copy working_on / next / progress / status / blocked_by and a new history line into the card.
+    """Copy working_on / next / status / blocked_by and a new history line into the card.
 
-    working_on / next / progress come from requirements.md's checklist when it has one (see steps).
+    working_on / next come from requirements.md's checklist when it has one (see steps).
     """
     log_file = Path(work_folder) / TRACKING_LOG
     if not log_file.is_file():
@@ -210,19 +211,25 @@ def sync(projects_folder, work_folder, now):
 
 
 def steps(work_folder, log):
-    """working_on / next / progress for the card.
+    """working_on / next for the card.
 
-    With a checklist in requirements.md: the first unticked milestone, the one after it, "6/12".
+    With a checklist in requirements.md: the first unticked milestone and the one after it,
+    e.g. "M8 of 12 · hourly job runs" and "M9 · email the report".
     The checklist runs out (last one, or all ticked) = next from ## Next up. No checklist = the log only.
     """
     text = requirements_text(work_folder)
     names, ticked = milestone_names(text), read_milestones(text)
     if not names:
-        return {"working_on": working_on_from(log["now"]), "next": plain(log["next"]), "progress": ""}
+        return {"working_on": working_on_from(log["now"]), "next": plain(log["next"])}
     todo = [m for m in names if not ticked[m]]
-    return {"working_on": names[todo[0]] if todo else f"All {len(names)} milestones done",
-            "next": names[todo[1]] if len(todo) > 1 else plain(log["next"]),
-            "progress": f"{len(names) - len(todo)}/{len(names)}"}
+    return {"working_on": labelled(f"{todo[0]} of {len(names)}", names[todo[0]]) if todo
+            else f"All {len(names)} milestones done",
+            "next": labelled(todo[1], names[todo[1]]) if len(todo) > 1 else plain(log["next"])}
+
+
+def labelled(label, name):
+    """ "M8 of 12" + "hourly job runs" = "M8 of 12 · hourly job runs". No name = the label alone."""
+    return f"{label} · {name}" if name else label
 
 
 def already_in_history(text, date, said):

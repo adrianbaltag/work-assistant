@@ -171,11 +171,12 @@ def test_milestone_lines_written_a_little_differently_still_count():
 
 def test_milestone_names_are_the_short_names_in_file_order():
     assert pn.milestone_names(REQUIREMENTS) == {
-        "M1": "M1 — read the alarm file", "M2": "M2 — parse it", "M3a": "M3a — email the report",
-        "M3b": "M3b — schedule it", "M4": "M4 — written in lower case"}
-    # bold ID and `code` marks dropped, cut before "· Done when"
+        "M1": "read the alarm file", "M2": "parse it", "M3a": "email the report",
+        "M3b": "schedule it", "M4": "written in lower case"}
+    # bold ID and `code` marks dropped, cut before "· Done when", no dash after the ID
     assert pn.milestone_names("- [ ] **M7** — job logic in `job.py` · Done when: 10 tests pass\n") == {
-        "M7": "M7 — job logic in job.py"}
+        "M7": "job logic in job.py"}
+    assert pn.milestone_names("- [ ] M8: a colon\n- [ ] M9\n") == {"M8": "a colon", "M9": ""}
 
 
 def test_milestones_in_a_folder_without_requirements_md_is_empty(tmp_path):
@@ -236,7 +237,17 @@ def test_sync_with_a_checklist_takes_working_on_and_next_from_it(tmp_path):
     card = notes.new_project(projects(tmp_path), "DEMO-42")
     pn.sync(projects(tmp_path), work, NOW)
     f = fields_of(card)
-    assert (f["working_on"], f["next"], f["progress"]) == ("M3a — email the report", "M3b — schedule it", "2/5")
+    assert (f["working_on"], f["next"]) == ("M3a of 5 · email the report", "M3b · schedule it")
+    assert "progress" not in f          # the dashboard has no bar: "M3a of 5" already says it
+
+
+def test_sync_milestone_without_a_name_is_just_its_number(tmp_path):
+    work = work_project(tmp_path, files=())
+    (work / "requirements.md").write_text("- [ ] M1\n- [ ] M2\n", encoding="utf-8")
+    card = notes.new_project(projects(tmp_path), "DEMO-42")
+    pn.sync(projects(tmp_path), work, NOW)
+    f = fields_of(card)
+    assert (f["working_on"], f["next"]) == ("M1 of 2", "M2")
 
 
 def test_sync_on_the_last_milestone_or_all_done_next_comes_from_the_log(tmp_path):
@@ -245,13 +256,11 @@ def test_sync_on_the_last_milestone_or_all_done_next_comes_from_the_log(tmp_path
     (work / "requirements.md").write_text("- [x] M1 — a\n- [ ] M2 — b · Done when: ok\n", encoding="utf-8")
     pn.sync(projects(tmp_path), work, NOW)
     f = fields_of(card)
-    assert (f["working_on"], f["next"], f["progress"]) == (
-        "M2 — b", "M3 — email the report, then run it in Spyder.", "1/2")
+    assert (f["working_on"], f["next"]) == ("M2 of 2 · b", "M3 — email the report, then run it in Spyder.")
     (work / "requirements.md").write_text("- [x] M1 — a\n- [x] M2 — b\n", encoding="utf-8")
     pn.sync(projects(tmp_path), work, NOW)
     f = fields_of(card)
-    assert (f["working_on"], f["next"], f["progress"]) == (
-        "All 2 milestones done", "M3 — email the report, then run it in Spyder.", "2/2")
+    assert (f["working_on"], f["next"]) == ("All 2 milestones done", "M3 — email the report, then run it in Spyder.")
 
 
 def test_sync_sets_pending_and_blocked_by_then_clears_them(tmp_path):

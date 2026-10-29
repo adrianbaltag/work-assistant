@@ -4,14 +4,14 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
 const ago = n => n === 0 ? "today" : n === 1 ? "1 day ago" : `${n} days ago`;
-// A table cell's text: at most 2 lines (app.css .clip), hover for all of it. Empty = a grey dash.
+// A table cell's text: one line (app.css .clip), cut with "…"; hover shows all of it. Empty = a grey dash.
 const clip = s => s ? `<div class="clip" title="${esc(s)}">${esc(s)}</div>` : '<span class="none">—</span>';
-// progress "6/12" (from the ticket's requirements.md checklist) = a small bar + "6 of 12 done". None = nothing.
-const progress = s => {
-  const [done, all] = String(s ?? "").split("/").map(Number);
-  if (!all) return "";
-  return `<div class="prog"><span class="bar"><span style="width:${Math.round(100 * done / all)}%"></span></span>`
-    + `<span class="n">${done} of ${all} done</span></div>`;
+// A milestone cell, e.g. "M8 of 12 · hourly job runs": the number on its own line (never cut), the name under it.
+// Text without " · " (no checklist in requirements.md) = a plain clip.
+const step = s => {
+  const [num, ...name] = String(s ?? "").split(" · ");
+  if (!name.length) return clip(s);
+  return `<div title="${esc(s)}"><span class="mnum">${esc(num)}</span><div class="clip">${esc(name.join(" · "))}</div></div>`;
 };
 const stripe = p => p.priority === "critical" ? "var(--crit)"
   : p.status === "pending" ? "var(--pend)" : p.status === "active" ? "var(--ok)" : "var(--idea)";
@@ -59,15 +59,18 @@ function draw() {
     $("list").innerHTML = `<div class="empty"><b>Nothing here.</b>No open project matches this tab.</div>`;
     return;
   }
+  // colgroup = fixed column widths, so the table always fits the window (no sideways scroll):
+  // short columns get a set width, the text columns share what is left and cut long text with "…".
   $("list").innerHTML = `<div class="list"><table>
+    <colgroup><col class="c-proj"><col class="c-pill"><col class="c-pill"><col><col><col class="c-blk"><col class="c-ago"></colgroup>
     <thead><tr><th>Project</th><th>Status</th><th>Priority</th><th>Working on</th><th>Next step</th><th>Blocked by</th><th>Updated</th></tr></thead>
     <tbody>${rows.map((p, i) => `
       <tr data-open="${esc(p.id)}" style="--stripe:${stripe(p)};animation-delay:${i * 40}ms">
-        <td><span class="pname">${esc(p.title)}</span><span class="pjira">${p.jira ? esc(p.jira) : "no Jira"}</span></td>
+        <td><span class="pname clip" title="${esc(p.title)}">${esc(p.title)}</span><span class="pjira clip">${p.jira ? esc(p.jira) : "no Jira"}</span></td>
         <td><span class="pill st-${esc(p.status)}">${esc(p.status)}</span></td>
         <td><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span></td>
-        <td class="next">${clip(p.working_on)}${progress(p.progress)}</td>
-        <td class="next">${clip(p.next)}</td>
+        <td class="next">${step(p.working_on)}</td>
+        <td class="next">${step(p.next)}</td>
         <td>${p.blocked_by ? `<span class="blk">${clip(p.blocked_by)}</span>` : '<span class="none">—</span>'}</td>
         <td><span class="ago ${p.quiet ? "q" : ""}">${ago(p.days_ago)}</span></td>
       </tr>`).join("")}</tbody></table></div>`;
