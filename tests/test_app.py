@@ -80,7 +80,7 @@ def open_card(client, project_id="DEMO-1111"):
     return client.get(f"/api/projects/{project_id}").json
 
 
-FORM = {"title": "Fix alarms", "status": "pending", "priority": "high", "next": "call vendor",
+FORM = {"title": "Fix alarms", "status": "pending", "priority": "high", "working_on": "M2 — parse", "next": "call vendor",
         "blocked_by": "IT", "jira": "DEMO-1111", "folder": ""}
 
 
@@ -107,7 +107,8 @@ def test_save_fields_writes_note_and_dashboard_sees_it(tmp_path, client):
     assert response.status_code == 200
     assert response.json["stamp"] != stamp
     row = client.get("/api/projects").json["projects"][0]
-    assert (row["title"], row["next"], row["blocked_by"]) == ("Fix alarms", "call vendor", "IT")
+    assert (row["title"], row["working_on"], row["next"], row["blocked_by"]) == (
+        "Fix alarms", "M2 — parse", "call vendor", "IT")
 
 
 def test_save_fields_needs_a_title_and_known_choices(tmp_path, client):

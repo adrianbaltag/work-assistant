@@ -545,7 +545,7 @@ def test_new_project_makes_note_with_all_fields_and_empty_folders(tmp_path):
     assert folder == tmp_path / "ABC-123"
     assert (folder / "sessions").is_dir() and (folder / "raw").is_dir()
     assert (folder / "note.md").read_text(encoding="utf-8") == (
-        "---\ntitle: Fix alarms\nstatus: pending\npriority: normal\nnext:\nblocked_by:\n"
+        "---\ntitle: Fix alarms\nstatus: pending\npriority: normal\nworking_on:\nnext:\nblocked_by:\n"
         "jira: ABC-123\nfolder:\ntags:\n---\n\n## Goal\n\n\n## History\n")
     assert notes.read_history((folder / "note.md").read_text(encoding="utf-8")) == []
     assert notes.find_project(tmp_path, "ABC-123") == folder

@@ -4,7 +4,7 @@
 // (e.g. Claude Code saved it), Flask answers 409 and we offer "Save mine anyway" / "Load the new version".
 // Uses $, esc, ago and load from app.js.
 
-const FIELDS = ["title", "status", "priority", "next", "blocked_by", "jira", "folder"];
+const FIELDS = ["title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder"];
 const UPLOAD_LIMIT_MB = 50;     // same as app.py
 let card = null;    // what Flask sent (project, text, stamp, history, files) + id + sel (which view is shown)
                     // + file (the open sessions\ or raw\ file) + renaming / confirmDel / newOpen (small UI states)
@@ -172,6 +172,7 @@ function drawOverview() {
       ${input("title", "Project name", "wide")}
       ${select("status", "Status", ["active", "pending", "idea"])}
       ${select("priority", "Priority", ["critical", "high", "normal"], '<span class="hint">Only you set this. Claude never changes it.</span>')}
+      ${input("working_on", "Working on", "wide")}
       ${input("next", "Next step", "wide")}
       ${input("blocked_by", "Blocked by")}
       ${input("jira", "Jira")}

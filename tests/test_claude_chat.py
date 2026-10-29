@@ -263,6 +263,7 @@ def test_ask_offers_the_propose_tool_only_when_allowed():
     assert tool["name"] == "propose_changes"
     allowed = tool["input_schema"]["properties"]["fields"]["items"]["properties"]["field"]["enum"]
     assert "priority" not in allowed and "next" in allowed       # priority is only ever set by the person
+    assert "working_on" in allowed
     assert "propose_changes" in fake.request["system"]
 
 

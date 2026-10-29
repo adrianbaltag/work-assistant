@@ -4,6 +4,15 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
 const ago = n => n === 0 ? "today" : n === 1 ? "1 day ago" : `${n} days ago`;
+// A table cell's text: one line (app.css .clip), cut with "…"; hover shows all of it. Empty = a grey dash.
+const clip = s => s ? `<div class="clip" title="${esc(s)}">${esc(s)}</div>` : '<span class="none">—</span>';
+// A milestone cell, e.g. "M8 of 12 · hourly job runs": the number on its own line (never cut), the name under it.
+// Text without " · " (no checklist in requirements.md) = a plain clip.
+const step = s => {
+  const [num, ...name] = String(s ?? "").split(" · ");
+  if (!name.length) return clip(s);
+  return `<div title="${esc(s)}"><span class="mnum">${esc(num)}</span><div class="clip">${esc(name.join(" · "))}</div></div>`;
+};
 const stripe = p => p.priority === "critical" ? "var(--crit)"
   : p.status === "pending" ? "var(--pend)" : p.status === "active" ? "var(--ok)" : "var(--idea)";
 
@@ -16,7 +25,8 @@ const TABS = {
 let tab = "all";
 let projects = [];
 
-// Re-read the notes from disk on page load and on every tab switch (no timer, no refresh button).
+// Re-read the notes from disk on page load, on every tab switch, every 30 seconds and when you come
+// back to this browser tab (so a card Claude just updated shows without pressing F5).
 async function load() {
   try {
     const response = await fetch("/api/projects");
@@ -49,15 +59,19 @@ function draw() {
     $("list").innerHTML = `<div class="empty"><b>Nothing here.</b>No open project matches this tab.</div>`;
     return;
   }
+  // colgroup = fixed column widths, so the table always fits the window (no sideways scroll):
+  // short columns get a set width, the text columns share what is left and cut long text with "…".
   $("list").innerHTML = `<div class="list"><table>
-    <thead><tr><th>Project</th><th>Status</th><th>Priority</th><th>Next step</th><th>Blocked by</th><th>Updated</th></tr></thead>
+    <colgroup><col class="c-proj"><col class="c-pill"><col class="c-pill"><col><col><col class="c-blk"><col class="c-ago"></colgroup>
+    <thead><tr><th>Project</th><th>Status</th><th>Priority</th><th>Working on</th><th>Next step</th><th>Blocked by</th><th>Updated</th></tr></thead>
     <tbody>${rows.map((p, i) => `
       <tr data-open="${esc(p.id)}" style="--stripe:${stripe(p)};animation-delay:${i * 40}ms">
-        <td><span class="pname">${esc(p.title)}</span><span class="pjira">${p.jira ? esc(p.jira) : "no Jira"}</span></td>
+        <td><span class="pname clip" title="${esc(p.title)}">${esc(p.title)}</span><span class="pjira clip">${p.jira ? esc(p.jira) : "no Jira"}</span></td>
         <td><span class="pill st-${esc(p.status)}">${esc(p.status)}</span></td>
         <td><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span></td>
-        <td class="next">${esc(p.next) || '<span class="none">—</span>'}</td>
-        <td>${p.blocked_by ? `<span class="blk">${esc(p.blocked_by)}</span>` : '<span class="none">—</span>'}</td>
+        <td class="next">${step(p.working_on)}</td>
+        <td class="next">${step(p.next)}</td>
+        <td>${p.blocked_by ? `<span class="blk">${clip(p.blocked_by)}</span>` : '<span class="none">—</span>'}</td>
         <td><span class="ago ${p.quiet ? "q" : ""}">${ago(p.days_ago)}</span></td>
       </tr>`).join("")}</tbody></table></div>`;
 }
@@ -110,5 +124,12 @@ $("list").addEventListener("click", e => {
   const row = e.target.closest("[data-open]");
   if (row) openCard(row.dataset.open);
 });
+
+// Auto refresh, only while the dashboard is the page shown and the browser tab is in front.
+// It redraws only the table: an open project card (a pop-up over it) is not touched.
+const REFRESH_SECONDS = 30;
+const dashShown = () => !$("page-dash").hidden && document.visibilityState === "visible";
+setInterval(() => { if (dashShown()) load(); }, REFRESH_SECONDS * 1000);
+document.addEventListener("visibilitychange", () => { if (dashShown()) load(); });
 
 load();

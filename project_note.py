@@ -6,8 +6,8 @@ Work Claude runs it (when a hook asks), and the hooks in work_jira_hooks.py call
     python project_note.py sync   ABC-123
 
 Each work_jira project folder has a tracking_log.md with three sections:
-    ## Now working on   -> status (PENDING ... = pending + blocked_by)
-    ## Next up          -> next:
+    ## Now working on   -> status (PENDING ... = pending + blocked_by); working_on: when there is no checklist
+    ## Next up          -> next: when the checklist has no milestone after the current one
     ## Last update      -> "date · Claude · text" history line(s) from the newest-dated line(s)
 Paths come from settings.ini: projects_folder= and work_jira_folder=.
 """
@@ -70,15 +70,32 @@ def read_tracking_log(text):
     return log
 
 
-def status_from(now_working_on):
-    """(status, blocked_by) from "## Now working on". "PENDING (who, date): reason. More." = pending."""
-    text = now_working_on.strip()
+def pending_parts(now_working_on):
+    """(reason, the rest) of "PENDING (who, date): reason. More.", or None when it is not pending."""
+    text = plain(now_working_on)
     if not re.match(r"pending\b", text, re.I):
-        return "active", ""
+        return None
     rest = re.sub(r"^\s*\([^)]*\)", "", text[len("pending"):])    # drop "(user, 2026-10-22)"
     rest = rest.lstrip(" :—–-")
     sentence = re.match(r"(.+?[.!?])(\s|$)", rest)              # the first sentence is the reason
-    return "pending", sentence.group(1) if sentence else rest
+    return (sentence.group(1), rest[sentence.end():].strip()) if sentence else (rest, "")
+
+
+def status_from(now_working_on):
+    """(status, blocked_by) from "## Now working on". "PENDING (who, date): reason. More." = pending."""
+    parts = pending_parts(now_working_on)
+    return ("pending", parts[0]) if parts else ("active", "")
+
+
+def working_on_from(now_working_on):
+    """The card's working_on: the whole line, or when pending only the text after the reason (it is in blocked_by)."""
+    parts = pending_parts(now_working_on)
+    return parts[1] if parts else plain(now_working_on)
+
+
+def plain(text):
+    """Without Markdown **bold** marks: the dashboard shows text as it is."""
+    return text.replace("**", "").strip()
 
 
 def last_update(text, now):
@@ -99,22 +116,43 @@ def read_milestones(text):
     <placeholders> are the template, not a real milestone ("< 5 ms" is not a placeholder: it starts
     with a space). Commented-out lines don't count.
     """
+    return {m: ticked for m, ticked, _ in milestone_lines(text)}
+
+
+def milestone_names(text):
+    """{"M1": "read the alarm file", ...}: the short name of each milestone, in file order ("" = no name).
+
+    Short = the text before "· Done when", without the ID's dash or colon and without **bold** and `code`
+    marks (the dashboard shows it as it is).
+    """
+    names = {}
+    for m, _, rest in milestone_lines(text):
+        rest = re.split(r"·|Done when", rest.replace("**", "").replace("`", ""))[0]
+        names[m] = rest.strip().lstrip("—–-:").strip()
+    return names
+
+
+def milestone_lines(text):
+    """(ID, ticked, the rest of the line) for each milestone line: what read_milestones describes."""
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
-    found = {}
     for line in text.splitlines():
         match = re.match(r"\s*[-*]\s+\[([ xX])\]\s+(?:\*\*)?[Mm](\d+[A-Za-z]?)\b", line)
         if match and not re.search(r"<[^\s<>][^<>]*>", line):
-            found["M" + match.group(2).lower()] = match.group(1) != " "
-    return found
+            yield "M" + match.group(2).lower(), match.group(1) != " ", line[match.end():]
 
 
 def folder_milestones(work_folder):
-    """read_milestones of the folder's requirements.md; {} when there is none yet.
+    """read_milestones of the folder's requirements.md; {} when there is none yet."""
+    return read_milestones(requirements_text(work_folder))
+
+
+def requirements_text(work_folder):
+    """The folder's requirements.md, "" when there is none yet.
 
     Odd characters (a file saved as ANSI by Notepad) are replaced, never an error: only the M-lines matter.
     """
     file = Path(work_folder) / REQUIREMENTS
-    return read_milestones(file.read_text(encoding="utf-8-sig", errors="replace")) if file.is_file() else {}
+    return file.read_text(encoding="utf-8-sig", errors="replace") if file.is_file() else ""
 
 
 # ---------- which folder is a work_jira project ----------
@@ -147,7 +185,10 @@ def work_project(work_jira_folder, cwd):
 # ---------- sync: tracking_log.md -> dashboard card ----------
 
 def sync(projects_folder, work_folder, now):
-    """Copy next / status / blocked_by and a new history line from tracking_log.md into the card."""
+    """Copy working_on / next / status / blocked_by and a new history line into the card.
+
+    working_on / next come from requirements.md's checklist when it has one (see steps).
+    """
     log_file = Path(work_folder) / TRACKING_LOG
     if not log_file.is_file():
         raise SyncError(f"No {TRACKING_LOG} in {work_folder}. Create it from _templates first.")
@@ -159,7 +200,7 @@ def sync(projects_folder, work_folder, now):
     note = card / notes.NOTE_FILE
     text = note.read_text(encoding="utf-8-sig")
     status, blocked_by = status_from(log["now"])
-    text = notes.set_fields(text, {"next": log["next"], "status": status, "blocked_by": blocked_by,
+    text = notes.set_fields(text, {**steps(work_folder, log), "status": status, "blocked_by": blocked_by,
                                    "source": SOURCE, "folder": str(work_folder)})
     for line in reversed(log["last"]):        # each goes on top, so reversed keeps tracking_log's order
         entry = last_update(line, now)
@@ -167,6 +208,28 @@ def sync(projects_folder, work_folder, now):
             text = notes.add_history(text, entry[1], entry[0] or now.strftime("%Y-%m-%d"), who=WHO)
     note.write_text(text, encoding="utf-8")     # always written, so the card is now newer than the log
     return card
+
+
+def steps(work_folder, log):
+    """working_on / next for the card.
+
+    With a checklist in requirements.md: the first unticked milestone and the one after it,
+    e.g. "M8 of 12 · hourly job runs" and "M9 · email the report".
+    The checklist runs out (last one, or all ticked) = next from ## Next up. No checklist = the log only.
+    """
+    text = requirements_text(work_folder)
+    names, ticked = milestone_names(text), read_milestones(text)
+    if not names:
+        return {"working_on": working_on_from(log["now"]), "next": plain(log["next"])}
+    todo = [m for m in names if not ticked[m]]
+    return {"working_on": labelled(f"{todo[0]} of {len(names)}", names[todo[0]]) if todo
+            else f"All {len(names)} milestones done",
+            "next": labelled(todo[1], names[todo[1]]) if len(todo) > 1 else plain(log["next"])}
+
+
+def labelled(label, name):
+    """ "M8 of 12" + "hourly job runs" = "M8 of 12 · hourly job runs". No name = the label alone."""
+    return f"{label} · {name}" if name else label
 
 
 def already_in_history(text, date, said):
@@ -177,10 +240,13 @@ def already_in_history(text, date, said):
 
 
 def needs_sync(card, work_folder):
-    """True when tracking_log.md changed after the card was last written."""
+    """True when tracking_log.md (or requirements.md: a milestone ticked) changed after the card was last written."""
     log_file = Path(work_folder) / TRACKING_LOG
     note = Path(card) / notes.NOTE_FILE
-    return log_file.is_file() and log_file.stat().st_mtime_ns > note.stat().st_mtime_ns
+    if not log_file.is_file():
+        return False
+    changed = [f.stat().st_mtime_ns for f in (log_file, Path(work_folder) / REQUIREMENTS) if f.is_file()]
+    return max(changed) > note.stat().st_mtime_ns
 
 
 # ---------- create: a new card (or bring an archived one back) ----------

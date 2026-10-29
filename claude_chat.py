@@ -39,8 +39,8 @@ conversation.
 ALL_SYSTEM = """You help one person keep track of all their open work projects.
 
 The note.md of every open project is attached at the start of the conversation, critical \
-projects first. Each note has fields between --- lines (title, status, priority, next, \
-blocked_by, jira, ...), then free notes, then a ## History section, newest first. Its heading \
+projects first. Each note has fields between --- lines (title, status, priority, \
+working_on, next, blocked_by, jira, ...), then free notes, then a ## History section, newest first. Its heading \
 gives the title, status and priority (defaults filled in) and how long ago anything in that \
 project's folder last changed. You see only the notes, not \
 the session or raw files: when an answer needs those, say to ask in that project's card. You \
@@ -50,7 +50,7 @@ can't change anything from here. Name projects by title and ID.
 
 
 # The project panel may suggest changes. Nothing is saved until the person clicks Approve.
-PROPOSE_FIELDS = ["title", "status", "next", "blocked_by", "tags"]      # never priority: only the person sets it
+PROPOSE_FIELDS = ["title", "status", "working_on", "next", "blocked_by", "tags"]      # never priority: only the person sets it
 PROPOSE_SYSTEM = """
 
 You may suggest changes to this project with the propose_changes tool: some fields, one History \
