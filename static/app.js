@@ -4,6 +4,15 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
 const ago = n => n === 0 ? "today" : n === 1 ? "1 day ago" : `${n} days ago`;
+// A table cell's text: at most 2 lines (app.css .clip), hover for all of it. Empty = a grey dash.
+const clip = s => s ? `<div class="clip" title="${esc(s)}">${esc(s)}</div>` : '<span class="none">—</span>';
+// progress "6/12" (from the ticket's requirements.md checklist) = a small bar + "6 of 12 done". None = nothing.
+const progress = s => {
+  const [done, all] = String(s ?? "").split("/").map(Number);
+  if (!all) return "";
+  return `<div class="prog"><span class="bar"><span style="width:${Math.round(100 * done / all)}%"></span></span>`
+    + `<span class="n">${done} of ${all} done</span></div>`;
+};
 const stripe = p => p.priority === "critical" ? "var(--crit)"
   : p.status === "pending" ? "var(--pend)" : p.status === "active" ? "var(--ok)" : "var(--idea)";
 
@@ -57,9 +66,9 @@ function draw() {
         <td><span class="pname">${esc(p.title)}</span><span class="pjira">${p.jira ? esc(p.jira) : "no Jira"}</span></td>
         <td><span class="pill st-${esc(p.status)}">${esc(p.status)}</span></td>
         <td><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span></td>
-        <td class="next">${esc(p.working_on) || '<span class="none">—</span>'}</td>
-        <td class="next">${esc(p.next) || '<span class="none">—</span>'}</td>
-        <td>${p.blocked_by ? `<span class="blk">${esc(p.blocked_by)}</span>` : '<span class="none">—</span>'}</td>
+        <td class="next">${clip(p.working_on)}${progress(p.progress)}</td>
+        <td class="next">${clip(p.next)}</td>
+        <td>${p.blocked_by ? `<span class="blk">${clip(p.blocked_by)}</span>` : '<span class="none">—</span>'}</td>
         <td><span class="ago ${p.quiet ? "q" : ""}">${ago(p.days_ago)}</span></td>
       </tr>`).join("")}</tbody></table></div>`;
 }
