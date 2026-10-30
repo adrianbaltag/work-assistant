@@ -193,6 +193,10 @@ echo $env:ANTHROPIC_BASE_URL
 - It prints nothing: you'll type them in each time you start the app (Part 2).
   Ask your team lead for the gateway address and your token.
 
+> If the company switches to a new gateway and you save the new values: windows that were already
+> open (PowerShell, Terminal tabs, VS Code) keep the **old** values until you close them completely
+> and open them again. Check with `echo $env:ANTHROPIC_BASE_URL` in the new window.
+
 Ask Claude costs money per question (about $0.10 with the default settings). The `text_limit=`
 line in `settings.ini` controls how much Claude reads per question.
 
@@ -553,6 +557,7 @@ Run `.venv\Scripts\python check_setup.py` first. The most common answers:
 | `... has spaces in it` | You pasted something other than the token (often the command itself). Set it again and paste only the token. |
 | `Claude login failed` | The Claude token is wrong or expired. Get a fresh one and set it again. |
 | `No Claude login found` | You're in a new window: set the Claude variables again (Part 2, step 2). |
+| Ask Claude says "Claude is busy (rate limit)" | Either your gateway budget is used up (ask your team lead), or the app runs in a window with an old gateway address. Stop the app, close every PowerShell window, open a new one, check `echo $env:ANTHROPIC_BASE_URL` shows the right address, then start the app again. |
 | `Packages: ...` | Run `.venv\Scripts\python -m pip install -r requirements.txt` |
 | `missing permissions` | Your Slack app was made by hand and missed some. Easiest fix: make a new app from the manifest (Step 5). |
 | `the instant connection did not open` | The work network may block it. Put `slack_mode=backup` in `settings.ini`: the app then checks Slack every 30 seconds instead. |
