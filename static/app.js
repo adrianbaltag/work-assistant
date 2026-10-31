@@ -2,6 +2,8 @@
 // Python does the logic (sorting, days_ago, quiet); this file only filters and draws.
 
 const $ = id => document.getElementById(id);
+// Shown when fetch() gets no answer at all (the app was stopped). Used by chat.js and todo.js.
+const REACH_ERROR = "Could not reach the app. Is it still running in the terminal?";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
 const ago = n => n === 0 ? "today" : n === 1 ? "1 day ago" : `${n} days ago`;
 // A table cell's text: one line (app.css .clip), cut with "…"; hover shows all of it. Empty = a grey dash.
@@ -13,13 +15,13 @@ const step = s => {
   if (!name.length) return clip(s);
   return `<div title="${esc(s)}"><span class="mnum">${esc(num)}</span><div class="clip">${esc(name.join(" · "))}</div></div>`;
 };
-const stripe = p => p.priority === "critical" ? "var(--crit)"
-  : p.status === "pending" ? "var(--pend)" : p.status === "active" ? "var(--ok)" : "var(--idea)";
+const stripe = p => p.priority === "critical" ? "var(--critical)"
+  : p.status === "pending" ? "var(--pending)" : p.status === "active" ? "var(--active)" : "var(--idea)";
 
 const TABS = {
-  all:      {label: "All open",   c: "var(--fg)",    keep: p => true},
-  critical: {label: "Critical",   c: "var(--crit)",  keep: p => p.priority === "critical"},
-  pending:  {label: "Pending",    c: "var(--pend)",  keep: p => p.status === "pending"},
+  all:      {label: "All open",   c: "var(--text)",    keep: p => true},
+  critical: {label: "Critical",   c: "var(--critical)",  keep: p => p.priority === "critical"},
+  pending:  {label: "Pending",    c: "var(--pending)",  keep: p => p.status === "pending"},
   quiet:    {label: "Gone quiet", c: "var(--quiet)", keep: p => p.quiet},
 };
 let tab = "all";
@@ -40,13 +42,15 @@ async function load() {
   }
 }
 
+// A date as "Friday · 30 October 2026" (CSS shows it in capitals). The To do page uses it too.
+const longDate = day => day.toLocaleDateString("en-GB", {weekday: "long"}) + " · "
+  + day.toLocaleDateString("en-GB", {day: "numeric", month: "long", year: "numeric"});
+
 function drawHeader(today) {
-  const day = new Date(today + "T12:00:00");
-  $("date").textContent = day.toLocaleDateString("en-GB", {weekday: "long"}) + " · "
-    + day.toLocaleDateString("en-GB", {day: "numeric", month: "long", year: "numeric"});
+  $("date").textContent = longDate(new Date(today + "T12:00:00"));
   const n = k => projects.filter(TABS[k].keep).length;
-  $("summary").innerHTML = `${projects.length} open · <b style="color:var(--crit)">${n("critical")} critical</b>`
-    + ` · <b style="color:var(--pend)">${n("pending")} pending</b> · <b style="color:var(--quiet)">${n("quiet")} gone quiet</b>`;
+  $("summary").innerHTML = `${projects.length} open · <b style="color:var(--critical)">${n("critical")} critical</b>`
+    + ` · <b style="color:var(--pending)">${n("pending")} pending</b> · <b style="color:var(--quiet)">${n("quiet")} gone quiet</b>`;
 }
 
 function draw() {
@@ -83,7 +87,7 @@ $("tabs").addEventListener("click", e => {
   load();
 });
 
-// Sidebar: Dashboard / Ask Claude / Archive (and the dashboard's Ask Claude button). Each switch re-reads from disk.
+// Sidebar: Dashboard / To do / Ask Claude / Archive (and the dashboard's Ask Claude button). Each switch re-reads from disk.
 document.querySelector(".app").addEventListener("click", e => {
   const button = e.target.closest("[data-page]");
   if (button) showPage(button.dataset.page);
@@ -94,9 +98,11 @@ function showPage(page) {
   document.querySelectorAll(".nav[data-page]").forEach(n =>
     n.dataset.page === page ? n.setAttribute("aria-current", "page") : n.removeAttribute("aria-current"));
   $("page-dash").hidden = page !== "dash";
+  $("page-todo").hidden = page !== "todo";
   $("page-ask").hidden = page !== "ask";
   $("page-archive").hidden = page !== "archive";
   if (page === "dash") load();
+  else if (page === "todo") loadTodos();      // todo.js
   else if (page === "ask") askAll();
   else loadArchive();
 }

@@ -4,23 +4,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Work Assistant</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
 <body>
   <div class="app">
     <nav class="side" aria-label="App sections">
-      <div class="brand"><span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>Work Assistant</div>
-      <button class="nav" data-page="dash" aria-current="page"><span class="ico">▦</span>Dashboard</button>
-      <button class="nav claude" data-page="ask"><span class="ico">✳</span>Ask Claude</button>
-      <button class="nav" data-page="archive"><span class="ico">▤</span>Archive</button>
-      <div class="slack-wrap"><button class="nav slack" id="nav-slack" aria-haspopup="true" aria-expanded="false" aria-controls="slack-dd"><span class="ico">#</span><span id="slack-label">Slack</span><span class="badge" id="slack-n" hidden></span></button>
+      <div class="brand"><span class="logo" aria-hidden="true"><span class="bars"><i></i><i></i><i></i></span></span>Work Assistant</div>
+      <!-- Icons: small line drawings (16px), coloured by the text colour. aria-hidden = screen readers skip them. -->
+      <button class="nav" data-page="dash" aria-current="page">
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>Dashboard</button>
+      <button class="nav" data-page="todo">
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.6 8.2l1.7 1.7 3.2-3.5"/></svg>To do<span class="nbadge" id="todo-n" hidden></span></button>
+      <button class="nav claude" data-page="ask">
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6"/></svg>Ask Claude</button>
+      <button class="nav" data-page="archive">
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="3.5" rx="1"/><path d="M3 6v6.5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6M6.5 8.75h3"/></svg>Archive</button>
+      <div class="slack-wrap"><button class="nav slack" id="nav-slack" aria-haspopup="true" aria-expanded="false" aria-controls="slack-dd">
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.3 2.5l-1.1 11M10.8 2.5l-1.1 11M2.8 6h11M2.2 10h11"/></svg><span id="slack-label">Slack</span><span class="badge" id="slack-n" hidden></span></button>
         <div class="slack-dd" id="slack-dd" hidden></div></div>
-      <div class="side-label">Coming later</div>
-      <button class="nav" disabled><span class="ico">✉</span>Morning brief<span class="v">v3</span></button>
-      <button class="nav" disabled><span class="ico">◷</span>Calendar<span class="v">v3</span></button>
+      <div class="later">
+        <div class="lbl">Coming later</div>
+        <button class="nav" type="button" disabled aria-disabled="true">
+          <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2.5 4.5L8 9l5.5-4.5"/></svg>Morning brief</button>
+        <button class="nav" type="button" disabled aria-disabled="true">
+          <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.8v2.4M10.5 1.8v2.4"/></svg>Calendar</button>
+      </div>
     </nav>
 
+    <main class="main">
     <section class="content" id="page-dash">
       <div class="dash-head">
         <div>
@@ -35,6 +47,24 @@
       </div>
       <div class="seg" role="tablist" id="tabs"></div>
       <div id="list"></div>
+    </section>
+
+    <section class="content" id="page-todo" hidden>
+      <div class="dash-head">
+        <div>
+          <div class="date" id="todo-date"></div>
+          <h2>To do</h2>
+          <p class="summary" id="todo-summary"></p>
+        </div>
+      </div>
+      <div class="todo-col">
+        <form class="todo-add" id="todo-add" autocomplete="off">
+          <input id="todo-new" maxlength="{{ todo_max }}" placeholder="Add a todo…" aria-label="New todo">
+          <button class="btn primary" type="submit">Add</button>
+        </form>
+        <div id="todo-alert"></div>
+        <div class="todo-col" id="todo-list" data-empty-msg="{{ todo_empty }}" data-max-length="{{ todo_max }}"></div>
+      </div>
     </section>
 
     <section class="content" id="page-ask" hidden>
@@ -59,6 +89,7 @@
       <div id="arch-alert"></div>
       <div id="arch-list"></div>
     </section>
+    </main>
   </div>
 
   <div class="overlay" id="ov" hidden>
@@ -101,6 +132,7 @@
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script src="{{ url_for('static', filename='chat.js') }}"></script>
   <script src="{{ url_for('static', filename='card.js') }}"></script>
+  <script src="{{ url_for('static', filename='todo.js') }}"></script>
   <script src="{{ url_for('static', filename='archive.js') }}"></script>
   <script src="{{ url_for('static', filename='newproject.js') }}"></script>
   <script src="{{ url_for('static', filename='slack.js') }}"></script>

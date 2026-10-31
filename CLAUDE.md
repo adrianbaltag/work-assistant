@@ -14,6 +14,7 @@ Setup steps for people: README.md. Parked ideas and known gaps: TODO.md.
 
 - `app.py`: Flask routes, `load_settings`, `create_app` (fakes injected in tests).
 - `notes.py`: note.md parsing and file ops, pure Python, no Flask.
+- `todos.py`: To do page list (todos.md in the projects folder), pure Python, no Flask; `static/todo.js` draws it.
 - `claude_chat.py`: Ask Claude; `plain_error` = the one place for Claude error wording.
 - `slack_inbox.py`: Slack rules (what glows, rows, catch-up, read check), no threads; `plain_error` for Slack.
 - `slack_live.py`: Slack background part (Socket Mode / backup polling, rate gate).

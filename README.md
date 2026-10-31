@@ -29,7 +29,8 @@ Desktop\projects\                  <- the projects folder (projects_folder= in s
 │   └── raw\                       <- source material: emails, transcripts, screenshots, logs
 ├── NET5G-57\
 ├── my_idea\                       <- IDs don't have to be Jira tickets
-└── _archive\                      <- archived projects (made by the app)
+├── _archive\                      <- archived projects (made by the app)
+└── todos.md                       <- the To do page's list (made by the app on your first todo)
 ```
 
 A folder counts as a project when it has a `note.md` inside. You can open and edit all of these
@@ -100,6 +101,15 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
   the **Archive** page puts it back with **Restore**.
 - If a file changed on disk while you were editing it in the app (for example Claude Code saved it),
   the app warns you instead of overwriting it.
+
+### To do
+
+A short list for things that aren't a project: add, tick off, flag as high, edit, delete,
+**Clear done**. High ones sit on top; the sidebar shows how many are open (red when one is high).
+The list lives in `todos.md` in your projects folder, one line per todo (`- [ ] words`, `- [x]` = done,
+`(high)` after the box = high). You can edit it by hand, but the page rewrites the whole file on each
+change: lines that aren't todos are dropped (near misses like `* [ ] words` still count). If the list changed in another browser tab, a change from
+the old tab saves nothing: the page says so and shows the fresh list.
 
 ### Ask Claude
 
