@@ -24,6 +24,8 @@
   --slack-soft:rgba(167,139,250,.14); --slack-line:rgba(167,139,250,.35); --claude-soft:rgba(233,135,91,.12);
   --sans:"Poppins",system-ui,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
   --radius:14px; --radius-sm:12px; --radius-xs:7px;
+  /* dashboard list heights: app.js reads these to count how many rows fit in the window */
+  --row-h:46px; --head-h:38px; --foot-h:54px;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}   /* .overlay sets display:flex, which would beat the plain hidden attribute */
@@ -76,24 +78,35 @@ button[disabled]{cursor:not-allowed}
 .btn.claude{background:var(--claude-soft);border-color:rgba(233,135,91,.35);color:var(--claude)}
 .btn[disabled]{opacity:.4}
 
-/* Tabs */
-.seg{display:inline-flex;gap:4px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:4px;flex-wrap:wrap;align-self:flex-start}
-.seg button{background:none;border:0;border-radius:9px;padding:7px 12px;color:var(--text-muted);font-weight:500;font-size:.86rem;display:flex;align-items:center;gap:8px}
-.seg button:hover{color:var(--text)}
-.seg button[aria-selected="true"]{background:var(--hover);color:var(--text)}
-.seg .n{font-family:var(--mono);font-size:.74rem;color:var(--text-label)}
+/* Tabs = 4 equal stat tiles: label on top, count under it. The counts follow the filters. */
+.tiles{display:flex;flex-wrap:wrap;gap:12px}   /* wrap = a narrow window gets 2 rows of tiles, never a sideways scroll */
+.tiles button{flex:1 1 140px;min-width:0;height:72px;padding:12px 16px;border-radius:var(--radius);background:var(--panel);border:1px solid var(--border);display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;text-align:left;transition:background .15s,border-color .15s}
+.tiles button:hover{border-color:var(--border-strong)}
+.tiles button[aria-selected="true"]{background:var(--raised);border-color:var(--text)}
+.tiles .tl{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:var(--text-muted)}
+.tiles button[aria-selected="true"] .tl{color:var(--text)}
+.tiles .n{font-size:22px;font-weight:700;line-height:1;color:var(--c)}
+.tiles .zero .n,.tiles .zero .tl{color:var(--text-off)}
+.tiles .dot{width:6px;height:6px;box-shadow:none}
+
+/* Toolbar under the tiles: search + Status + Priority. A box that is set gets a lighter edge. */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.search{position:relative;width:380px;max-width:45%;display:flex}
+.search .ico{position:absolute;left:13px;top:12px;color:var(--text-label);pointer-events:none}
+.toolbar input,.toolbar select{height:40px;border-radius:var(--radius-sm);background:var(--panel);border:1px solid var(--border);font-size:13px}
+.toolbar input{padding:0 12px 0 38px}
+.toolbar select{width:auto;padding:0 10px;cursor:pointer}
+.toolbar .on{border-color:var(--border-focus);background:var(--raised)}
+.linkbtn{background:none;border:0;padding:0 4px;color:var(--text-muted);font-size:13px;text-decoration:underline;text-underline-offset:3px}
+.linkbtn:hover{color:var(--text)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--c,var(--text));box-shadow:0 0 0 3px color-mix(in srgb,var(--c,var(--text)) 22%,transparent);flex:none}
 
 /* Project list */
 .list{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel)}
-table{border-collapse:collapse;width:100%;table-layout:fixed}   /* fixed = the <col> widths below, never wider than the window */
-col.c-proj{width:17%} col.c-pill{width:100px} col.c-blk{width:13%} col.c-ago{width:112px}
+table{border-collapse:collapse;width:100%;table-layout:fixed}   /* fixed = equal columns, never wider than the window (Archive page) */
 th{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--text-label);font-weight:500;text-align:left;padding:12px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
 td{padding:14px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:.88rem}
-tbody tr{cursor:pointer;transition:background .15s}
-tbody tr:hover{background:var(--raised)}
 tbody tr:last-child td{border-bottom:0}
-td:first-child{box-shadow:inset 3px 0 0 var(--stripe,transparent)}
 .pname{font-weight:600;display:block;font-size:.92rem}
 .pjira{display:block;font-family:var(--mono);font-size:.72rem;color:var(--text-label)}
 .next{color:var(--text)}
@@ -113,13 +126,53 @@ td:first-child{box-shadow:inset 3px 0 0 var(--stripe,transparent)}
 .pr-critical{--c:var(--critical);--soft:var(--critical-bg)}
 .pr-high{--c:var(--high);--soft:transparent;box-shadow:inset 0 0 0 1px rgba(242,92,84,.5)}
 .pr-normal{--c:var(--idea);--soft:transparent;box-shadow:inset 0 0 0 1px var(--border-strong)}
-@media (prefers-reduced-motion:no-preference){
-  tbody tr{animation:rise .35s ease-out backwards}
-  @keyframes rise{from{opacity:0;transform:translateY(6px)}}
-}
 .empty{border:1px dashed var(--border-strong);border-radius:var(--radius);padding:28px;color:var(--text-muted);text-align:center}
 .empty b{display:block;color:var(--text);font-size:1rem;margin-bottom:4px}
 .empty.bad b{color:var(--critical)}
+
+/* Dashboard project list: grid rows, not a <table>, so the columns can never push past the window
+   (minmax(0,…) lets the text columns shrink; the short columns have set widths). Every row has the
+   same height: app.js counts how many fit in the window (--row-h, --head-h, --foot-h at the top). */
+.plist{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
+.prow{display:grid;grid-template-columns:minmax(0,2.1fr) 100px 100px minmax(0,1.9fr) minmax(0,2fr) minmax(0,1.4fr) 112px;align-items:center;height:var(--row-h);width:100%;padding:0;margin:0;border:0;border-top:1px solid var(--hover);background:none;color:var(--text);text-align:left;line-height:1.35;box-shadow:inset 3px 0 0 var(--stripe,transparent);transition:background .15s;-webkit-user-select:text;user-select:text}
+/* user-select: a row is a button, and buttons block text selection; this lets you drag over a row to copy its text (app.js then skips opening the card) */
+.prow:hover{background:var(--hover)}
+.prow:focus-visible{outline-offset:-2px}   /* ring inside the row: .plist hides what sticks out */
+.prow.head{height:var(--head-h);border-top:0;background:var(--sidebar);box-shadow:none}
+.prow .c{display:block;min-width:0;padding:0 14px;overflow:hidden;font-size:13px}
+.prow .c.lbl{font-size:10.5px;white-space:nowrap;text-overflow:ellipsis}   /* header labels: small (the line above would make them 13px), one line */
+.prow .c:first-child{padding-left:17px}   /* clears the 3px colour stripe */
+.prow .clip,.prow .next>span{display:block}
+.pfoot{display:flex;justify-content:space-between;align-items:center;gap:12px;height:var(--foot-h);padding:0 14px 0 17px;background:var(--sidebar);border-top:1px solid var(--hover);font-size:13px;color:var(--text-muted)}
+.pfoot b{color:var(--text);font-weight:600}
+.pager{display:flex;align-items:center;gap:6px}
+.pager button{height:34px;min-width:34px;padding:0 10px;border-radius:10px;background:var(--panel);border:1px solid var(--border);font-size:13px;transition:background .15s}
+.pager button:not([disabled]):hover{background:var(--hover)}
+.pager button[aria-current="page"]{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:600}
+.pager button[disabled]{opacity:.4}
+.pager .gap{color:var(--text-label);padding:0 2px}
+.nomatch{display:flex;flex-direction:column;align-items:center;gap:14px;padding:40px 20px;border-top:1px solid var(--hover)}
+.nomatch b{font-size:14px;font-weight:600}
+.pfoot>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Narrow window: fewer columns, so the rest stay readable. Cells in order: 1 Project, 2 Status,
+   3 Priority, 4 Working on, 5 Next step, 6 Blocked by, 7 Updated. The coloured stripe still shows
+   critical / pending / active when Status and Priority are hidden. */
+@media (max-width:1250px){
+  .prow{grid-template-columns:minmax(0,2.1fr) 100px 100px minmax(0,2fr) 112px}
+  .prow .c:nth-child(4),.prow .c:nth-child(6){display:none}
+}
+@media (max-width:920px){.tiles button{flex-basis:40%}}   /* 2 + 2 tiles, not 3 + 1 */
+@media (max-width:800px){
+  .content{padding-left:20px;padding-right:20px}
+  .prow{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 112px}
+  .prow .c:nth-child(2),.prow .c:nth-child(3){display:none}
+  /* pager: ‹ Prev, the current page, Next › */
+  .pager button:not([data-arrow]):not([aria-current]),.pager .gap{display:none}
+}
+@media (prefers-reduced-motion:no-preference){
+  .plist.anim button.prow{animation:rise .35s ease-out backwards}   /* only on a page change or tile click */
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}}
+}
 
 /* Project card: big pop-in over the app. Columns: files | chosen item | Claude */
 .overlay{position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px}
@@ -241,9 +294,6 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .btn.danger.solid{background:var(--critical);color:var(--bg);border-color:var(--critical);font-weight:600}
 .btn.danger.solid:not([disabled]):hover{background:var(--high);border-color:var(--high)}
 
-/* Archive page: rows are not clickable, only their Restore buttons */
-.list.plain tbody tr{cursor:default}
-.list.plain tbody tr:hover{background:none}
 .sec{margin:6px 0 8px}
 
 /* Slack button: a purple-tinted button under the nav. Glows slowly while there are unread mentions

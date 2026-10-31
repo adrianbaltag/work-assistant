@@ -38,9 +38,13 @@ async function fetchFile(dir, name) {
 }
 
 async function openCard(id) {
+  // inert = the page behind the card can't be clicked or reached with Tab, already while the card
+  // loads (Enter on a row there would open another card and skip the "unsaved changes" question).
+  document.querySelector(".app").inert = true;
   try {
     card = {...await fetchCard(id), id, sel: "overview"};
   } catch (err) {
+    document.querySelector(".app").inert = false;
     toast(`Could not open ${id}: ${err.message}`);
     load();
     return;
@@ -57,11 +61,13 @@ function closeCard() {
 }
 
 function hideCard() {
+  const id = card && card.id;    // card = null: already closed (Esc while an archive was saving)
   $("ov").hidden = true;
   document.body.style.overflow = "";
+  document.querySelector(".app").inert = false;
   card = null;
   $("m-claude").chat = null;      // forget the chat; a late answer is dropped
-  load();       // the dashboard re-reads the notes, so it shows what you just saved
+  load(false, id);    // the dashboard re-reads the notes (shows what you just saved); focus back on that row
 }
 
 // ---------- unsaved changes ----------
