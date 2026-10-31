@@ -17,6 +17,7 @@ import notes
 import project_note
 import slack_inbox
 import slack_live
+import todos
 
 SETTINGS_FILE = notes.SETTINGS_FILE
 load_settings = notes.load_settings     # lives in notes.py so helper scripts can read settings without Flask
@@ -25,6 +26,8 @@ CHOICES = {"status": list(notes.STATUSES), "priority": ["critical", "high", "nor
 FORM_FIELDS = ["title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder"]
 UPLOAD_LIMIT_MB = 50
 LOCKED = "Could not change {}. Is it open in another program (e.g. Excel)? Close it and try again."
+TODO_ODD = "The page sent something odd. Reload the page (F5) and try again."
+TODO_ROW = {"row": int, "text": str}     # which todo a change is for: its place in todos.md + its words
 
 
 def read_text_limit(value):
@@ -429,6 +432,56 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         except OSError:
             return jsonify(error=LOCKED.format(path.name)), 400
         return jsonify(where=where)
+
+    # ----- To do page -----
+
+    @app.get("/api/todos")
+    def api_todos():
+        return jsonify(todos.listing(todos.read_todos(projects_folder)))
+
+    def todo_change(change, **fields):
+        """Shared by every To do change. Checks the JSON body has these fields (name=type), runs change(body),
+        and answers with the fresh list so the page just redraws. A bool is not an int here (True is 1 in Python).
+        """
+        data = request.get_json(silent=True)
+        if not (isinstance(data, dict) and all(type(data.get(name)) is kind for name, kind in fields.items())):
+            return jsonify(error=TODO_ODD), 400
+        try:
+            change(data)
+        except todos.ListChanged:
+            return jsonify(error=todos.CHANGED), 409
+        except ValueError as err:
+            return jsonify(error=str(err)), 400
+        except OSError:
+            return jsonify(error=LOCKED.format(todos.TODO_FILE)), 400
+        return api_todos()
+
+    @app.post("/api/todos")
+    def api_add_todo():
+        return todo_change(lambda d: todos.add(projects_folder, d["text"]), text=str)
+
+    @app.post("/api/todos/done")
+    def api_todo_done():
+        return todo_change(lambda d: todos.set_done(projects_folder, d["row"], d["text"], d["done"]),
+                           **TODO_ROW, done=bool)
+
+    @app.post("/api/todos/high")
+    def api_todo_high():
+        return todo_change(lambda d: todos.set_high(projects_folder, d["row"], d["text"], d["high"]),
+                           **TODO_ROW, high=bool)
+
+    @app.post("/api/todos/text")
+    def api_todo_text():
+        return todo_change(lambda d: todos.set_text(projects_folder, d["row"], d["text"], d["new_text"]),
+                           **TODO_ROW, new_text=str)
+
+    @app.post("/api/todos/delete")
+    def api_delete_todo():
+        return todo_change(lambda d: todos.delete(projects_folder, d["row"], d["text"]), **TODO_ROW)
+
+    @app.post("/api/todos/clear-done")
+    def api_clear_done():
+        return todo_change(lambda d: todos.clear_done(projects_folder))
 
     # ----- Slack button -----
 
