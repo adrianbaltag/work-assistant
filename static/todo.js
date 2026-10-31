@@ -4,31 +4,37 @@
 // so after each change we simply redraw from it.
 // Each change sends the todo's row number + text from the last answer. If the file changed in the
 // meantime (e.g. in another browser tab), Flask answers 409: we show its message and reload the list.
-// Uses $, esc and longDate from app.js.
+// Uses $, esc, longDate and REACH_ERROR from app.js.
 
 let todos = {todos: [], open: 0, open_high: 0, done: 0};   // the last answer from Flask
 let todoEditing = null;    // while a row is being edited: {row, text, draft, error}
 let todoConfirm = false;   // true = the Done card head asks "Delete N done todos for good?"
 let todoBusy = false;      // true while a change is on its way to Flask (ignores double clicks)
 
-const TODO_REACH_ERROR = "Could not reach the app. Is it still running in the terminal?";
-const TODO_EMPTY_EDIT = "Type something, or use × to delete it.";
+// Both come from todos.py, put in the page by Flask (one copy of each).
+const TODO_EMPTY_EDIT = $("todo-list").dataset.emptyMsg;    // todos.EMPTY
+const TODO_MAX_LENGTH = $("todo-list").dataset.maxLength;   // todos.MAX_LENGTH
+let todoAsked = 0;         // counts requests to Flask; an answer to an older one than the last drawn is ignored
+let todoDrawn = 0;         // the number of the request whose answer is on screen
 
 // Small line icons (see .ico in app.css). aria-hidden: the button's label already says what it does.
 const ICON_FLAG = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 14.5V2.5M4 3h8l-1.8 3L12 9H4"/></svg>';
 const ICON_CHECK = '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
 
 // Ask Flask. GET when there is no body, POST (JSON) when there is one.
-// Returns Flask's answer; if anything goes wrong it throws an Error with a plain-English message
+// Returns Flask's answer, or null when a newer request was answered first (e.g. you ticked a todo while
+// the list was still loading: the older answer is out of date, so it must not be drawn over the newer one).
+// If anything goes wrong it throws an Error with a plain-English message
 // (and .status = the HTTP status, e.g. 409, when Flask answered with an error).
 async function todoFetch(path, body) {
   const options = body === undefined ? {}
     : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
+  const number = ++todoAsked;
   let response;
   try {
     response = await fetch(path, options);
   } catch (err) {
-    throw new Error(TODO_REACH_ERROR);       // no answer at all: the app is not running
+    throw new Error(REACH_ERROR);            // no answer at all: the app is not running
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -36,6 +42,8 @@ async function todoFetch(path, body) {
     error.status = response.status;
     throw error;
   }
+  if (number < todoDrawn) return null;
+  todoDrawn = number;
   return data;
 }
 
@@ -43,7 +51,9 @@ async function todoFetch(path, body) {
 async function loadTodos(keepAlert = false) {
   if (!keepAlert) $("todo-alert").innerHTML = "";
   try {
-    todos = await todoFetch("/api/todos");
+    const fresh = await todoFetch("/api/todos");
+    if (!fresh) return;                   // a newer answer is already on screen
+    todos = fresh;
     drawTodos();
   } catch (err) {
     $("todo-list").innerHTML = `<div class="empty bad"><b>Could not read your todos.</b>${esc(err.message)}</div>`;
@@ -57,8 +67,11 @@ async function todoSend(path, body) {
   todoBusy = true;
   $("todo-alert").innerHTML = "";
   try {
-    todos = await todoFetch(path, body);
-    drawTodos();
+    const fresh = await todoFetch(path, body);
+    if (fresh) {                          // null = a newer answer is already on screen
+      todos = fresh;
+      drawTodos();
+    }
     return true;
   } catch (err) {
     $("todo-alert").innerHTML = `<div class="alert bad"><b>Could not change your todos.</b> ${esc(err.message)}</div>`;
@@ -77,12 +90,21 @@ function drawTodoBadge() {
   badge.classList.toggle("high", todos.open_high > 0);
 }
 
-// While a row is being edited, find it again in a fresh list: its row number moves if a todo
-// above it was deleted. Gone (e.g. deleted in another tab) = stop editing. Returns its place or -1.
+// Find a todo again in a fresh list. Its place in the list (and its row number, if a todo above it
+// was deleted) can move, so: same row + same text first; else the same text, but only if exactly one
+// todo has it (two todos with the same words = we can't tell which, so -1). Returns its place or -1.
+function findTodo(all, row, text, keep = t => true) {
+  const i = all.findIndex(t => keep(t) && t.row === row && t.text === text);
+  if (i >= 0) return i;
+  const same = all.filter(t => keep(t) && t.text === text);
+  return same.length === 1 ? all.indexOf(same[0]) : -1;
+}
+
+// While a row is being edited, find it again in a fresh list (only open todos can be edited).
+// Gone (e.g. deleted in another tab) = stop editing. Returns its place or -1.
 function findEditedRow(all) {
   if (!todoEditing) return -1;
-  let i = all.findIndex(t => !t.done && t.row === todoEditing.row && t.text === todoEditing.text);
-  if (i < 0) i = all.findIndex(t => !t.done && t.text === todoEditing.text);
+  const i = findTodo(all, todoEditing.row, todoEditing.text, t => !t.done);
   if (i < 0) {
     todoEditing = null;
     return -1;
@@ -121,7 +143,7 @@ function drawTodos() {
     const flag = t.high ? "High priority, click for normal" : "Normal priority, click for high";
     return `<li class="trow" data-i="${i}">
       <button class="tcheck" type="button" role="checkbox" aria-checked="false" aria-label="${esc(t.text)}" title="Mark done" data-act="done"></button>
-      <span class="ttext" title="${esc(t.text)}">${esc(t.text)}</span>
+      <span class="ttext">${esc(t.text)}</span>
       <button class="ticon tflag${t.high ? " on" : ""}" type="button" aria-label="${flag}" title="${flag}" data-act="high">${ICON_FLAG}</button>
       <button class="tedit" type="button" data-act="edit"${editIndex >= 0 ? " disabled" : ""}><span aria-hidden="true">✎</span> Edit</button>
       <button class="ticon tdel" type="button" aria-label="Delete" title="Delete" data-act="delete">×</button>
@@ -132,7 +154,7 @@ function drawTodos() {
     const t = all[i];
     return `<li class="trow" data-i="${i}">
       <button class="tcheck" type="button" role="checkbox" aria-checked="true" aria-label="${esc(t.text)}" title="Not done yet" data-act="done">${ICON_CHECK}</button>
-      <span class="ttext" title="${esc(t.text)}">${esc(t.text)}</span>
+      <span class="ttext">${esc(t.text)}</span>
       <button class="ticon tdel" type="button" aria-label="Delete" title="Delete" data-act="delete">×</button>
     </li>`;
   };
@@ -153,6 +175,7 @@ function drawTodos() {
     + (done.length ? `<div class="tcard done">${doneHead}
       <ul class="tlist" aria-label="Done">${done.map(doneRow).join("")}</ul></div>` : "");
 
+  if (todoEditing) fitEditBox();
   if (todoEditing && todoEditing.error) setEditError(true);
   if (todoEditing && typing) $("todo-edit").focus();    // a redraw while you type keeps you typing
 }
@@ -162,12 +185,20 @@ function editRow(t, i) {
   return `<li class="trow editing" data-i="${i}">
     <button class="tcheck" type="button" role="checkbox" aria-checked="false" aria-label="${esc(t.text)}" disabled></button>
     <div class="tfield">
-      <input id="todo-edit" value="${esc(todoEditing.draft)}" maxlength="500" aria-label="Edit todo" autocomplete="off">
+      <textarea id="todo-edit" rows="1" maxlength="${TODO_MAX_LENGTH}" aria-label="Edit todo">${esc(todoEditing.draft)}</textarea>
       <p class="terr" id="todo-edit-err" hidden>${TODO_EMPTY_EDIT}</p>
     </div>
     <button class="btn primary" type="button" data-act="save">Save</button>
     <button class="btn" type="button" data-act="cancel">Cancel</button>
   </li>`;
+}
+
+// Make the edit box exactly as tall as its text (a long todo shows all its lines, no scrolling).
+// "auto" first, so it can also shrink when you delete text.
+function fitEditBox() {
+  const box = $("todo-edit");
+  box.style.height = "auto";
+  box.style.height = box.scrollHeight + 3 + "px";    // + 3 = top + bottom border (1.5px each, app.css)
 }
 
 // Show or clear the "empty text" message under the edit box (screen readers hear it too).
@@ -186,8 +217,8 @@ function setEditError(on) {
 
 // After a redraw, put the keyboard focus back on the same todo's button (act = which button).
 // Not there any more (e.g. deleted) = focus the "Add a todo…" box.
-function focusTodo(text, act) {
-  const i = todos.todos.findIndex(t => t.text === text);
+function focusTodo(row, text, act) {
+  const i = findTodo(todos.todos, row, text);
   const button = i < 0 ? null : $("todo-list").querySelector(`[data-i="${i}"] [data-act="${act}"]`);
   if (button && !button.disabled) button.focus();
   else $("todo-new").focus();
@@ -201,10 +232,10 @@ function startEdit(t) {
 }
 
 function cancelEdit() {
-  const text = todoEditing.text;
+  const {row, text} = todoEditing;
   todoEditing = null;
   drawTodos();
-  focusTodo(text, "edit");
+  focusTodo(row, text, "edit");
 }
 
 async function saveEdit() {
@@ -219,7 +250,7 @@ async function saveEdit() {
   if (await todoSend("/api/todos/text", {row, text, new_text: newText})) {
     todoEditing = null;
     drawTodos();
-    focusTodo(newText, "edit");
+    focusTodo(row, newText, "edit");
   }
 }
 
@@ -249,13 +280,13 @@ $("todo-list").addEventListener("click", async e => {
 
   if (act === "done") {
     await todoSend("/api/todos/done", {row: t.row, text: t.text, done: !t.done});
-    focusTodo(t.text, "done");
+    focusTodo(t.row, t.text, "done");
   } else if (act === "high") {
     await todoSend("/api/todos/high", {row: t.row, text: t.text, high: !t.high});
-    focusTodo(t.text, "high");
+    focusTodo(t.row, t.text, "high");
   } else if (act === "delete") {
     await todoSend("/api/todos/delete", {row: t.row, text: t.text});   // at once, no question (decided)
-    focusTodo(t.text, "delete");
+    focusTodo(t.row, t.text, "delete");
   } else if (act === "edit") {
     startEdit(t);
   } else if (act === "save") {
@@ -269,7 +300,9 @@ $("todo-list").addEventListener("click", async e => {
   } else if (act === "clear-no") {
     closeConfirm();
   } else if (act === "clear-yes") {
-    await todoSend("/api/todos/clear-done", {});
+    // Send the done todos you were asked about: if another tab ticked or unticked one meanwhile,
+    // Flask deletes nothing and answers 409 (so nothing you didn't see is deleted).
+    await todoSend("/api/todos/clear-done", {texts: todos.todos.filter(t => t.done).map(t => t.text)});
     $("todo-new").focus();
   }
 });
@@ -278,6 +311,7 @@ $("todo-list").addEventListener("click", async e => {
 $("todo-list").addEventListener("input", e => {
   if (e.target.id !== "todo-edit") return;
   todoEditing.draft = e.target.value;
+  fitEditBox();
   if (todoEditing.error) setEditError(false);
 });
 

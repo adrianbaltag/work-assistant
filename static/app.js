@@ -2,6 +2,8 @@
 // Python does the logic (sorting, days_ago, quiet); this file only filters and draws.
 
 const $ = id => document.getElementById(id);
+// Shown when fetch() gets no answer at all (the app was stopped). Used by chat.js and todo.js.
+const REACH_ERROR = "Could not reach the app. Is it still running in the terminal?";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;"}[c]));
 const ago = n => n === 0 ? "today" : n === 1 ? "1 day ago" : `${n} days ago`;
 // A table cell's text: one line (app.css .clip), cut with "…"; hover shows all of it. Empty = a grey dash.

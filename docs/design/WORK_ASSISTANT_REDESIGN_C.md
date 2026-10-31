@@ -13,6 +13,8 @@
 > - To do is a page section like Archive (sidebar buttons), not a `/todo` route. Edit opens only via the ✎ button.
 > - Keep the app's existing project sort and its "today / 1 day ago / N days ago" wording.
 > - Done group keeps added order.
+> - A long todo **wraps onto more lines** (row grows), not cut with "…"; the edit box grows with the text,
+>   Enter still saves (§7 "Text" line below is replaced by this).
 
 You are restyling an existing local web app called **Work Assistant**.
 Stack: **Flask + plain HTML / CSS / JavaScript. No framework, no build step, no icon library, no CSS framework.**

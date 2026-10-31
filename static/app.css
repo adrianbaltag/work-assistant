@@ -307,7 +307,8 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .tcard.done .trow{min-height:44px}
 .trow.editing{background:var(--raised);padding-top:8px;padding-bottom:8px;gap:10px;align-items:flex-start}
 .trow.editing .tcheck{margin-top:10px}
-.ttext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+/* Long todos wrap onto more lines (the row grows); anywhere = a long link with no spaces wraps too */
+.ttext{flex:1;min-width:0;overflow-wrap:anywhere;padding:12px 0;line-height:1.45;font-size:14px}
 .tcard.done .ttext{text-decoration:line-through;color:var(--text-label)}
 /* Round checkbox: a real button with role="checkbox" */
 .tcheck{width:20px;height:20px;border-radius:50%;border:1.6px solid var(--border-focus);background:none;padding:0;flex:none;display:grid;place-items:center;color:var(--text)}
@@ -327,8 +328,9 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .tedit[disabled]{color:#45413D;border-color:var(--raised)}
 /* Edit mode: text box + Save + Cancel */
 .tfield{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-.tfield input,.tfield input:focus{height:40px;border-radius:10px;border:1.5px solid var(--text);background:var(--bg);font-size:14px}
-.tfield input[aria-invalid="true"]{border-color:var(--critical)}
+/* Edit box: a textarea that grows with the text (todo.js fitEditBox); Enter saves, so no resize handle */
+.tfield textarea,.tfield textarea:focus{min-height:40px;resize:none;overflow:hidden;line-height:1.45;border-radius:10px;border:1.5px solid var(--text);background:var(--bg);font-size:14px}
+.tfield textarea[aria-invalid="true"]{border-color:var(--critical)}
 .terr{font-size:12px;color:var(--high)}
 .trow.editing .btn{height:40px;padding:0 16px;border-radius:10px}
 /* No todos at all */

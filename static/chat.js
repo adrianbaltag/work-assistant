@@ -44,7 +44,7 @@ function makeChat(box, {sub, intro, chips, placeholder, url, current, approve,
                                          body: JSON.stringify({question, history: chat.history})});
       data = await response.json().catch(() => ({error: `The app answered ${response.status}.`}));
     } catch (err) {
-      data = {error: "Could not reach the app. Is it still running?"};
+      data = {error: REACH_ERROR};
     }
     if (box.chat !== chat) return;      // the card was closed (or another one opened) meanwhile
     chat.busy = false;

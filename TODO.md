@@ -47,3 +47,17 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   block works (Claude adds the line, asks once), but CC 2.1.267 labels any exit-2 message "error".
   Nothing is wrong. Fix idea if it confuses colleagues: Stop JSON `{"decision": "block", "reason": ...}`
   instead of exit 2 (check the docs first for how that one is labelled).
+
+## To do page
+
+- **Two todos with the same words + two tabs can hit the wrong one.** A change names a todo by its
+  row + words. If another tab deletes a todo above two same-worded todos, the old tab's click can land
+  on the other one. Not reachable in practice: one tab, no duplicate todos (decided 2026-10-30).
+  Fix if needed: every answer carries a stamp of the file; any change from an out-of-date page = 409.
+- **Hand-typed lines like `- [x](link) notes` become todos.** The parser accepts near misses
+  (`* [ ] x`, `- [ ]x`) so it also reads some markdown links as todos. Not reachable: todos.md is
+  only changed from the page, never by hand (decided 2026-10-30).
+- **A crash mid-save could still leave todos.md short.** The text is encoded before the file is
+  opened, so a bad character can't empty it any more; only a power cut / full disk during the write
+  could. Fix if needed: write a temp file then os.replace (check it works on Windows when the file
+  is open elsewhere).

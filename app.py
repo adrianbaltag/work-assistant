@@ -26,6 +26,7 @@ CHOICES = {"status": list(notes.STATUSES), "priority": ["critical", "high", "nor
 FORM_FIELDS = ["title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder"]
 UPLOAD_LIMIT_MB = 50
 LOCKED = "Could not change {}. Is it open in another program (e.g. Excel)? Close it and try again."
+UNREADABLE = "Could not read {}. Is it open in another program (e.g. Excel)? Close it and reload this page (F5)."
 TODO_ODD = "The page sent something odd. Reload the page (F5) and try again."
 TODO_ROW = {"row": int, "text": str}     # which todo a change is for: its place in todos.md + its words
 
@@ -97,7 +98,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     @app.get("/")
     def home():
-        return render_template("index.html", work_jira=bool(work_jira_folder))
+        return render_template("index.html", work_jira=bool(work_jira_folder), todo_empty=todos.EMPTY,
+                               todo_max=todos.MAX_LENGTH)
 
     @app.get("/api/projects")
     def api_projects():
@@ -437,24 +439,29 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     @app.get("/api/todos")
     def api_todos():
-        return jsonify(todos.listing(todos.read_todos(projects_folder)))
+        try:
+            return jsonify(todos.listing(todos.read_todos(projects_folder)))
+        except todos.Unreadable as err:
+            return jsonify(error=str(err)), 400
+        except OSError:
+            return jsonify(error=UNREADABLE.format(todos.TODO_FILE)), 400
 
     def todo_change(change, **fields):
-        """Shared by every To do change. Checks the JSON body has these fields (name=type), runs change(body),
-        and answers with the fresh list so the page just redraws. A bool is not an int here (True is 1 in Python).
+        """Shared by every To do change. Checks the JSON body has these fields (name=type), runs change(body)
+        and answers with the list it saved, so the page just redraws. A bool is not an int here (True is 1 in Python).
         """
         data = request.get_json(silent=True)
         if not (isinstance(data, dict) and all(type(data.get(name)) is kind for name, kind in fields.items())):
             return jsonify(error=TODO_ODD), 400
         try:
-            change(data)
+            saved = change(data)
         except todos.ListChanged:
             return jsonify(error=todos.CHANGED), 409
-        except ValueError as err:
+        except (todos.Unreadable, todos.BadText) as err:
             return jsonify(error=str(err)), 400
         except OSError:
             return jsonify(error=LOCKED.format(todos.TODO_FILE)), 400
-        return api_todos()
+        return jsonify(todos.listing(saved))
 
     @app.post("/api/todos")
     def api_add_todo():
@@ -481,7 +488,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     @app.post("/api/todos/clear-done")
     def api_clear_done():
-        return todo_change(lambda d: todos.clear_done(projects_folder))
+        # texts = the done todos the page showed in "Delete N done todos for good?"
+        return todo_change(lambda d: todos.clear_done(projects_folder, d["texts"]), texts=list)
 
     # ----- Slack button -----
 

@@ -59,11 +59,11 @@
       </div>
       <div class="todo-col">
         <form class="todo-add" id="todo-add" autocomplete="off">
-          <input id="todo-new" maxlength="500" placeholder="Add a todo…" aria-label="New todo">
+          <input id="todo-new" maxlength="{{ todo_max }}" placeholder="Add a todo…" aria-label="New todo">
           <button class="btn primary" type="submit">Add</button>
         </form>
         <div id="todo-alert"></div>
-        <div class="todo-col" id="todo-list"></div>
+        <div class="todo-col" id="todo-list" data-empty-msg="{{ todo_empty }}" data-max-length="{{ todo_max }}"></div>
       </div>
     </section>
 
