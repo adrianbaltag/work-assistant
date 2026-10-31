@@ -48,6 +48,13 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   Nothing is wrong. Fix idea if it confuses colleagues: Stop JSON `{"decision": "block", "reason": ...}`
   instead of exit 2 (check the docs first for how that one is labelled).
 
+## Dashboard
+
+- **Hand-typed `priority: High` (capital) or `low` is missed by the Priority filter.** The filter,
+  the tiles and the pills all match the exact lowercase words the card writes. Not reachable when
+  notes are changed from the card (found in review 2026-10-31). Fix if needed: lowercase status
+  and priority when notes.py reads a note.
+
 ## To do page
 
 - **Two todos with the same words + two tabs can hit the wrong one.** A change names a todo by its
