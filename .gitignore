@@ -6,3 +6,4 @@ __pycache__/
 SKIP_STOP_HOOK
 settings.ini
 handoffs/
+NEXT.md
