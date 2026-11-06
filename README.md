@@ -1,5 +1,7 @@
 # Work Assistant
 
+**New here? Start with [INSTALL.md](INSTALL.md).**
+
 A small web page that runs on your own laptop and shows your work projects in one place:
 
 - **Dashboard** of every project, critical ones first, with tabs for Critical, Pending and Gone quiet.
