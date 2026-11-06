@@ -49,6 +49,7 @@ async function todoFetch(path, body) {
 
 // Read the list (page opened, app loaded, or after a 409). keepAlert = leave the red message on screen.
 async function loadTodos(keepAlert = false) {
+  fitBoxes();                             // the window may have changed size while To do was hidden
   if (!keepAlert) $("todo-alert").innerHTML = "";
   try {
     const fresh = await todoFetch("/api/todos");
@@ -175,7 +176,7 @@ function drawTodos() {
     + (done.length ? `<div class="tcard done">${doneHead}
       <ul class="tlist" aria-label="Done">${done.map(doneRow).join("")}</ul></div>` : "");
 
-  if (todoEditing) fitEditBox();
+  if (todoEditing) fitBox($("todo-edit"));
   if (todoEditing && todoEditing.error) setEditError(true);
   if (todoEditing && typing) $("todo-edit").focus();    // a redraw while you type keeps you typing
 }
@@ -193,12 +194,21 @@ function editRow(t, i) {
   </li>`;
 }
 
-// Make the edit box exactly as tall as its text (a long todo shows all its lines, no scrolling).
-// "auto" first, so it can also shrink when you delete text.
-function fitEditBox() {
-  const box = $("todo-edit");
+// Make a text box exactly as tall as its text (a long todo shows all its lines, no scrolling).
+// Used by the edit box and the Add box. "auto" first, so it can also shrink when you delete text.
+function fitBox(box) {
   box.style.height = "auto";
-  box.style.height = box.scrollHeight + 3 + "px";    // + 3 = top + bottom border (1.5px each, app.css)
+  const css = getComputedStyle(box);
+  const borders = parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth);
+  box.style.height = box.scrollHeight + borders + "px";    // scrollHeight = text + padding, no borders
+}
+
+// Fit the Add box and the edit box (if a todo is being edited), but only while the To do page
+// shows: a hidden box has no height to measure.
+function fitBoxes() {
+  for (const box of [$("todo-new"), $("todo-edit")]) {
+    if (box && box.offsetParent) fitBox(box);
+  }
 }
 
 // Show or clear the "empty text" message under the edit box (screen readers hear it too).
@@ -260,15 +270,31 @@ function closeConfirm() {
   $("todo-list").querySelector('[data-act="clear"]').focus();
 }
 
-// Add bar: Enter or the Add button. Empty (or only spaces) = do nothing.
+// Add bar: Enter (see below) or the Add button. Empty (or only spaces) = do nothing.
 $("todo-add").addEventListener("submit", async e => {
   e.preventDefault();                       // stay on this page (a form would reload it)
   const input = $("todo-new");
   const text = input.value.trim();
   if (!text) return;
-  if (await todoSend("/api/todos", {text})) input.value = "";
+  if (await todoSend("/api/todos", {text})) {
+    input.value = "";
+    fitBox(input);                          // back to one row
+  }
   input.focus();
 });
+
+// Add box: grows as you type. Enter = Add (Shift+Enter too: a todo is always one line).
+$("todo-new").addEventListener("input", e => fitBox(e.target));
+$("todo-new").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();                     // no new line in the box
+    $("todo-add").requestSubmit();          // same as clicking Add
+  }
+});
+
+// A narrower or wider window wraps the text again, so fit both boxes again
+// (and again when you come back to To do: see loadTodos).
+window.addEventListener("resize", fitBoxes);
 
 // Every button in the list: data-act says which job it does, data-i on its row says which todo.
 $("todo-list").addEventListener("click", async e => {
@@ -311,7 +337,7 @@ $("todo-list").addEventListener("click", async e => {
 $("todo-list").addEventListener("input", e => {
   if (e.target.id !== "todo-edit") return;
   todoEditing.draft = e.target.value;
-  fitEditBox();
+  fitBox(e.target);
   if (todoEditing.error) setEditError(false);
 });
 

@@ -116,7 +116,7 @@ def test_a_change_reads_the_file_once(folder, client, monkeypatch, url, body):
 def test_the_page_gets_the_empty_message_and_the_length_limit_from_todos_py(client):
     page = client.get("/").get_data(as_text=True)
     assert todos.EMPTY in page
-    assert f'id="todo-new" maxlength="{todos.MAX_LENGTH}"' in page
+    assert f'<textarea id="todo-new" rows="1" maxlength="{todos.MAX_LENGTH}"' in page   # grows with the text
     assert f'data-max-length="{todos.MAX_LENGTH}"' in page
     js = (Path(__file__).parent.parent / "static" / "todo.js").read_text(encoding="utf-8")
     assert todos.EMPTY not in js and 'maxlength="500"' not in js       # one copy only: todos.py

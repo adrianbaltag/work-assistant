@@ -336,9 +336,11 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 /* To do page (todo.js): add bar, then High / Normal / Done cards, max 860px wide */
 .todo-col{display:flex;flex-direction:column;gap:14px;max-width:860px;width:100%}
 .summary .crit{color:var(--critical)}
-.todo-add{display:flex;gap:8px;padding:8px;border-radius:16px;background:var(--panel);border:1px solid var(--border)}
-.todo-add input{flex:1;height:44px;border-radius:10px;background:var(--bg);border:1px solid var(--border);font-size:14.5px;padding:0 14px}
-.todo-add input:focus{border-color:var(--border-focus)}
+.todo-add{display:flex;align-items:flex-start;gap:8px;padding:8px;border-radius:16px;background:var(--panel);border:1px solid var(--border)}
+/* Add box: a textarea that grows with the text (todo.js fitBox); Enter adds, so no resize handle.
+   Padding 10.5px = one line (14.5px x 1.45) + borders fills 44px, same as the Add button. */
+.todo-add textarea{flex:1;min-height:44px;resize:none;overflow:hidden;line-height:1.45;border-radius:10px;background:var(--bg);border:1px solid var(--border);font-size:14.5px;padding:10.5px 14px}
+.todo-add textarea:focus{border-color:var(--border-focus)}
 .todo-add .btn{height:44px;padding:0 24px;border-radius:10px;font-size:14px}
 .tcard{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
 .tcard.done{background:var(--sidebar);border-color:var(--hover)}
@@ -378,7 +380,7 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .tedit[disabled]{color:#45413D;border-color:var(--raised)}
 /* Edit mode: text box + Save + Cancel */
 .tfield{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-/* Edit box: a textarea that grows with the text (todo.js fitEditBox); Enter saves, so no resize handle */
+/* Edit box: a textarea that grows with the text (todo.js fitBox); Enter saves, so no resize handle */
 .tfield textarea,.tfield textarea:focus{min-height:40px;resize:none;overflow:hidden;line-height:1.45;border-radius:10px;border:1.5px solid var(--text);background:var(--bg);font-size:14px}
 .tfield textarea[aria-invalid="true"]{border-color:var(--critical)}
 .terr{font-size:12px;color:var(--high)}
