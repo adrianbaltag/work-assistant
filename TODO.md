@@ -54,6 +54,9 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   the tiles and the pills all match the exact lowercase words the card writes. Not reachable when
   notes are changed from the card (found in review 2026-10-31). Fix if needed: lowercase status
   and priority when notes.py reads a note.
+- **Folder errors are not logged.** The plain messages for a projects folder or work_jira folder
+  that can't be opened (`api_projects`, `work_jira_problem` in app.py) show on the page but leave
+  no log line. The project has no logging yet: add them in the logging lesson (decided 2026-11-06).
 
 ## To do page
 

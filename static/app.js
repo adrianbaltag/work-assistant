@@ -45,7 +45,11 @@ async function load(animate = false, focusId = null) {
   if (focusId) focusAfter = {id: focusId, from: number};
   try {
     const response = await fetch("/api/projects");
-    if (!response.ok) throw new Error(`server said ${response.status}`);
+    if (!response.ok) {
+      // The app sends its own plain words when it can (e.g. "Can't open the projects folder ...").
+      const problem = await response.json().catch(() => ({}));
+      throw Object.assign(new Error(problem.error || `server said ${response.status}`), {plain: Boolean(problem.error)});
+    }
     const data = await response.json();
     if (number < onScreen) return;       // a newer read already drew (e.g. the card you just saved)
     onScreen = number;
@@ -59,7 +63,8 @@ async function load(animate = false, focusId = null) {
     onScreen = number;
     readOk = false;
     if (focusAfter && number >= focusAfter.from) focusAfter = null;
-    put($("list"), `<div class="empty bad"><b>Could not read your projects.</b>${esc(err.message)}. Check the terminal where the app runs.</div>`);
+    const advice = err.plain ? "" : ". Check the terminal where the app runs.";    // the app's words already say what to do
+    put($("list"), `<div class="empty bad"><b>Could not read your projects.</b>${esc(err.message)}${advice}</div>`);
   }
 }
 

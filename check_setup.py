@@ -92,7 +92,8 @@ def check_settings(path):
     if not folder:
         lines.append((BAD, "projects_folder= is missing in settings.ini. Set it to your notes folder."))
     elif not Path(folder).is_dir():
-        lines.append((BAD, f"projects_folder= {folder} does not exist. Fix the path in settings.ini."))
+        lines.append((BAD, f"projects_folder= {folder} does not exist. Fix the path in settings.ini."
+                           + notes.path_hint(folder)))
     else:
         try:
             count = len(notes.list_projects(folder))
@@ -120,8 +121,9 @@ def check_work_jira(folder):
     if not folder:
         return SKIP, "work_jira_folder= not set: sync with work_jira and the Work project box are off (optional)."
     if not Path(folder).is_dir():
+        import notes
         return BAD, (f"work_jira_folder= {folder} does not exist. Fix the path in settings.ini, "
-                     "or leave it blank to turn sync with work_jira off.")
+                     "or leave it blank to turn sync with work_jira off." + notes.path_hint(folder))
     import project_note
     try:
         count = sum(1 for f in Path(folder).iterdir() if project_note.is_project_folder(f))

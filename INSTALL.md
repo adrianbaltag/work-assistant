@@ -106,20 +106,26 @@ open -e settings.ini
 The first line makes `settings.ini` (prints nothing, that's normal). The second opens it in
 Notepad (Mac: TextEdit).
 
-**2. Change 3 lines in the file.** Lines that start with `#` are notes: leave them. On each line below,
-change only the part after `=`. No spaces around `=`, no quotes.
+**2. Fill in 3 lines in the file.** Lines that start with `#` are notes: leave them. On each line below,
+type only after the `=`. No spaces around `=`, no quotes.
 
 | Line | What to put | Needed? |
 |---|---|---|
 | `projects_folder=` | The folder for your project notes. Windows: `C:\Users\YOUR-NAME\Desktop\projects`. Mac: `/Users/YOUR-NAME/Desktop/projects`. | Yes |
 | `jira_url=` | Open any Jira ticket and copy the address **before** `/browse/`. | For the **Open in Jira** button |
-| `work_jira_folder=` | Your `work_jira` folder, for example `C:\Users\YOUR-NAME\Desktop\work_jira`. Leave it as it is if you don't have one. | For **Work project** folders |
+| `work_jira_folder=` | Your `work_jira` folder. Windows: `C:\Users\YOUR-NAME\Desktop\work_jira`. Mac: `/Users/YOUR-NAME/Desktop/work_jira`. Leave it as it is if you don't have one. | For **Work project** folders |
 
 `YOUR-NAME` = your user name on the laptop. Not sure? Run `echo $HOME` in the window: it prints
 `C:\Users\<your name>` (Mac: `/Users/<your name>`).
 
+**Use the form for your laptop.** Windows paths start with `C:\Users\`. Mac paths start with
+`/Users/` and use forward slashes `/`, with no `C:`. The wrong form means the app can't find your
+folders (it tells you so, with the right form for your laptop).
+
 **3. Save and close.** Press **Ctrl+S** (Mac: **Cmd+S**), then close Notepad (TextEdit).
 `settings.ini` stays on your laptop and is never uploaded.
+Change it later? Restart the app afterwards (Ctrl+C in its window, then start it again): the app
+reads `settings.ini` only when it starts.
 
 **4. Make the projects folder** if it doesn't exist yet (back in the PowerShell or Terminal window):
 
@@ -163,6 +169,8 @@ You can skip both. The app works without them.
 
 - **Slack button:** README.md, "Part 1, Step 5".
 - **Cards that follow your work_jira folders:** README.md, "Sync with work_jira", then "Set it up (once)".
+  On a Mac, use the Mac hook block there. Without the hooks, **+ New project** still makes the card
+  and the folder, but the card never fills in with your progress.
 
 ---
 
