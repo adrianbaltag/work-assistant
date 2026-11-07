@@ -1,7 +1,7 @@
 """Slice 2: the Flask app serves the dashboard page and the projects as JSON."""
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -17,7 +17,7 @@ def make_project(root, folder, fields, days_ago=0):
     lines = "".join(f"{k}: {v}\n" for k, v in fields.items())
     note = path / "note.md"
     note.write_text(f"---\n{lines}---\nbody text\n", encoding="utf-8")
-    stamp = time.time() - days_ago * 86400
+    stamp = (datetime.now() - timedelta(days=days_ago)).timestamp()     # calendar days: right across a clock change
     os.utime(note, (stamp, stamp))
 
 
