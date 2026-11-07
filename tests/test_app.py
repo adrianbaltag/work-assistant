@@ -824,3 +824,47 @@ def test_real_run_with_a_bad_setting_stops_before_slack_starts(tmp_path, monkeyp
     with pytest.raises(SystemExit):
         create_app()
     assert started == []        # no Slack threads left running behind the error message
+
+
+# ---------- a folder in settings.ini that doesn't exist (e.g. a Windows path on a Mac) ----------
+
+def test_api_projects_with_a_missing_projects_folder_says_what_to_fix(tmp_path):
+    client = create_app(tmp_path / "nope").test_client()
+    response = client.get("/api/projects")
+    assert response.status_code == 500
+    assert "projects_folder=" in response.json["error"] and "restart the app" in response.json["error"]
+
+
+def test_home_page_without_the_work_setting_says_to_restart_after_adding_it(client):
+    assert b"then restart the app" in client.get("/").data
+
+
+def test_home_page_greys_the_work_box_when_the_work_jira_folder_is_missing(tmp_path):
+    client = create_app(tmp_path, work_jira_folder=str(tmp_path / "nope")).test_client()
+    page = client.get("/").text
+    assert 'id="np-work" disabled' in page
+    assert "Fix work_jira_folder=" in page and str(tmp_path / "nope") in page
+
+
+def test_new_work_project_with_a_missing_work_jira_folder_is_refused_and_changes_nothing(tmp_path):
+    (tmp_path / "projects").mkdir()
+    client = create_app(tmp_path / "projects", work_jira_folder=str(tmp_path / "nope")).test_client()
+    response = client.post("/api/projects", json={"id": "ABC-1", "status": "active", "work": True})
+    assert response.status_code == 400 and "work_jira_folder=" in response.json["error"]
+    assert list((tmp_path / "projects").iterdir()) == []
+
+
+@pytest.mark.parametrize("settings", [{"projects_folder": "  "}, {}])
+def test_real_run_with_projects_folder_empty_or_missing_stops_with_a_clear_message(monkeypatch, settings):
+    monkeypatch.setattr(app_module, "load_settings", lambda: settings)
+    with pytest.raises(SystemExit, match="projects_folder= is empty"):
+        create_app()
+
+
+def test_api_projects_with_one_unreadable_file_names_that_file_not_the_setting(tmp_path, monkeypatch):
+    make_project(tmp_path, "DEMO-1", {"title": "Demo"})
+    def locked(folder):
+        raise PermissionError(13, "Permission denied", str(folder / "note.md"))
+    monkeypatch.setattr(app_module.notes, "read_project", locked)
+    error = create_app(tmp_path).test_client().get("/api/projects").json["error"]
+    assert str(tmp_path / "DEMO-1" / "note.md") in error and "projects_folder=" not in error

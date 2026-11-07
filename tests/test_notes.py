@@ -603,3 +603,23 @@ def test_new_project_leaves_nothing_behind_when_writing_fails(tmp_path, monkeypa
 def test_new_project_fills_jira_only_for_uppercase_ticket_keys(tmp_path, project_id, jira):
     fields, _ = notes.parse_note((notes.new_project(tmp_path, project_id) / "note.md").read_text(encoding="utf-8"))
     assert fields["jira"] == jira
+
+
+# ---------- path_hint (a Windows path in settings.ini on a Mac, or the other way round) ----------
+
+def test_path_hint_for_a_windows_path_on_a_mac_shows_the_mac_form():
+    hint = notes.path_hint(r"C:\Users\me\Desktop\work_repos", "darwin", "/Users/sam")
+    assert "Windows path" in hint and "/Users/sam/Desktop/work_repos" in hint
+
+
+def test_path_hint_for_a_mac_path_on_windows_shows_the_windows_form():
+    hint = notes.path_hint("/Users/me/Desktop/projects", "win32", r"C:\Users\sam")
+    assert "Mac path" in hint and r"C:\Users\sam\Desktop\projects" in hint
+
+
+@pytest.mark.parametrize("folder, platform", [("/Users/me/Desktop/projects", "darwin"),
+                                              (r"C:\Users\me\Desktop\projects", "win32"),
+                                              (r"\\server\share\projects", "win32"),
+                                              ("//server/share/projects", "win32")])
+def test_path_hint_is_empty_when_the_path_fits_the_laptop(folder, platform):
+    assert notes.path_hint(folder, platform, "/home") == ""

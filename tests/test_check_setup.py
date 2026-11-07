@@ -448,3 +448,11 @@ def test_claude_token_of_only_spaces_counts_as_not_set(env):
 def test_gateway_address_without_https():
     lines = check_setup.check_claude({**WORK, "ANTHROPIC_BASE_URL": "gateway.example.com"}, {}, FakeClaude)
     assert marks(lines) == [BAD] and "https://" in text(lines)
+
+
+def test_folder_that_does_not_exist_gets_the_path_hint(tmp_path, monkeypatch):
+    import notes
+    monkeypatch.setattr(notes, "path_hint", lambda folder: f" HINT({folder})")
+    path = write_settings(tmp_path, "projects_folder=nope1\nwork_jira_folder=nope2\n")
+    lines, _, _ = check_setup.check_settings(path)
+    assert "HINT(nope1)" in text(lines) and "HINT(nope2)" in text(lines)

@@ -42,6 +42,16 @@ def read_text_limit(value):
                      f'(no commas). It is "{value}".')
 
 
+def read_projects_folder(value):
+    """projects_folder= without spaces around it. Empty stops the app (it would quietly list its own folder)."""
+    value = value.strip()
+    if not value:
+        raise SystemExit("projects_folder= is empty in settings.ini. Type the path to your notes folder after the =, "
+                         "like C:\\Users\\YOUR-NAME\\Desktop\\projects (Mac: /Users/YOUR-NAME/Desktop/projects), "
+                         "then start the app again.")
+    return value
+
+
 def read_jira_url(value):
     """jira_url= without a trailing /, or "" (Open in Jira off) when it isn't a web address."""
     value = value.strip().rstrip("/")
@@ -70,7 +80,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     slack_settings = None
     if projects_folder is None:
         settings = load_settings()
-        projects_folder = settings["projects_folder"]
+        projects_folder = read_projects_folder(settings.get("projects_folder", ""))
         jira_url = settings.get("jira_url", "")
         model = settings.get("model", "")
         text_limit = settings.get("text_limit", "")
@@ -96,15 +106,36 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     def too_big(_):
         return jsonify(error=f"Upload too big ({UPLOAD_LIMIT_MB} MB max at once)."), 413
 
+    def work_jira_problem():
+        """Why the Work project box is off, or "" when work_jira_folder= is set and the folder is there."""
+        if not work_jira_folder:
+            return "Add work_jira_folder= to settings.ini, then restart the app."
+        if not Path(work_jira_folder).is_dir():
+            return (f"Can't find the folder {work_jira_folder}. Fix work_jira_folder= in settings.ini, "
+                    "then restart the app." + notes.path_hint(work_jira_folder))
+        return ""
+
     @app.get("/")
     def home():
-        return render_template("index.html", work_jira=bool(work_jira_folder), todo_empty=todos.EMPTY,
-                               todo_max=todos.MAX_LENGTH)
+        problem = work_jira_problem()
+        return render_template("index.html", work_jira=not problem, work_jira_problem=problem,
+                               todo_empty=todos.EMPTY, todo_max=todos.MAX_LENGTH)
 
     @app.get("/api/projects")
     def api_projects():
         now = datetime.now()
-        rows = notes.dashboard(notes.list_projects(projects_folder), now)
+        try:
+            projects = notes.list_projects(projects_folder)
+        except OSError as err:
+            if Path(projects_folder).is_dir():      # the folder is fine: one file inside it failed
+                return jsonify(error=f"Can't read {err.filename or projects_folder} ({err.strerror or err}). "
+                                     "Close it if another program has it open, or check that you may open it."), 500
+            # The folder itself: e.g. a Windows path in settings.ini on a Mac, or a network drive without VPN.
+            return jsonify(error=f"Can't open the projects folder {projects_folder} ({err.strerror or err}). "
+                                 "Check projects_folder= in settings.ini (and the VPN, for a network drive). "
+                                 "After changing settings.ini, restart the app."
+                                 + notes.path_hint(str(projects_folder))), 500
+        rows = notes.dashboard(projects, now)
         for row in rows:
             del row["body"]
         return jsonify(today=now.strftime("%Y-%m-%d"), projects=rows)
@@ -127,9 +158,9 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         work = data.get("work") is True
         if work and notes.TICKET_ID.fullmatch(project_id.upper()):
             project_id = project_id.upper()     # work "vzwdac-123" = Jira key VZWDAC-123 (card, folders, jira:)
-        if work and not work_jira_folder:
-            return jsonify(error="To make a work project, add work_jira_folder= to settings.ini and restart the app. "
-                                 "For a personal idea, untick Work project."), 400
+        problem = work_jira_problem() if work else ""
+        if problem:
+            return jsonify(error=f"Work project is off. {problem} For a personal idea, untick Work project."), 400
         try:
             notes.new_project(projects_folder, project_id, str(data.get("title") or ""), status)
         except FileExistsError:

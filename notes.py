@@ -12,8 +12,9 @@ import configparser
 import os
 import re
 import shutil
+import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 SETTINGS_FILE = Path(__file__).parent / "settings.ini"
 NOTE_FILE = "note.md"
@@ -43,6 +44,23 @@ def load_settings(path=SETTINGS_FILE):
     parser = configparser.ConfigParser(interpolation=None)
     parser.read_string("[settings]\n" + path.read_text(encoding="utf-8-sig"))
     return dict(parser["settings"])
+
+
+def path_hint(folder, platform=sys.platform, home=None):
+    """One extra sentence when a settings.ini path is the wrong kind for this laptop, else "".
+
+    A Windows path (C:\\... or backslashes) on a Mac, or a Mac path (/Users/...) on Windows.
+    The example uses this laptop's own home folder and the folder's last name.
+    """
+    home = str(Path.home() if home is None else home)
+    if platform == "win32":
+        if folder.startswith("/") and not folder.startswith("//"):     # //server/share = a Windows network path
+            example = PureWindowsPath(home) / "Desktop" / PurePosixPath(folder).name
+            return f" That is a Mac path. On this laptop a path looks like {example}."
+    elif re.match(r"[A-Za-z]:", folder) or "\\" in folder:
+        example = PurePosixPath(home) / "Desktop" / PureWindowsPath(folder).name
+        return f" That is a Windows path. On this laptop a path looks like {example} (forward slashes, no C:)."
+    return ""
 
 
 def parse_note(text):

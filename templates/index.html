@@ -130,7 +130,7 @@
           <select id="np-status"><option>active</option><option>pending</option><option>idea</option></select></label>
         <label class="np-check"><input type="checkbox" id="np-work" {{ "checked" if work_jira else "disabled" }}>
           <span>Work project
-          <span class="hint">{% if work_jira %}Also makes work_jira\&lt;ID&gt;\ so Claude sets it up and keeps this card in sync. Untick for personal ideas.{% else %}Greyed: add work_jira_folder= to settings.ini to use it.{% endif %}</span></span></label>
+          <span class="hint">{% if work_jira %}Also makes work_jira\&lt;ID&gt;\ so Claude sets it up and keeps this card in sync. Untick for personal ideas.{% else %}Greyed: {{ work_jira_problem }}{% endif %}</span></span></label>
         <div class="np-work-fields" id="np-work-fields"{% if not work_jira %} hidden{% endif %}>
           <label>Created by <span class="hint">Optional. Who opened the ticket.</span>
             <input id="np-by" autocomplete="off"></label>

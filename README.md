@@ -189,6 +189,7 @@ Optional: `work_jira_folder=` is the folder that holds your work project folders
 [Sync with work_jira](#sync-with-work_jira-optional).
 
 Save and close Notepad. `settings.ini` is yours alone: it is never uploaded anywhere.
+The app reads it only when it starts, so after any later change, restart the app.
 
 ### Step 4: Claude login
 
@@ -426,6 +427,54 @@ If you already have a `"permissions"` part with an `"allow"` list, add the two l
 
 Save. VS Code underlines a JSON mistake in red: fix it before you go on.
 
+**On a Mac**, the block above won't work: its paths are Windows paths. Use this one instead.
+Find your path with `echo ~/Desktop/work-assistant` in Terminal (it prints something like
+`/Users/YOUR-NAME/Desktop/work-assistant`), and open the settings file with
+`open -e ~/.claude/settings.json`. Two differences from Windows: Python is `.venv/bin/python`
+(not `.venv/Scripts/python.exe`), and only the `Bash(...)` allow line is needed.
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "hooks": [ { "type": "command", "timeout": 30,
+          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
+          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "stop"] } ] }
+    ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "timeout": 30,
+          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
+          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-start"] } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "timeout": 30,
+          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
+          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "prompt"] } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit",
+        "hooks": [ { "type": "command", "timeout": 30,
+          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
+          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "after-edit"] } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "timeout": 10,
+          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
+          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-end"] } ] }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python /Users/YOUR-NAME/Desktop/work-assistant/project_note.py *)"
+    ]
+  }
+}
+```
+
+If your settings file already has a `"hooks"` part (for example from other tools), add each entry
+above to the list for the same event, next to what is there. Don't make a second `"hooks"` part.
+
+
 What each part does:
 
 - `"command"` + `"args"`: runs the app's own Python with `work_jira_hooks.py` directly, with no
@@ -600,6 +649,10 @@ Same steps as Windows, with these differences:
   - use `.venv/bin/python3` everywhere the Windows steps say `.venv\Scripts\python`
     (for example `.venv/bin/python3 check_setup.py` and `.venv/bin/python3 app.py`)
 - Use `cp` instead of `copy`, and `open -e settings.ini` instead of `notepad settings.ini`.
+- In `settings.ini`, paths are Mac paths: they start with `/Users/` and use forward slashes, no `C:`.
+  For example `projects_folder=/Users/YOUR-NAME/Desktop/projects`. Run `whoami` to see YOUR-NAME.
+- Sync with work_jira: use the **Mac** hook block in [Set it up](#set-it-up-once), not the Windows one.
+  Without the hooks the dashboard makes the card and folder, but the card never fills in.
 
 **Claude login (Part 1, Step 4).** Check whether it's already set:
 
