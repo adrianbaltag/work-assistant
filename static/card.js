@@ -92,9 +92,14 @@ function drawCard() {
 function startChat() {
   const n = card.files.sessions.length, r = card.files.raw.length;
   const plural = (count, word) => `${count} ${word} file${count === 1 ? "" : "s"}`;
+  const reads = ["its note", plural(n, "session"), plural(r, "raw")];
+  if (card.project.folder) {      // a work project: Claude also reads these from its work_jira folder
+    reads.push("the ticket, requirements and tracking log in its work folder");
+  }
+  const said = reads.slice(0, -1).join(", ") + " and " + reads[reads.length - 1];
   makeChat($("m-claude"), {
     sub: "about this project only",
-    intro: `I can read ${card.project.title}: its note, ${plural(n, "session")} and ${plural(r, "raw")}. What do you need?`,
+    intro: `I can read ${card.project.title}: ${said}. What do you need?`,
     chips: ["Update this project from the raw files",
             {label: "My next steps", ask: "Write a short paragraph about this project covering: the issue, where I "
               + "stand, the next step(s), and the fix (planned or done). Say so if the notes don't cover one of these."},
