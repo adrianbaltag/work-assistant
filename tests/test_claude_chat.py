@@ -350,3 +350,80 @@ def test_make_client_without_any_login_says_how_to_fix_it(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
     with pytest.raises(claude_chat.ClaudeError, match="ANTHROPIC_API_KEY"):
         claude_chat.make_client()
+
+
+# ---------- project_context: a work project's work_jira files ----------
+
+def link_work_folder(folder, work):
+    note = folder / "note.md"
+    note.write_text(note.read_text(encoding="utf-8").replace("---\n## Goal", f"folder: {work}\n---\n## Goal"),
+                    encoding="utf-8")
+
+
+def test_context_adds_the_work_folder_files_right_after_the_note(tmp_path):
+    folder = make_project(tmp_path, {"sessions/2026-10-15.md": "a session"})
+    work = tmp_path / "work_jira" / "DEMO-1"
+    work.mkdir(parents=True)
+    for name in ("ticket.md", "requirements.md", "tracking_log.md", "CLAUDE.md"):
+        (work / name).write_text(f"text of {name}", encoding="utf-8")
+    link_work_folder(folder, work)
+    blocks, skipped = claude_chat.project_context(folder, NOW)
+    all_text = texts(blocks)
+    assert all_text[1:4] == ["=== work folder/ticket.md ===\ntext of ticket.md",
+                             "=== work folder/requirements.md ===\ntext of requirements.md",
+                             "=== work folder/tracking_log.md ===\ntext of tracking_log.md"]
+    assert "sessions/2026-10-15.md" in all_text[4] and "CLAUDE.md" not in "\n".join(all_text)
+    assert skipped == []
+
+
+def test_context_work_folder_files_count_toward_the_cap(tmp_path):
+    folder = make_project(tmp_path)
+    work = tmp_path / "work_jira" / "DEMO-1"
+    work.mkdir(parents=True)
+    (work / "tracking_log.md").write_text("x" * 2000, encoding="utf-8")
+    link_work_folder(folder, work)
+    _, skipped = claude_chat.project_context(folder, NOW, cap=1000)
+    assert skipped == ["work folder/tracking_log.md (over the 1,000-character limit: raise text_limit= in settings.ini)"]
+
+
+def test_context_says_when_the_work_folder_is_missing(tmp_path):
+    folder = make_project(tmp_path)
+    link_work_folder(folder, tmp_path / "gone")
+    _, skipped = claude_chat.project_context(folder, NOW)
+    assert skipped == [f"work folder {tmp_path / 'gone'} (can't find it: moved, or the VPN is off)"]
+
+
+def test_context_lists_a_work_file_it_cannot_read_and_still_answers(tmp_path, monkeypatch):
+    folder = make_project(tmp_path)
+    work = tmp_path / "work_jira" / "DEMO-1"
+    work.mkdir(parents=True)
+    (work / "ticket.md").write_text("ticket", encoding="utf-8")
+    (work / "tracking_log.md").write_text("log", encoding="utf-8")
+    link_work_folder(folder, work)
+    real_read = claude_chat.notes.read_file
+
+    def read_file(path):
+        if path.name == "ticket.md":
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_read(path)
+
+    monkeypatch.setattr(claude_chat.notes, "read_file", read_file)
+    blocks, skipped = claude_chat.project_context(folder, NOW)
+    assert skipped == ["work folder/ticket.md (can't read it: Permission denied)"]
+    assert "=== work folder/tracking_log.md ===\nlog" in texts(blocks)
+
+
+def test_context_lists_a_work_folder_it_cannot_open(tmp_path, monkeypatch):
+    folder = make_project(tmp_path)
+    work = tmp_path / "work_jira" / "DEMO-1"
+    link_work_folder(folder, work)
+    real_is_dir = claude_chat.Path.is_dir
+
+    def is_dir(path):
+        if path == work:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_is_dir(path)
+
+    monkeypatch.setattr(claude_chat.Path, "is_dir", is_dir)
+    _, skipped = claude_chat.project_context(folder, NOW)
+    assert skipped == [f"work folder {work} (can't open it: Permission denied)"]

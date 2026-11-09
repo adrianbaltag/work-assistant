@@ -665,3 +665,82 @@ def test_start_work_folder_never_touches_an_existing_folder(tmp_path):
 def test_start_work_folder_needs_the_work_jira_folder_to_exist(tmp_path):
     with pytest.raises(FileNotFoundError):
         pn.start_work_folder(tmp_path / "missing", "ABC-1", "", "")
+
+
+# ---------- the card's Goal, from ticket.md's pasted Jira description ----------
+
+def ticket(folder, description, heading="## Description (pasted from Jira)"):
+    (folder / "ticket.md").write_text(f"# {folder.name}\n\nCreated by: Mike\n\n{heading}\n{description}\n",
+                                      encoding="utf-8")
+
+
+def goal_of(card):
+    body = notes.parse_note((card / "note.md").read_text(encoding="utf-8"))[1]
+    return body.split("## Goal", 1)[1].split("## History", 1)[0].strip()
+
+
+def test_ticket_goal_is_the_description_on_one_line(tmp_path):
+    folder = work_project(tmp_path)
+    ticket(folder, "Alarms are late.\r\n\r\nFix the   parser.")
+    assert pn.ticket_goal(folder) == "Alarms are late. Fix the parser."
+
+
+def test_ticket_goal_cuts_a_long_description_at_a_word(tmp_path):
+    folder = work_project(tmp_path)
+    ticket(folder, "word " * 200)
+    goal = pn.ticket_goal(folder)
+    assert goal.endswith("word …") and len(goal) <= pn.GOAL_CHARS + 2
+
+
+def test_ticket_goal_without_ticket_or_description_is_empty(tmp_path):
+    folder = work_project(tmp_path)
+    assert pn.ticket_goal(folder) == ""                         # no ticket.md
+    ticket(folder, "", heading="")
+    assert pn.ticket_goal(folder) == ""                         # Created by only
+    ticket(folder, "Some text", heading="## Notes")
+    assert pn.ticket_goal(folder) == ""                         # not the app's description heading
+
+
+def test_fill_goal_fills_only_an_empty_goal():
+    empty = "---\ntitle: x\n---\n\n## Goal\n\n\n## History\n"
+    assert pn.fill_goal(empty, "Fix it.") == "---\ntitle: x\n---\n\n## Goal\nFix it.\n\n\n## History\n"
+    typed = "---\ntitle: x\n---\n\n## Goal\nMy own words\n\n## History\n"
+    assert pn.fill_goal(typed, "Fix it.") == typed
+    assert pn.fill_goal(empty, "") == empty
+    no_goal = "---\ntitle: x\n---\n\nfree notes\n"
+    assert pn.fill_goal(no_goal, "Fix it.") == no_goal
+
+
+def test_link_card_fills_an_empty_goal_from_ticket_md(tmp_path):
+    work = work_project(tmp_path, log=None)
+    ticket(work, "Alarms are late.")
+    card = notes.new_project(projects(tmp_path), "DEMO-42", "Alarm update")
+    pn.link_card(card, work)
+    assert goal_of(card) == "Alarms are late."
+
+
+def test_sync_fills_an_empty_goal_and_keeps_a_typed_one(tmp_path):
+    work = work_project(tmp_path)
+    ticket(work, "Alarms are late.")
+    card = notes.new_project(projects(tmp_path), "DEMO-42", "Alarm update")
+    pn.sync(projects(tmp_path), work, NOW)
+    assert goal_of(card) == "Alarms are late."
+    ticket(work, "Changed in Jira.")
+    pn.sync(projects(tmp_path), work, NOW)
+    assert goal_of(card) == "Alarms are late."                 # once filled, it is the person's text
+
+
+def test_create_with_a_goal_keeps_it_over_ticket_md(tmp_path):
+    work = work_project(tmp_path)
+    ticket(work, "From Jira.")
+    card, _ = pn.create(projects(tmp_path), work, "Alarm update", "From Claude.", NOW)
+    assert goal_of(card) == "From Claude."
+
+
+def test_a_description_starting_with_a_heading_fills_the_goal_only_once(tmp_path):
+    work = work_project(tmp_path)
+    ticket(work, "## Background\nAlarms are late.")
+    card = notes.new_project(projects(tmp_path), "DEMO-42", "Alarm update")
+    pn.sync(projects(tmp_path), work, NOW)
+    pn.sync(projects(tmp_path), work, NOW)
+    assert goal_of(card) == "Background Alarms are late."

@@ -56,7 +56,9 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   and priority when notes.py reads a note.
 - **Folder errors are not logged.** The plain messages for a projects folder or work_jira folder
   that can't be opened (`api_projects`, `work_jira_problem` in app.py) show on the page but leave
-  no log line. The project has no logging yet: add them in the logging lesson (decided 2026-11-06).
+  no log line. Same for Ask Claude's "can't open / can't read" work folder files (`project_context` in
+  claude_chat.py) and an unreadable ticket.md (`ticket_goal` in project_note.py). The project has no
+  logging yet: add them in the logging lesson (decided 2026-11-06).
 
 ## To do page
 

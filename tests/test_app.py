@@ -479,6 +479,12 @@ def test_new_work_project_also_makes_the_work_jira_folder(tmp_path, work_client)
     assert (card["source"], card["folder"]) == ("work_jira", str(tmp_path / "work_jira" / "ABC-123"))
 
 
+def test_new_work_project_puts_the_description_in_the_goal(work_client):
+    work_client.post("/api/projects", json={"id": "ABC-123", "title": "Alarms", "status": "active",
+                                            "work": True, "description": "Fix it.", "created_by": "Mike"})
+    text = work_client.get("/api/projects/ABC-123").json["text"]
+    assert "## Goal\nFix it.\n" in text
+
 def test_new_work_project_with_a_lowercase_ticket_id_uses_capitals_everywhere(tmp_path, work_client):
     response = work_client.post("/api/projects", json={"id": "abc-123", "title": "Alarms", "status": "active",
                                                        "work": True})

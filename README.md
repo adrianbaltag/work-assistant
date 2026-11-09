@@ -115,7 +115,8 @@ the old tab saves nothing: the page says so and shows the fresh list.
 
 ### Ask Claude
 
-Claude reads the project's files (note.md, sessions, raw) and answers your question. In a project card
+Claude reads the project's files (note.md, sessions, raw) and answers your question. For a work project
+it also reads `ticket.md`, `requirements.md` and `tracking_log.md` from its work_jira folder. In a project card
 it can also **suggest** changes (fields, a History line, a session note). You see them first;
 nothing is saved until you click **Approve**. The **Ask Claude** page asks about all your open
 projects at once (answers only, no changes).
