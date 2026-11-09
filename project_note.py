@@ -9,6 +9,7 @@ Each work_jira project folder has a tracking_log.md with three sections:
     ## Now working on   -> status (PENDING ... = pending + blocked_by); working_on: when there is no checklist
     ## Next up          -> next: when the checklist has no milestone after the current one
     ## Last update      -> "date · Claude · text" history line(s) from the newest-dated line(s)
+An empty ## Goal on the card is filled once from ticket.md's description.
 Paths come from settings.ini: projects_folder= and work_jira_folder=.
 """
 import argparse
@@ -22,6 +23,10 @@ import notes
 
 TRACKING_LOG = "tracking_log.md"
 REQUIREMENTS = "requirements.md"     # its "- [x] M1 — ..." lines are the milestones (the hooks check them)
+TICKET = "ticket.md"                 # made by the app's + New project: the Jira description the person pasted
+DESCRIPTION_HEADING = "## Description (pasted from Jira)"
+GOAL_HEADING = "## Goal"
+GOAL_CHARS = 300                     # an empty Goal gets at most this much of the description
 SOURCE = "work_jira"        # source: work_jira = this card follows a work_jira folder (and may be auto-archived)
 WHO = "Claude"
 MOVED_TO_PROD = "Folder left work_jira (moved to prod): archived automatically"
@@ -202,6 +207,7 @@ def sync(projects_folder, work_folder, now):
     status, blocked_by = status_from(log["now"])
     text = notes.set_fields(text, {**steps(work_folder, log), "status": status, "blocked_by": blocked_by,
                                    "source": SOURCE, "folder": str(work_folder)})
+    text = fill_goal(text, ticket_goal(work_folder))
     for line in reversed(log["last"]):        # each goes on top, so reversed keeps tracking_log's order
         entry = last_update(line, now)
         if not already_in_history(text, *entry):
@@ -283,10 +289,38 @@ def create(projects_folder, work_folder, title, goal, now):
 
 
 def link_card(card, work_folder):
-    """Mark the card as following this work_jira folder (source: + folder:)."""
+    """Mark the card as following this work_jira folder (source: + folder:), and fill an empty Goal."""
     note = Path(card) / notes.NOTE_FILE
-    note.write_text(notes.set_fields(note.read_text(encoding="utf-8-sig"),
-                                     {"source": SOURCE, "folder": str(work_folder)}), encoding="utf-8")
+    text = notes.set_fields(note.read_text(encoding="utf-8-sig"), {"source": SOURCE, "folder": str(work_folder)})
+    note.write_text(fill_goal(text, ticket_goal(work_folder)), encoding="utf-8")
+
+
+def ticket_goal(work_folder):
+    """ticket.md's pasted Jira description on one line, cut at a word after GOAL_CHARS. "" = no description."""
+    try:
+        text = (Path(work_folder) / TICKET).read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):           # no ticket.md (made by hand), or not a text file
+        return ""
+    words = " ".join(text.partition(DESCRIPTION_HEADING)[2].split()).lstrip("# ")    # "## x" would read as a heading
+    if len(words) <= GOAL_CHARS:
+        return words
+    return words[:GOAL_CHARS].rsplit(" ", 1)[0] + " …"
+
+
+def fill_goal(text, goal):
+    """note.md text with goal put under an empty ## Goal. A Goal with any text in it is never changed."""
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.rstrip() == GOAL_HEADING:
+            section = []
+            for after in lines[i + 1:]:
+                if after.startswith("## "):
+                    break
+                section.append(after)
+            if goal and not "".join(section).strip():
+                lines.insert(i + 1, goal + "\n")
+            break
+    return "".join(lines)
 
 
 def start_work_folder(work_jira_folder, name, description, created_by):
@@ -305,8 +339,8 @@ def start_work_folder(work_jira_folder, name, description, created_by):
     description = "\n".join(description.strip().splitlines())      # pasted text may have Windows line ends
     created_by = created_by.strip()
     if description or created_by:
-        (folder / "ticket.md").write_text(f"# {name}\n\nCreated by: {created_by}\n\n"
-                                          f"## Description (pasted from Jira)\n{description}\n", encoding="utf-8")
+        (folder / TICKET).write_text(f"# {name}\n\nCreated by: {created_by}\n\n"
+                                     f"{DESCRIPTION_HEADING}\n{description}\n", encoding="utf-8")
     return folder, True
 
 

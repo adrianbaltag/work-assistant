@@ -17,6 +17,7 @@ TEXT_CAP = 200_000          # default characters of text per question (~50k toke
                             # settings.ini text_limit= changes it
 IMAGE_BYTES = 5 * 1024 * 1024   # the API refuses bigger images
 IMAGE_COUNT = 20            # newest images only
+WORK_FILES = ("ticket.md", "requirements.md", "tracking_log.md")    # read from a work project's work_jira folder
 IMAGE_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".gif": "image/gif", ".webp": "image/webp"}
 MAX_TOKENS = 16000
@@ -30,8 +31,9 @@ SYSTEM = """You help one person keep track of their work projects.
 
 A project is a folder: note.md (fields between --- lines, then free notes, then a ## History \
 section, newest first), sessions/ (dated session summaries) and raw/ (transcripts, emails, \
-screenshots and other source material). The project's files are attached at the start of the \
-conversation.
+screenshots and other source material). A work project also has a work folder: its ticket.md \
+(the Jira description), requirements.md (the milestones) and tracking_log.md (where the work \
+stands) are attached too. The project's files are attached at the start of the conversation.
 
 """ + HOW_TO_ANSWER
 
@@ -129,7 +131,8 @@ def over(cap):
 def project_context(folder, now, cap=TEXT_CAP):
     """What Claude reads about one project: a list of content blocks, plus the files left out.
 
-    note.md first, then sessions/ and raw/ files newest first. Text stops at cap characters;
+    note.md first, then the work folder's WORK_FILES (note.md's folder:, set for work projects),
+    then sessions/ and raw/ files newest first. Text stops at cap characters;
     images are sent as pictures (IMAGE_COUNT newest, each under IMAGE_BYTES).
     """
     folder = Path(folder)
@@ -137,6 +140,33 @@ def project_context(folder, now, cap=TEXT_CAP):
     blocks = [{"type": "text", "text": f"Today is {now:%Y-%m-%d}.\n\n=== note.md ===\n{note}"}]
     skipped = []
     used, images = len(note), 0
+
+    work = notes.parse_note(note)[0].get("folder", "").strip()
+    try:
+        found = bool(work) and Path(work).is_dir()
+    except OSError as err:                      # e.g. no access to the share
+        skipped.append(f"work folder {work} (can't open it: {err.strerror or err})")
+        work = ""
+    if work and not found:
+        skipped.append(f"work folder {work} (can't find it: moved, or the VPN is off)")
+    elif work:
+        for name in WORK_FILES:
+            path = Path(work) / name
+            label = f"work folder/{name}"
+            try:                                # a network share: no access, or the drive drops mid-read
+                if not path.is_file():
+                    continue
+                shown = notes.read_file(path)
+            except OSError as err:
+                skipped.append(f"{label} (can't read it: {err.strerror or err})")
+                continue
+            if shown["kind"] != "text":
+                skipped.append(f"{label} (not a text file)")
+            elif used + len(shown["text"]) > cap:
+                skipped.append(f"{label} ({over(cap)})")
+            else:
+                used += len(shown["text"])
+                blocks.append({"type": "text", "text": f"=== {label} ===\n{shown['text']}"})
 
     files = [folder / dir / f["name"] for dir, found in notes.list_files(folder).items() for f in found]
     for path in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True):
