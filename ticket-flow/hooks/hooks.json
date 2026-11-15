@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "timeout": 30,
+          "command": "python",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hello_hook.py"] } ] }
+    ]
+  }
+}

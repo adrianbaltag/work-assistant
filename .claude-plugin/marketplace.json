@@ -1,0 +1,11 @@
+{
+  "name": "work-assistant",
+  "owner": { "name": "Work Assistant" },
+  "plugins": [
+    {
+      "name": "ticket-flow",
+      "source": "./ticket-flow",
+      "description": "From a vague ticket to a clear, confirmed problem, then milestones built one per session."
+    }
+  ]
+}
