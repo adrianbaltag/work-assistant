@@ -1,7 +1,7 @@
 ---
 name: clear-ticket
-description: Turns a vague ticket into a clear problem that the ticket creator has confirmed in their own words. Use at the start of any ticket or new project, whenever the user pastes a ticket, says a ticket is unclear, or asks "what does this ticket want", and whenever the user pastes a reply from the ticket creator or a senior colleague. Use it before any plan, milestone or code. Writes requirements.md. No plan and no code come out of this skill.
-argument-hint: <ticket text, or a pasted reply from the creator>
+description: Turns a vague ticket into a clear problem that the ticket creator has confirmed. Use at the start of any ticket or new project, whenever the user pastes a ticket, says a ticket is unclear, or asks "what does this ticket want", and whenever the user pastes or reports a reply from the ticket creator or a senior colleague. Use it before any plan, milestone or code. Sets up the ticket folder and writes requirements.md. No plan and no code come out of this skill.
+argument-hint: <ticket text, or the creator's reply>
 ---
 
 # Clear ticket
@@ -46,6 +46,19 @@ Status line:
 | No `requirements.md`, or it holds only empty template text | Step 1 |
 | `**Status:** WAITING FOR CREATOR` | Step 6 (ask for the creator's reply) |
 | `**Status:** CONFIRMED BY CREATOR` | This skill is done. Say so, and say the next step is planning the milestones, in a new session. |
+| Real content but no Status line (a ticket started before this skill) | Ask once: "Did the creator already confirm what this ticket is about?" Yes: add the CONFIRMED Status line and the proof (Step 8), and change nothing else in the file. No: go to Step 1. What the file says counts as the engineer's notes: keep it, and add the new sections around it. |
+
+Then check the starter files. Every ticket folder needs these three. The dashboard card is
+filled from `tracking_log.md`, so without it the card stays empty.
+
+| File | If it is missing |
+|---|---|
+| `CLAUDE.md` | Write it from "Starter files" at the end of this skill |
+| `tracking_log.md` | Same |
+| `.gitignore` | Same |
+
+Never overwrite one that is already there. One line to the engineer is enough: "I set up the
+folder."
 
 ## Step 1: read before you ask
 
@@ -57,9 +70,9 @@ Status line:
    ask for something that half exists.
 3. `MY_DEFAULTS.md`, if the project folder or the folder above it has one. It holds what is
    usually true for this engineer's team. Use a line from it only where the ticket is silent,
-   and label it **Guess (team default)**. It still becomes a question, a short one:
-   "I will assume X as usual, OK?" No such file, or it cannot be read: carry on and do not
-   mention it. The file is optional.
+   and label it **Guess (team default)**. Step 4 checks all of them with the engineer in one
+   message. No such file, or it cannot be read: carry on and do not mention it. The file is
+   optional.
 
 Then say you have read it, and that four questions come first, one at a time, and that
 "I don't know" is a good answer.
@@ -114,7 +127,12 @@ Sort the questions by who can answer:
   it fails.
 - **The engineer**: what they can decide or look up themselves.
 
-Ask the engineer's questions now, one at a time, each with your suggested answer and a
+Team defaults come first, if you used any. Show them all in ONE message, not one by one:
+"I'm assuming these, as usual: 1. ... 2. ... Anything different for this ticket?" The ones the
+engineer leaves alone become **Known** `(team default, <date>)`. One that is different for
+this ticket becomes a normal question.
+
+Then ask the engineer's questions, one at a time, each with your suggested answer and a
 one-line reason.
 
 Write the creator's questions as a message ready to paste:
@@ -160,27 +178,35 @@ in this form: other tools read it.
 <empty until a reply is pasted>
 ```
 
-If the folder has a `tracking_log.md`, set `## Now working on` to one line that starts like
-this, so the dashboard card shows the ticket as waiting:
+In `tracking_log.md`, set `## Now working on` to one line that starts like this, so the
+dashboard card shows the ticket as waiting, and for what:
 
 `PENDING (creator, YYYY-MM-DD): waiting for <name> to answer <N> questions.`
+
+Keep that line true as things move, so the card always says where the ticket stands:
+`... to answer <N> more questions.` after a partial reply, and `... to confirm the real issue.`
+in Step 7.
 
 Show the two messages in chat, ready to copy. Then stop. Tell the engineer to send them and to
 come back with the reply. No other work on this ticket happens while it waits.
 
 ## Step 6: the creator replies
 
-Ask the engineer to paste the creator's own words, not a summary. A summary is the engineer's
-reading, and that reading is the thing being checked.
+Ask the engineer what the creator answered. How they bring it is their call:
 
-If the creator answered in a call, ask the engineer to send them one short written recap
-("To confirm what we agreed: ... Is that right?") and to paste the written reply.
+- **A long or complex answer:** paste it as it is. That is quicker than retelling it, and
+  nothing gets lost.
+- **A short or simple answer:** they can say it in their own words.
 
-With the pasted words:
+Never insist on a paste, and never ask for a written recap of a call.
+
+With the answer:
 
 1. Match each answer to its question. Replies are often rough ("2: close, never delete").
-2. Change the label to **Known** and add who said it, where, and the date:
-   `(Maria, Slack, 2026-11-15)`. Copy the reply into "Answers so far".
+2. Change the label to **Known** and add who said it, where, and the date. Say honestly how
+   it reached you: `(Maria, Slack, 2026-11-15)` for pasted words,
+   `(Maria, told by Sam, 2026-11-15)` when the engineer retold it. Copy the answer into
+   "Answers so far". Use quote marks only for pasted words.
 3. Look for anything new: a new rule, a new wish, a "you missed X". New things open new
    questions. Add them and go back to Step 4.
 4. An answer you cannot read clearly stays open. Ask again, do not guess what they meant.
@@ -214,18 +240,23 @@ When nothing for the creator is open, write three things and add them to `requir
 Use more than one Given / When / Then block if version 1 does more than one thing.
 
 Give the engineer a message to paste that holds these three parts and ends with:
-"Is this right? Reply yes, or tell me what is wrong." The Status stays WAITING FOR CREATOR.
+"Is this right? Reply yes, or tell me what is wrong." The Status stays WAITING FOR CREATOR,
+and the PENDING line in `tracking_log.md` now says `waiting for <name> to confirm the real issue.`
 
 ## Step 8: is it a real yes?
 
-The engineer pastes the creator's reply. Read it strictly.
+The engineer brings the creator's reply, pasted or in their own words (their call, as in
+Step 6). Read it strictly.
+
+If it was not pasted, ask one short question before you accept a yes: "Did they add any 'but'
+or any extra wish?" A retold yes often drops the "but".
 
 | The creator says | What it is | What to do |
 |---|---|---|
 | "Yes", "Approved", "Correct, go ahead" | A real yes | Save it (below). |
 | "Looks good, but can it also ..." | Not a yes. It asks for something new. | Two ways out: add it to the contract and send it again, or the creator agrees in writing that it waits for a later version. The creator picks, not the engineer: write a short message that asks them which. |
 | "You missed X" / "No, it's about Y" | Not a yes | Back to Step 4 with the new facts. |
-| A thumbs-up from someone else, or "I think she's fine with it" | Not the creator's words | Ask for the creator's own reply. |
+| A thumbs-up from someone else, or "I think she's fine with it" | Not the creator's answer. Nobody has it yet. | Ask the engineer to get the creator's own answer. |
 | Nothing yet | Still waiting | Stay in WAITING. |
 
 There is no way around this step. If the engineer asks to go ahead on guesses or to skip the
@@ -244,11 +275,14 @@ On a real yes:
    **Status:** CONFIRMED BY CREATOR (YYYY-MM-DD)
 
    ## The creator's yes
-   > <their exact words>
-   (<name>, <where: Slack, Jira comment, email>, <date>)
+   > <their exact words, when the engineer pasted them>
+   (<name>, <where: Slack, Jira comment, email, call>, <date>)
    ```
 
-2. If the folder has a `tracking_log.md`: remove the PENDING line, write
+   No paste: in place of the quote line write `Told by <engineer>: <what the creator said>`.
+   The file must show which of the two it was.
+
+2. In `tracking_log.md`: remove the PENDING line, write
    `Plan the milestones` under `## Now working on`, and add under `## Last update`:
    `YYYY-MM-DD — real issue confirmed by <name>`.
 3. If the ticket's `CLAUDE.md` has a Phase line, set it to `2-Plan`.
@@ -261,6 +295,64 @@ The engineer is the creator. Run the same steps: they still answer the four ques
 three checks still apply. In Step 8 they confirm the real issue themselves, and the proof line
 says `(own project, <name>, <date>)`.
 
+## Starter files
+
+Step 0 writes these when they are missing. Put the real ticket key and today's date in place
+of the `<...>` parts. Keep the three `##` headings of `tracking_log.md` exactly as they are:
+the dashboard reads them.
+
+`CLAUDE.md`:
+
+```markdown
+# <TICKET-KEY>
+
+- **Phase:** 1-Understand
+- What was agreed with the creator: `requirements.md`
+- Where the work stands: `tracking_log.md` (the dashboard card is filled from it)
+```
+
+`tracking_log.md`:
+
+```markdown
+# <TICKET-KEY> — tracking log
+
+## Now working on
+Understand the ticket
+
+## Next up
+Get the creator's yes on the real issue
+
+## Last update
+YYYY-MM-DD — folder set up, ticket read
+```
+
+`.gitignore`:
+
+```text
+# Keep data and noise out of every diff and review.
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Claude Code's own files (session notepads, local settings)
+.claude/
+
+# Logins
+.env
+
+# Data and exports: may hold real data
+*.csv
+*.xlsx
+*.xls
+
+# Noise
+*.log
+*.zip
+*.bak
+```
+
 ## Common mistakes
 
 | Mistake | Do this instead |
@@ -272,4 +364,6 @@ says `(own project, <name>, <date>)`.
 | Running every check when one does not fit | Skip it and say which and why |
 | Writing a plan, milestones or pseudo-code "while we wait" | Nothing until the creator's yes |
 | Taking "looks good, but ..." as a yes | It is a new ask. Settle it first. |
-| Saving the engineer's summary as the proof | Only the creator's own words |
+| Insisting on a paste, or on a written recap of a call | Paste or tell is the engineer's call |
+| Writing a retold answer as if it were a quote | Say which it was: pasted words, or told by the engineer |
+| Asking about team defaults one by one | One message that lists them all |
