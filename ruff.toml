@@ -1,0 +1,6 @@
+# Only one thing is set here: where print() is allowed. Everything else is ruff's default.
+# These files are command-line tools and Claude Code hooks: what they print IS their output.
+[lint.per-file-ignores]
+"check_setup.py" = ["T201"]
+"project_note.py" = ["T201"]
+"work_jira_hooks.py" = ["T201"]

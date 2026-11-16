@@ -19,6 +19,8 @@ becomes a question for the person who can close it.
   are guesses.
 - No plan, no milestones, no code, no pseudo-code here. Those come after the creator's yes, in
   the next skill. Planning early hides the open questions behind work that looks like progress.
+  A hook holds this line: until the yes, only notes (`.md` files) can be written in the ticket
+  folder.
 - Never fill a gap yourself. If nobody in the chat knows, it is a question for someone.
 - Never answer for the engineer. Their own answer, even "I don't know", is what you need.
 - Made-up names and data only in examples.
@@ -43,6 +45,7 @@ Status line:
 
 | What you find | Go to |
 |---|---|
+| `requirements.md` has a `## Closed` section | Check this first. The ticket is closed, and stays closed. Say so, and stop. A new wish is a new ticket with its own folder: the engineer makes it (the dashboard's **+ New project** does it), and this skill starts there. |
 | No `requirements.md`, or it holds only empty template text | Step 1 |
 | `**Status:** WAITING FOR CREATOR` | Step 6 (ask for the creator's reply) |
 | `**Status:** CONFIRMED BY CREATOR` | This skill is done. Say so, and say the next step is planning the milestones, in a new session. |
@@ -299,8 +302,7 @@ On a real yes:
 2. In `tracking_log.md`: remove the PENDING line, write
    `Plan the milestones` under `## Now working on`, and add under `## Last update`:
    `YYYY-MM-DD — real issue confirmed by <name>`.
-3. If the ticket's `CLAUDE.md` has a Phase line, set it to `2-Plan`.
-4. Tell the engineer: this part is done, and planning the milestones starts in a new session.
+3. Tell the engineer: this part is done, and planning the milestones starts in a new session.
    Then stop. Do not start the plan here.
 
 ## No ticket (the engineer's own idea)
@@ -320,7 +322,6 @@ the dashboard reads them.
 ```markdown
 # <TICKET-KEY>
 
-- **Phase:** 1-Understand
 - What was agreed with the creator: `requirements.md`
 - Where the work stands: `tracking_log.md` (the dashboard card is filled from it)
 ```

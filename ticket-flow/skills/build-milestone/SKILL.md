@@ -14,6 +14,8 @@ Then stop.
 - **ONE milestone per session.** When it is ticked, stop. The next one starts in a new
   session. Why: a fresh session reads the plan again instead of trusting its memory, each
   review covers one small piece, and the dashboard card stays true.
+  A hook holds this line: code can be written only with an approved plan and an open
+  milestone, and after the tick only notes (`.md` files) can be written in this session.
 - **No code without a failing test first.**
 - **No "done" and no tick without fresh proof.** If you did not run the check in this message,
   you cannot say it passes.
@@ -34,7 +36,7 @@ Read `requirements.md`, `PLAN.md` and `tracking_log.md`. Take the first row that
 |---|---|
 | Status is not `CONFIRMED BY CREATOR` | Stop. The next step is the `ticket-flow:clear-ticket` skill. |
 | No milestone lines, or no `Plan approved by` line | Stop. The next step is the `ticket-flow:plan-milestones` skill. |
-| `requirements.md` has a `## Closed` section | The ticket is closed. Say so, and stop. A new wish starts with `ticket-flow:clear-ticket`. |
+| `requirements.md` has a `## Closed` section | The ticket is closed, and stays closed. Say so, and stop. A new wish is a new ticket with its own folder: it starts there, with `ticket-flow:clear-ticket`. |
 | A milestone was already ticked in this session | Stop. Tell the engineer to start a new session for the next one. |
 | Every milestone is ticked, and `## Now working on` in `tracking_log.md` says `waiting for <name> to confirm the result` | The result is already with the creator. Go to "Closing the ticket", Part 2, and ask the engineer for the reply. |
 | Every milestone is ticked | Nothing was sent yet. Go to "Closing the ticket", Part 1. |
@@ -236,10 +238,9 @@ problem, or when the engineer tells you the ticket is done.
 
 In `tracking_log.md`, set `## Now working on` to
 `PENDING (creator, YYYY-MM-DD): waiting for <name> to confirm the result.`
-If the ticket's `CLAUDE.md` has a Phase line, set it to `5-Handover`.
 
-If the folder has `.git`, commit these edits by name, so the next session does not find them
-as leftover changes: `git add tracking_log.md` (and `CLAUDE.md` if you changed it), then
+If the folder has `.git`, commit this edit by name, so the next session does not find it
+as a leftover change: `git add tracking_log.md`, then
 `git commit -m "Result sent to the creator"`. Never push. Then stop.
 
 **Part 2: the reply.** The engineer brings it, pasted or in their own words. That is their
@@ -249,8 +250,8 @@ extra wish?"
 | What comes back | What it is | Do this |
 |---|---|---|
 | "Yes", "Works, thanks" | A real yes | Close the ticket (below). |
-| "Yes, but can it also ..." | Version 1 is fine, and there is a new wish | Close the ticket. The wish is new work: it starts with `ticket-flow:clear-ticket`, as the next version. Say so to the engineer. |
-| "It does not do X", and X is in the contract | Not done | Add a milestone for X by the rules in `ticket-flow:plan-milestones`. In `tracking_log.md`, take out the PENDING line and put the new milestone under `## Now working on`. If the ticket's `CLAUDE.md` has a Phase line, set it back to `3-Build`. If the folder has `.git`, commit the files you changed, by name, with `git commit -m "M<n> added"`. Build the milestone in a new session. |
+| "Yes, but can it also ..." | Version 1 is fine, and there is a new wish | Close the ticket. The wish is new work: a new ticket with its own folder, which starts there with `ticket-flow:clear-ticket`. Say so to the engineer. |
+| "It does not do X", and X is in the contract | Not done | Add a milestone for X by the rules in `ticket-flow:plan-milestones`. In `tracking_log.md`, take out the PENDING line and put the new milestone under `## Now working on`. If the folder has `.git`, commit the files you changed, by name, with `git commit -m "M<n> added"`. Build the milestone in a new session. |
 | "It does not do X", and X is not in the contract | A new wish, not a fault | The same as "yes, but". Ask the creator if version 1 does what was agreed. |
 | The engineer says "the ticket is done" | The engineer closes it | Close the ticket, and write that the engineer said so. |
 

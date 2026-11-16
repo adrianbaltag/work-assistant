@@ -9,7 +9,10 @@ from pathlib import Path
 
 import pytest
 
+import notes
 import project_note as pn
+import work_jira_hooks as hooks
+from test_project_note import LOG, NOW, fields_of, projects, work_project
 
 PLUGIN = Path(__file__).resolve().parent.parent / "ticket-flow"
 SKILLS = ["clear-ticket", "plan-milestones", "build-milestone"]
@@ -123,7 +126,8 @@ def test_a_result_the_creator_did_not_accept_takes_the_ticket_out_of_waiting():
     row = table_row(skill_text("build-milestone"), '"It does not do X", and X is in the contract')
 
     assert "PENDING" in row                          # the waiting line comes out of tracking_log.md
-    assert "3-Build" in row                          # and the Phase goes back from 5-Handover
+    assert "`## Now working on`" in row              # and the new milestone takes its place
+    # (until 2026-11-15 this row also set the Phase line back to 3-Build: the Phase line is gone, see below)
 
 
 @pytest.mark.parametrize("name", SKILLS)
@@ -162,7 +166,7 @@ def test_every_edit_the_skills_make_outside_a_milestone_is_committed():
 @pytest.mark.parametrize("name", ["ticket.md", ".gitignore", "CLAUDE.md"])
 def test_the_plan_commit_takes_the_files_the_first_skill_made(name):
     """clear-ticket writes these and commits nothing. Left out, the first build session stops on them."""
-    commit_step = between(section(skill_text("plan-milestones"), "Step 7"), "4. If the folder has `.git`", "5. Tell the engineer")
+    commit_step = between(section(skill_text("plan-milestones"), "Step 7"), "3. If the folder has `.git`", "4. Tell the engineer")
 
     assert "git status" in commit_step               # it looks at what is new or changed, it does not guess
     assert f"`{name}`" in commit_step
@@ -214,3 +218,136 @@ def test_without_git_the_list_of_changed_files_is_kept_for_a_later_session():
     assert REVIEW_FILES in table_row(build, "The first open milestone is already built")
     assert REVIEW_FILES in section(build, "Step 5")              # a fix round brings the list up to date
     assert REVIEW_FILES in section(build, "Step 6")              # taken away at the tick: the next milestone starts clean
+
+
+# ---------- 2026-11-15, the hooks move into the plugin: the skills and the hooks must use the same words ----------
+
+@pytest.mark.parametrize("name", SKILLS)
+def test_no_skill_keeps_a_phase_line_up_to_date(name):
+    """The Phase line is gone (decided 2026-11-15): the hooks read the next step from the ticket's files."""
+    assert "Phase" not in skill_text(name)
+
+
+def test_every_skill_and_agent_the_hooks_name_is_in_the_plugin():
+    source = Path(hooks.__file__).read_text(encoding="utf-8")
+    named = set(re.findall(r"ticket-flow:([a-z-]+)", source))
+    have = set(SKILLS) | {f.stem for f in (PLUGIN / "agents").glob("*.md")}
+
+    assert named == have                             # all four are named, and nothing that does not exist
+    for old in ("clear-requirements", "grill-me", "writing-plans", "/code-review low", "/close-out", "git add ."):
+        assert old not in source
+
+
+def fenced(text, holds):
+    """The first fenced markdown example in a skill that holds these words."""
+    return next(block for block in re.findall(r"```markdown\n(.*?)```", text, flags=re.S) if holds in block)
+
+
+def ticket_with(tmp_path, requirements):
+    work = work_project(tmp_path)
+    (work / "requirements.md").write_text(requirements, encoding="utf-8")
+    return work
+
+
+def test_the_gate_reads_the_status_lines_exactly_as_clear_ticket_writes_them(tmp_path):
+    clear = skill_text("clear-ticket")
+    waiting = fenced(clear, "WAITING FOR CREATOR")
+    confirmed = waiting.replace("**Status:** WAITING FOR CREATOR (since YYYY-MM-DD)",
+                                re.sub(r"^ +", "", fenced(clear, "CONFIRMED BY CREATOR"), flags=re.M))
+    assert "WAITING" not in confirmed
+
+    work = ticket_with(tmp_path, waiting)
+    assert hooks.ticket_state(work) == "waiting"
+    (work / "requirements.md").write_text(confirmed, encoding="utf-8")
+    assert hooks.ticket_state(work) == "plan"
+
+
+def test_the_gate_reads_the_plan_and_the_end_exactly_as_the_skills_write_them(tmp_path):
+    plan, build = skill_text("plan-milestones"), skill_text("build-milestone")
+    approved_line = "Plan approved by <engineer> (YYYY-MM-DD)"
+    assert f"`{approved_line}`" in plan
+    confirmed = "**Status:** CONFIRMED BY CREATOR (2026-11-15)\n\n"
+    milestones = milestone_example(plan)
+    approved = milestones.replace("## Milestones\n", f"## Milestones\n{approved_line}\n")
+
+    work = ticket_with(tmp_path, confirmed + milestones)
+    assert hooks.ticket_state(work) == "plan"                    # a draft: the engineer did not approve it yet
+    (work / "requirements.md").write_text(confirmed + approved, encoding="utf-8")
+    assert hooks.ticket_state(work) == "build"
+    all_ticked = confirmed + approved.replace("- [ ]", "- [x]")
+    (work / "requirements.md").write_text(all_ticked, encoding="utf-8")
+    assert hooks.ticket_state(work) == "done"
+    closed = re.sub(r"^ +", "", fenced(build, "## Closed"), flags=re.M)
+    (work / "requirements.md").write_text(all_ticked + "\n" + closed, encoding="utf-8")
+    assert hooks.ticket_state(work) == "closed"
+    as_in_the_skill = fenced(build, "## Closed")                 # with the indent the example has inside its list
+    assert as_in_the_skill.startswith("   ## Closed")
+    (work / "requirements.md").write_text(all_ticked + "\n" + as_in_the_skill, encoding="utf-8")
+    assert hooks.ticket_state(work) == "closed"
+
+
+def test_a_ticket_planned_before_the_plugin_gets_its_approval_line_without_a_new_plan():
+    """Else an old ticket in the middle of its milestones is stopped by the gate with no skill to open it."""
+    step_0 = section(skill_text("plan-milestones"), "Step 0")
+    row = table_row(step_0, "Milestone lines from before this skill")
+
+    assert "Plan approved by" in row and "Ask once" in row and "nothing else" in row
+    assert step_0.index(row) < step_0.index("| Milestone lines, but no `Plan approved by` line")    # first row that fits
+    old_ticket = table_row(section(skill_text("clear-ticket"), "Step 0"), "Real content but no Status line")
+    assert "Ask once" in old_ticket and "CONFIRMED" in old_ticket
+
+
+# ---------- the card: "waiting for the creator" needs no new button, the PENDING line already shows ----------
+
+def pending_lines():
+    """Every `PENDING (creator, ...)` line the skills tell Claude to write, filled in with made-up words."""
+    clear, build = skill_text("clear-ticket"), skill_text("build-milestone")
+    templates = re.findall(r"`(PENDING \(creator, YYYY-MM-DD\): [^`]+)`", clear + build)
+    assert len(templates) == 2                                   # waiting for answers, waiting for the result
+    confirm = re.search(r"`(waiting for <name> to confirm the real issue\.)`", clear).group(1)
+    templates.append("PENDING (creator, YYYY-MM-DD): " + confirm)
+    return [t.replace("YYYY-MM-DD", "2026-11-15").replace("<name>", "Maria").replace("<N>", "3") for t in templates]
+
+
+def test_every_waiting_line_the_skills_write_shows_on_the_card_as_pending_with_its_reason(tmp_path):
+    lines = pending_lines()
+    assert [pn.status_from(line) for line in lines] == [
+        ("pending", "waiting for Maria to answer 3 questions."),
+        ("pending", "waiting for Maria to confirm the result."),
+        ("pending", "waiting for Maria to confirm the real issue."),
+    ]
+    work = work_project(tmp_path, log=LOG.replace("M2 — parse the alarm file\nand write its tests.", lines[0]))
+    card = notes.new_project(projects(tmp_path), "DEMO-42")
+    pn.sync(projects(tmp_path), work, NOW)
+    assert fields_of(card)["status"] == "pending"
+    assert fields_of(card)["blocked_by"] == "waiting for Maria to answer 3 questions."      # the card's "Blocked by"
+
+
+def test_after_the_creators_yes_the_card_is_active_again(tmp_path):
+    after_yes = "Plan the milestones"
+    assert f"`{after_yes}`" in skill_text("clear-ticket")
+    work = work_project(tmp_path, log=LOG.replace("M2 — parse the alarm file\nand write its tests.", after_yes))
+    card = notes.new_project(projects(tmp_path), "DEMO-42")
+    pn.sync(projects(tmp_path), work, NOW)
+    assert fields_of(card)["status"] == "active" and fields_of(card)["blocked_by"] == ""
+
+
+# ---------- decided 2026-11-15: a closed ticket stays closed, a new wish is a new ticket in its own folder ----------
+
+def test_every_skill_sends_a_new_wish_on_a_closed_ticket_to_a_new_folder():
+    """Else the hooks say "start with clear-ticket", clear-ticket says "already confirmed", and nobody can go on."""
+    clear_0 = section(skill_text("clear-ticket"), "Step 0")
+    closed_row = table_row(clear_0, "`requirements.md` has a `## Closed` section")
+    assert "own folder" in closed_row and "stop" in closed_row.lower()
+    assert clear_0.index(closed_row) < clear_0.index("| `**Status:** CONFIRMED BY CREATOR`")   # a closed file has both
+
+    # review finding 2026-11-15: plan-milestones had no such row, so a milestone could be added to a closed ticket
+    plan_0 = section(skill_text("plan-milestones"), "Step 0")
+    plan_row = table_row(plan_0, "`requirements.md` has a `## Closed` section")
+    assert "own folder" in plan_row and "stop" in plan_row.lower() and "No milestone" in plan_row
+    assert plan_0.index(plan_row) < plan_0.index("| `**Status:** CONFIRMED BY CREATOR`")       # a closed file has both
+
+    build = skill_text("build-milestone")
+    assert "own folder" in table_row(section(build, "Step 0"), "`requirements.md` has a `## Closed` section")
+    assert "own folder" in table_row(build, '"Yes, but can it also ..."')
+    assert "own folder" in hooks.STEPS["closed"]

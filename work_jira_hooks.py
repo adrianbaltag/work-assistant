@@ -1,17 +1,24 @@
 """Claude Code hooks that keep the dashboard in step with work_jira. Pure Python, no Flask, no tokens.
 
-Set up once in your user settings (~/.claude/settings.json, see README):
+The five words, plus the gate:
     python work_jira_hooks.py stop            after every Claude reply
     python work_jira_hooks.py session-start   when a Claude Code session starts
     python work_jira_hooks.py prompt          when you send a prompt (UserPromptSubmit)
     python work_jira_hooks.py after-edit      after Claude edits or writes a file (PostToolUse)
     python work_jira_hooks.py session-end     when the session ends
+    python work_jira_hooks.py gate            before Claude edits or writes a file (PreToolUse)
+The ticket-flow plugin runs them for you (ticket-flow/hooks/hooks.json, through ticket-flow/scripts/run_hook.py).
+
+The gate: inside a ticket folder Claude can write notes only (.md files) until the creator said yes, then also
+PLAN.md, and code only with an approved plan and an open milestone. After a tick in the session, and in a
+closed ticket: notes only.
 
 Milestone guard: one milestone per session. session-start writes a notepad in the ticket's .claude folder
 (which milestones in requirements.md were ticked at the start); a box ticked since then = this session's milestone.
 
 Claude Code sends the hook a small JSON on stdin (we use "cwd" = the folder Claude is in).
-Exit 0 = all fine. Exit 2 (Stop only) = Claude must keep going: our stderr message tells it what to do.
+Exit 0 = all fine. Exit 2 = Stop: Claude must keep going; gate: the write is stopped. Our stderr message
+tells Claude what to do.
 Any other problem = exit 1, which Claude Code shows but never blocks on.
 """
 import json
@@ -32,54 +39,78 @@ CREATE_CARD = """This project has no dashboard card yet. Create it now with one 
 
 POWERSHELL = "In PowerShell, put & and a space in front of that command (the first path is in quotes).\n"
 
-NEW_FOLDER = """This is a new project folder: {name}. Before anything else, set it up with the same md set every \
-project has, copied from {templates} (CLAUDE.md, requirements.md, tracking_log.md and the rest).{ticket} \
-Only set up the md set this session. Then STOP and tell the user to start a new Claude session: \
-clear-requirements and grill-me come in that new session. Once tracking_log.md exists, a hook keeps the dashboard card in sync."""
+NEW_FOLDER = """This is a new project folder: {name}.{ticket} Start with the ticket-flow:clear-ticket skill: \
+it sets the folder up (CLAUDE.md, tracking_log.md, .gitignore) and gets the ticket clear. No plan and no code before \
+the creator's yes: until then only notes (.md files) can be written here. \
+Once tracking_log.md exists, a hook keeps the dashboard card in sync."""
 
 READ_TICKET = " Read ticket.md first: it holds the Jira description the user pasted."
 
-OLD_FOLDER = """This project folder ({name}) is missing its md set (no tracking_log.md). Before other work, create \
-the missing md files from {templates}, filled in from what is already in the folder. \
-Do not run clear-requirements or grill-me unless the user asks."""
+OLD_FOLDER = """This project folder ({name}) has no tracking_log.md, so its dashboard card stays empty. \
+Before other work, use the ticket-flow:clear-ticket skill: it adds the starter files that are missing and keeps \
+what is already in the folder. Until the creator's yes, only notes (.md files) can be written here."""
 
-NO_MILESTONES = """This project ({name}) has no milestones in requirements.md yet, and it is not PENDING. \
-Before other work, ask the user whether to run the clear-requirements skill now (then grill-me) to write them."""
-
-NO_GIT = """This folder ({name}) has no local git yet, so /close-out and /code-review have no diff. \
+NO_GIT = """This folder ({name}) has no local git yet, so the code reviewer has no diff to read. \
 Before other work, offer the user to set it up. Only after they say yes: \
-1. If there is no .gitignore here, copy {gitignore} here. If that file is missing too, stop and tell the user \
-to do the ".gitignore for ticket folders" step in the work-assistant README. \
-2. git init, then git add ., then git commit -m "Start local history". \
+1. If there is no .gitignore here, write it from "Starter files" in the ticket-flow:clear-ticket skill. \
+2. git init, then git add the files by name (the notes, .gitignore and the code; never a data file or a file \
+with logins), then git commit -m "Start local history". \
 Never push. If the commit fails because git does not know who the user is, tell them to do the "git name" step \
 in the work-assistant README. If they say no, carry on; you will ask again next session."""
-
-PHASE_SKILLS = {        # phase number -> (name, our own skills for it; README "Own skills"). 1 and 5 have none.
-    "2": ("2-Plan", ["writing-plans"]),
-    "3": ("3-Build", ["test-driven-development", "verification-before-completion"]),
-    "4": ("4-Review", ["receiving-code-review", "verification-before-completion"]),
-}
-
-USE_SKILLS = "Phase {phase}: use these skills when they apply: {skills}."
-
-PHASE_NOT_SET = """The Phase line in this ticket's CLAUDE.md is not set. Before other work, suggest a phase \
-(1-Understand, 2-Plan, 3-Build, 4-Review, 5-Handover) from requirements.md, ask the user to confirm it, \
-write it in CLAUDE.md, then carry on."""
 
 ONE_STEP = "When the user must act: give ONE step, then wait for their result."
 
 FINISHED = "{ids} ticked this session. One milestone per session: do not start the next one; tell the user to start a new session."
 
-TICKED = """{ids} ticked in requirements.md. Finish this milestone now, in this order:
-1. Code milestone: run /code-review low on its files if not done yet; fix the findings or list them in tracking_log.md.
-2. tracking_log.md: under ## Last update add `{today} — {ids} ticked, <proof>`; put the next unticked milestone \
-under ## Now working on and the one after it under ## Next up.
-3. If the phase changed, update Phase in the ticket CLAUDE.md.
-4. If this folder has .git: git add . then git commit -m "{ids} — <what it delivers>". Never push.
-5. Tell the user what's next, then STOP. One milestone per session: do not start the next one.
-A "user check" milestone is ticked only after the user confirmed it in chat. If they haven't, untick it and ask them."""
+TICKED = """{ids} ticked in requirements.md. Finish this milestone now, as Step 6 of the \
+ticket-flow:build-milestone skill says, in this order:
+1. tracking_log.md: under ## Last update add `{today} — {ids} ticked, <proof>, <review>`; put the next unticked \
+milestone under ## Now working on and the one after it under ## Next up.
+2. If this folder has .git: git add the reviewed files, requirements.md, tracking_log.md and PLAN.md by name \
+(never every file at once), then git commit -m "{ids} — <what it delivers>". Never push.
+3. Tell the user what's next, then STOP. One milestone per session: do not start the next one.
+A code milestone is ticked only after a ticket-flow:code-reviewer review passed, or every finding is fixed or logged. \
+A "user check" milestone is ticked only after the user confirmed it in chat. If either is missing, untick it and do \
+that first.
+For the rest of this session only notes (.md files, not PLAN.md) can be written in this ticket folder."""
 
 LOG_NOT_UPDATED = "{ids} ticked this session, but tracking_log.md is not updated yet: {todo}. Then tell the user what's next and stop."
+
+# Where a ticket stands (ticket_state) -> what comes next. Said at session start, and when the gate stops a write.
+STEPS = {
+    "new": "{name} has no creator's yes yet. Next step: the ticket-flow:clear-ticket skill.",
+    "waiting": "{name} waits for the creator's yes. When the user brings the creator's reply: "
+               "the ticket-flow:clear-ticket skill.",
+    "plan": "The creator said yes on {name}, and there is no approved plan yet. "
+            "Next step: the ticket-flow:plan-milestones skill.",
+    "build": "{name}: the first open milestone is {milestone}. Next step: the ticket-flow:build-milestone skill. "
+             "One milestone per session.",
+    "done": "Every milestone of {name} is ticked. Next step: close the ticket with the ticket-flow:build-milestone "
+            'skill ("Closing the ticket").',
+    "closed": "{name} is closed, and stays closed. A new wish is a new ticket with its own folder: the user makes "
+              "it with + New project on the dashboard, and it starts there with the ticket-flow:clear-ticket skill.",
+}
+
+OLD_TICKET_BOTH = """{name} was started before ticket-flow: its requirements.md has no Status line and no \
+"Plan approved by" line. Before other work, ask the user both questions in ONE message: \
+1. Did the creator confirm what this ticket is about? 2. Do you approve the milestones as they stand? \
+A yes on 1: add the Status line and the proof, as Step 0 of the ticket-flow:clear-ticket skill says. \
+A yes on 2: add the "Plan approved by" line, as Step 0 of the ticket-flow:plan-milestones skill says. \
+Change nothing else in the file. A no: that skill takes it from there."""
+
+OLD_TICKET_ONE = """{name} was started before ticket-flow: its requirements.md has no Status line. \
+Before other work, use the ticket-flow:clear-ticket skill: it asks once whether the creator already confirmed \
+this ticket."""
+
+NOT_WRITTEN = "Not written: {file}. {why} {can} Tell the user this in one plain sentence."
+NOTES_ONLY = "Until the creator's yes, only notes (.md files, not PLAN.md) can be written in this ticket folder."
+PLAN_ONLY = "Until the plan is approved, only notes (.md files) and PLAN.md can be written in this ticket folder."
+MILESTONE_FIRST = ('Code needs an open milestone: to change code now, first add a milestone with the '
+                   'ticket-flow:plan-milestones skill ("Changing the plan later").')
+CLOSED_NOTES = "Only notes (.md files, not PLAN.md) can be written in a closed ticket."
+LOCKED = "{ids} ticked in this session, and it is one milestone per session."
+LOCKED_CAN = """Only notes (.md files, not PLAN.md) can be written now: finish the closing steps, then tell the \
+user to start a new session. If the tick was a mistake, untick it in requirements.md."""
 
 NOTEPAD_DAYS = 2        # notepads left behind (crash, window closed hard) are deleted at a later session start
 
@@ -187,32 +218,23 @@ def session_start(event, settings, now):
     if work is None:
         return "", for_user
     start_notepad(work, event, now)
-    templates = Path(work_jira) / "_templates"
     if (work / pn.TRACKING_LOG).is_file():
-        return ticket_context(work, templates), for_user
+        return ticket_context(work), for_user
     files = {f.name for f in work.iterdir() if not f.name.startswith(".")}
     if files <= {"ticket.md"}:
-        ticket = READ_TICKET if files else ""
-        return NEW_FOLDER.format(name=work.name, templates=templates, ticket=ticket), for_user
-    return OLD_FOLDER.format(name=work.name, templates=templates), for_user
+        return NEW_FOLDER.format(name=work.name, ticket=READ_TICKET if files else ""), for_user
+    return OLD_FOLDER.format(name=work.name), for_user
 
 
-def ticket_context(work, templates):
-    """For a set-up ticket: the local git offer, the phase's skills (or ask to set the phase), then the
-    no-milestones nag. PENDING = nothing."""
+def ticket_context(work):
+    """For a set-up ticket: the local git offer, then the next step (which skill), read from the ticket's files.
+    PENDING = nothing: the ticket waits for someone, and the engineer comes back with the answer."""
     if paused(work):
         return ""
-    phase = phase_of(work)
     said = []
     if not (work / ".git").exists():
-        said.append(NO_GIT.format(name=work.name, gitignore=templates / ".gitignore"))
-    if phase == "?":
-        said.append(PHASE_NOT_SET)
-    elif phase in PHASE_SKILLS:
-        name, skills = PHASE_SKILLS[phase]
-        said.append(USE_SKILLS.format(phase=name, skills=", ".join(skills)))
-    if not pn.folder_milestones(work):
-        said.append(NO_MILESTONES.format(name=work.name))
+        said.append(NO_GIT.format(name=work.name))
+    said.append(next_step(work, ticket_state(work)))
     return " ".join(said)
 
 
@@ -223,22 +245,6 @@ def paused(work):
     except pn.SyncError:
         return True
     return pn.status_from(log["now"])[0] == "pending"
-
-
-def phase_of(work):
-    """Phase number "1".."5" from the ticket CLAUDE.md's "- **Phase:** 3-Build" line.
-    "?" = the line is there but not set (template "1-Understand | 2-Plan | ..." or no number). None = no Phase line."""
-    try:
-        text = (work / "CLAUDE.md").read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError):
-        return None
-    for line in text.splitlines():
-        found = re.match(r"[\s*-]*phase\s*:[\s*]*(.*)", line, re.I)
-        if found:
-            value = found.group(1)
-            number = re.match(r"([1-5])(?!\d)", value)
-            return number.group(1) if number and "|" not in value else "?"
-    return None
 
 
 # ---------- milestone guard: the notepad ----------
@@ -337,6 +343,126 @@ def session_end(event):
         file.unlink(missing_ok=True)
 
 
+# ---------- the gate: no code before the creator's yes and an approved plan ----------
+
+def gate(event, settings):
+    """Before Claude writes a file (PreToolUse). Returns "" (go ahead) or the message that stops the write.
+
+    Only files inside a ticket folder under work_jira are judged, by the FILE's own path (not by where Claude is).
+    Notes can always be written. The rest depends on where the ticket stands (ticket_state) and on the notepad.
+    A file written by a shell command is not seen here: the review's git diff is the backstop for that.
+    """
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return ""
+    path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    work_jira = settings.get("work_jira_folder", "").strip()
+    if not path or not work_jira:
+        return ""
+    work_jira = Path(work_jira).resolve()
+    found = ticket_file(work_jira, Path(path).resolve())
+    if found is None or is_note(found[1]):
+        return ""
+    name, inside = found
+    work = work_jira / name
+    state = ticket_state(work)
+    is_plan = inside.name.casefold() == PLAN
+    if state in ("new", "old", "waiting"):
+        why, can = next_step(work, state), NOTES_ONLY
+    elif state == "closed":
+        why, can = next_step(work, state), CLOSED_NOTES
+    elif state == "plan":
+        if is_plan:
+            return ""
+        why, can = next_step(work, state), PLAN_ONLY
+    elif ticked := ticked_now(work, event.get("session_id")):
+        why, can = LOCKED.format(ids=", ".join(ticked)), LOCKED_CAN      # the plan too: the next milestone waits
+    elif state == "done":
+        if is_plan:
+            return ""                                # a missing milestone is added to the plan first
+        why, can = next_step(work, state), MILESTONE_FIRST
+    else:
+        return ""                                    # approved plan, open milestone: everything can be written
+    return NOT_WRITTEN.format(file=inside.as_posix(), why=why, can=can)
+
+
+PLAN = "plan.md"            # not a note: it waits for the creator's yes
+# The Status line as the clear-ticket skill writes it: "**Status:** WAITING FOR CREATOR ..." or
+# "**Status:** CONFIRMED BY CREATOR ...", anywhere in requirements.md. Only these two count: an old
+# ticket's own "- Status: only open alarms" is a requirement, not our Status line.
+# The "## Closed" heading the build-milestone skill writes. Up to 3 spaces in front and a date after it still
+# count (Claude may copy the skill's indent); "## Closed questions" is another heading.
+CLOSED_HEADING = re.compile(r"^ {0,3}##[ \t]+closed(?![ \t]*[a-z])", re.I | re.M)
+STATUS_LINE = re.compile(r"^[ \t>*-]*status\**[ \t]*:\**[ \t]*(waiting for|confirmed by)[ \t]+creator\b", re.I | re.M)
+
+
+def ticket_file(work_jira, file_path, pure=PurePath):
+    """(ticket folder name, the file's path inside it) for a file inside a ticket folder under work_jira, else None.
+
+    Capitals don't count (Windows and Mac disks). _templates and hidden folders are not tickets.
+    `pure` is the kind of path: the tests pass PureWindowsPath to try Windows paths on a Mac.
+    """
+    root, file = pure(work_jira), pure(file_path)
+    deep = len(root.parts)
+    if not root.is_absolute() or len(file.parts) < deep + 2:         # needs <work_jira>/<ticket>/<file>
+        return None
+    if [part.casefold() for part in file.parts[:deep]] != [part.casefold() for part in root.parts]:
+        return None
+    name = file.parts[deep]
+    if name.startswith(("_", ".")):
+        return None
+    return name, pure(*file.parts[deep + 1:])
+
+
+def is_note(inside):
+    """Any .md file except PLAN.md, and .gitignore: what Claude can always write in a ticket folder."""
+    name = inside.name.casefold()
+    return name == ".gitignore" or (name.endswith(".md") and name != PLAN)
+
+
+def ticket_state(work):
+    """Where a ticket stands, read from its requirements.md:
+
+    "new"      no requirements.md, or nothing in it
+    "old"      it has text but no Status line (a ticket from before ticket-flow)
+    "waiting"  the Status line says WAITING FOR CREATOR
+    "plan"     the creator said yes; no approved plan yet (no milestone lines, or no "Plan approved by" line)
+    "build"    approved plan with an open milestone
+    "done"     approved plan, every milestone ticked
+    "closed"   it has a ## Closed section (for good: a new wish is a new ticket in its own folder)
+    """
+    text = re.sub(r"<!--.*?-->", "", pn.requirements_text(work), flags=re.S)
+    if not text.strip():
+        return "new"
+    said = {word.upper() for word in STATUS_LINE.findall(text)}
+    if not said:
+        return "old"
+    if "CONFIRMED BY" not in said:                   # a waiting line left in next to the yes: the yes wins
+        return "waiting"
+    if CLOSED_HEADING.search(text):
+        return "closed"
+    milestones = pn.read_milestones(text)
+    if not milestones or not re.search(r"^[ \t>*-]*plan approved by\b", text, re.I | re.M):
+        return "plan"
+    return "done" if all(milestones.values()) else "build"
+
+
+def next_step(work, state):
+    """What comes next for this ticket, in words for Claude."""
+    milestones = pn.folder_milestones(work)
+    if state == "old":
+        return (OLD_TICKET_BOTH if milestones else OLD_TICKET_ONE).format(name=work.name)
+    still_open = [m for m, done in milestones.items() if not done]
+    return STEPS[state].format(name=work.name, milestone=still_open[0] if still_open else "")
+
+
+def ticked_now(work, session_id):
+    """The milestones ticked in this session (the notepad knows what was ticked at its start). No notepad = []."""
+    file = notepad_file(work, session_id)
+    data = read_notepad(file) if file else None
+    return new_ticks(pn.folder_milestones(work), data) if data else []
+
+
 def settings_paths(settings):
     """(projects_folder, work_jira_folder). A bad projects_folder= stops the hook (exit 1, message shown to you)."""
     projects, work_jira = settings.get("projects_folder", "").strip(), settings.get("work_jira_folder", "").strip()
@@ -373,6 +499,12 @@ def main(argv, stdin=sys.stdin, settings_path=notes.SETTINGS_FILE, now=None):
             if message:
                 print(message, file=sys.stderr)
             return code
+        if which == "gate":
+            message = gate(event, settings)
+            if message:
+                print(message, file=sys.stderr)      # exit 2 = the write is stopped, Claude reads this
+                return 2
+            return 0
         if which == "session-start":
             context, for_user = session_start(event, settings, now or datetime.now())
             out = {}
@@ -383,7 +515,7 @@ def main(argv, stdin=sys.stdin, settings_path=notes.SETTINGS_FILE, now=None):
             if out:
                 print(json.dumps(out))
             return 0
-        print("work_jira_hooks.py needs one word: stop, session-start, prompt, after-edit or session-end",
+        print("work_jira_hooks.py needs one word: stop, session-start, prompt, after-edit, session-end or gate",
               file=sys.stderr)
         return 1
     except SystemExit as err:            # settings.ini missing

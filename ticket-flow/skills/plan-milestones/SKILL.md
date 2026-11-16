@@ -17,6 +17,8 @@ Python developer would do anyway.
 
 - Talk in plain, simple words. Ask ONE question per message, then wait.
 - Only plan. No code and no tests in this session. Building starts in a new session.
+  A hook holds this line: until the plan is approved, only notes (`.md` files) and `PLAN.md`
+  can be written in the ticket folder.
 - Plan version 1 only: what is inside the fence in `requirements.md`. "Later" is not planned.
 - Never fill a gap with a guess. A gap is a question for the engineer or a senior colleague.
 - The plan never changes what the creator agreed to. If it has to, the creator must say yes
@@ -29,6 +31,7 @@ Read `requirements.md` and look at its Status line.
 
 | What you find | Do this |
 |---|---|
+| `requirements.md` has a `## Closed` section | Check this first. The ticket is closed, and stays closed. Say so, and stop. No milestone is added to a closed ticket, and no plan is changed: a new wish is a new ticket with its own folder, and it starts there with `ticket-flow:clear-ticket`. |
 | `**Status:** CONFIRMED BY CREATOR` | Go on. |
 | `WAITING FOR CREATOR`, no Status line, or no file | Stop. Say that the plan waits for the creator's yes, and that the next step is the `ticket-flow:clear-ticket` skill. |
 
@@ -40,6 +43,7 @@ Then look for milestone lines in `requirements.md`:
 | What you find | Go to |
 |---|---|
 | No milestone lines | Step 1 |
+| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. Then say that building the first open milestone starts in a new session. No: it is a draft, the next row. |
 | Milestone lines, but no `Plan approved by` line | The plan is a draft. Read it and `PLAN.md`, then go to Step 6. |
 | Milestone lines and a `Plan approved by` line | The plan is done. Say so, and say that building the first open milestone starts in a new session. If the engineer wants to change the plan, see "Changing the plan later". |
 
@@ -179,8 +183,7 @@ On their yes, in this order:
 2. In `tracking_log.md`: put the first milestone under `## Now working on` and the second
    under `## Next up`, each as its ID and short name. Add under `## Last update`:
    `YYYY-MM-DD — plan approved, <N> milestones`.
-3. If the ticket's `CLAUDE.md` has a Phase line, set it to `3-Build`.
-4. If the folder has `.git`:
+3. If the folder has `.git`:
    - Add the files you wrote, by name: `git add requirements.md PLAN.md tracking_log.md`.
    - Run `git status`. If it shows `ticket.md`, `.gitignore` or `CLAUDE.md` as new or
      changed, add them by name too. The first skill made them and nothing has committed them
@@ -189,7 +192,7 @@ On their yes, in this order:
 
    Never add everything at once: a data file or a file with logins could be lying in the
    folder. No `.git`: skip this step.
-5. Tell the engineer: the plan is done, and building M1 starts in a new session. Then stop. Do
+4. Tell the engineer: the plan is done, and building M1 starts in a new session. Then stop. Do
    not start building here.
 
 ## Changing the plan later

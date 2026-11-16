@@ -2,6 +2,7 @@
 
 All IDs and tokens here are made up. Never put real ones in this public repo.
 """
+import json
 from types import SimpleNamespace
 
 import anthropic
@@ -349,7 +350,7 @@ def test_manifest_asks_for_exactly_the_permissions_checked():
 def test_main_prints_every_line_and_counts_the_problems(tmp_path, capsys):
     (tmp_path / "p").mkdir()
     path = write_settings(tmp_path, f"projects_folder={tmp_path / 'p'}\n")
-    assert check_setup.main(env={}, settings_path=path) == 1        # no logins: nothing goes to the network
+    assert check_setup.main(env={}, settings_path=path, claude=tmp_path / "no-claude") == 1    # no logins: nothing goes to the network
     out = capsys.readouterr().out
     assert "[FAIL] No Claude login" in out and "[SKIP] Slack: SLACK_USER_TOKEN" in out
     assert out.strip().endswith("1 problem to fix (the [FAIL] lines). Run this again after.")
@@ -456,3 +457,124 @@ def test_folder_that_does_not_exist_gets_the_path_hint(tmp_path, monkeypatch):
     path = write_settings(tmp_path, "projects_folder=nope1\nwork_jira_folder=nope2\n")
     lines, _, _ = check_setup.check_settings(path)
     assert "HINT(nope1)" in text(lines) and "HINT(nope2)" in text(lines)
+
+
+# ----- The ticket-flow plugin: the pointer file for its hooks, its version, old pasted hooks -----
+
+def claude_dir(tmp_path, installed=None, hooks=None):
+    """A made-up Claude Code folder. installed = the plugin version on record (None = not installed);
+    hooks = the "hooks" part of settings.json (None = no settings.json)."""
+    claude = tmp_path / "claude"
+    (claude / "plugins").mkdir(parents=True)
+    plugins = {"expo@claude-plugins-official": [{"scope": "user", "version": "1.13.9"}]}
+    if installed:
+        plugins["ticket-flow@work-assistant"] = [{"scope": "user", "installPath": "x", "version": installed}]
+    (claude / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": plugins}),
+                                                               encoding="utf-8")
+    if hooks is not None:
+        (claude / "settings.json").write_text(json.dumps({"model": "sonnet", "hooks": hooks}), encoding="utf-8")
+    return claude
+
+
+def app_folder(tmp_path, version="0.1.0"):
+    """A made-up Work Assistant folder whose plugin has this version."""
+    here = tmp_path / "work-assistant"
+    (here / "ticket-flow" / ".claude-plugin").mkdir(parents=True)
+    (here / "ticket-flow" / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "ticket-flow", "version": version}), encoding="utf-8")
+    (here / "work_jira_hooks.py").write_text("# the hooks\n", encoding="utf-8")
+    return here
+
+
+def pasted(*events):
+    """Old hooks as the README used to have you paste them: each one runs work_jira_hooks.py itself."""
+    return {event: [{"hooks": [{"type": "command", "command": "C:/Users/demo/work-assistant/.venv/Scripts/python.exe",
+                                "args": ["C:/Users/demo/work-assistant/work_jira_hooks.py", event.lower()]}]}]
+            for event in events}
+
+
+def test_check_setup_saves_where_this_folder_is_for_the_plugins_hooks(tmp_path):
+    here, claude = app_folder(tmp_path), claude_dir(tmp_path)
+    check_setup.check_ticket_flow(claude, here)
+    assert (claude / check_setup.POINTER).read_text(encoding="utf-8").strip() == str(here.resolve())
+
+
+def test_the_plugins_starter_finds_the_folder_from_what_check_setup_saved(tmp_path):
+    from test_ticket_flow_hooks import copied_plugin, starter
+    here, claude = app_folder(tmp_path), claude_dir(tmp_path)
+    check_setup.check_ticket_flow(claude, here)
+    assert starter.find_home(copied_plugin(tmp_path), claude) == here.resolve()
+
+
+def test_no_claude_code_folder_is_skipped_and_nothing_is_made(tmp_path):
+    lines = check_setup.check_ticket_flow(tmp_path / "no-claude", app_folder(tmp_path))
+    assert marks(lines) == [SKIP] and "ticket-flow" in text(lines)
+    assert not (tmp_path / "no-claude").exists()
+
+
+def test_plugin_not_installed_is_skipped_not_a_problem(tmp_path):
+    lines = check_setup.check_ticket_flow(claude_dir(tmp_path), app_folder(tmp_path))
+    assert marks(lines) == [SKIP] and "not installed" in text(lines) and "optional" in text(lines)
+    (tmp_path / "claude" / "plugins" / "installed_plugins.json").unlink()        # no plugin was ever installed
+    assert "not installed" in text(check_setup.check_ticket_flow(tmp_path / "claude", tmp_path / "work-assistant"))
+
+
+def test_installed_plugin_with_the_same_version_is_fine(tmp_path):
+    lines = check_setup.check_ticket_flow(claude_dir(tmp_path, installed="0.1.0"), app_folder(tmp_path, "0.1.0"))
+    assert marks(lines) == [OK] and "0.1.0" in text(lines)
+
+
+def test_an_older_installed_plugin_says_how_to_update_it(tmp_path):
+    lines = check_setup.check_ticket_flow(claude_dir(tmp_path, installed="0.0.4"), app_folder(tmp_path, "0.1.0"))
+    assert marks(lines) == [WARN]
+    assert "0.0.4" in text(lines) and "0.1.0" in text(lines)
+    assert "claude plugin update ticket-flow@work-assistant" in text(lines)
+
+
+def test_a_plugin_list_that_cannot_be_read_is_skipped(tmp_path):
+    claude = claude_dir(tmp_path)
+    (claude / "plugins" / "installed_plugins.json").write_text("{ not json", encoding="utf-8")
+    lines = check_setup.check_ticket_flow(claude, app_folder(tmp_path))
+    assert marks(lines) == [SKIP] and "could not tell" in text(lines)
+    (claude / "plugins" / "installed_plugins.json").write_text('["an odd shape"]', encoding="utf-8")
+    assert marks(check_setup.check_ticket_flow(claude, tmp_path / "work-assistant")) == [SKIP]
+
+
+def test_old_pasted_hooks_next_to_the_plugin_are_named_and_left_alone(tmp_path):
+    claude = claude_dir(tmp_path, installed="0.1.0", hooks=pasted("Stop", "SessionStart", "UserPromptSubmit"))
+    before = (claude / "settings.json").read_text(encoding="utf-8")
+    lines = check_setup.check_ticket_flow(claude, app_folder(tmp_path))
+    assert marks(lines) == [OK, WARN]
+    warning = lines[1][1]
+    assert "twice" in warning and "work_jira_hooks.py" in warning and "settings.json" in warning
+    assert all(event in warning for event in ("Stop", "SessionStart", "UserPromptSubmit"))
+    assert (claude / "settings.json").read_text(encoding="utf-8") == before       # read only: you remove them
+
+
+def test_old_pasted_hooks_without_the_plugin_are_not_a_warning(tmp_path):
+    claude = claude_dir(tmp_path, hooks=pasted("Stop"))
+    assert WARN not in marks(check_setup.check_ticket_flow(claude, app_folder(tmp_path)))
+
+
+def test_other_hooks_in_settings_json_are_never_mentioned(tmp_path):
+    other = {"Stop": [{"hooks": [{"type": "command", "command": "bash", "args": ["run_tests.sh"]}]}], "Odd": "shape"}
+    claude = claude_dir(tmp_path, installed="0.1.0", hooks=other)
+    assert marks(check_setup.check_ticket_flow(claude, app_folder(tmp_path))) == [OK]
+    (claude / "settings.json").write_text("{ not json", encoding="utf-8")
+    assert marks(check_setup.check_ticket_flow(claude, tmp_path / "work-assistant")) == [OK]
+
+
+def test_a_pointer_file_that_cannot_be_saved_is_a_warning(tmp_path):
+    claude = claude_dir(tmp_path, installed="0.1.0")
+    (claude / check_setup.POINTER).mkdir()                       # a folder with that name: writing the file fails
+    lines = check_setup.check_ticket_flow(claude, app_folder(tmp_path))
+    assert marks(lines) == [WARN, OK] and check_setup.POINTER in lines[0][1]
+
+
+def test_main_checks_the_plugin_in_the_claude_folder_it_is_given(tmp_path, capsys):
+    (tmp_path / "p").mkdir()
+    path = write_settings(tmp_path, f"projects_folder={tmp_path / 'p'}\n")
+    claude = claude_dir(tmp_path)
+    check_setup.main(env={}, settings_path=path, claude=claude)
+    assert "[SKIP] ticket-flow plugin: not installed" in capsys.readouterr().out
+    assert (claude / check_setup.POINTER).is_file()

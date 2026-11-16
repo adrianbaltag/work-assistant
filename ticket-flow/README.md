@@ -3,8 +3,8 @@
 From a vague ticket to a clear, confirmed problem, then milestones built one per session.
 One plugin holds the skills, the code reviewer and the hooks, so there is one thing to install.
 
-**Not ready yet.** The three skills and the reviewer are written, but the hooks are not in yet
-and nothing was tried on a real ticket. Do not install it for real work.
+It belongs to the Work Assistant app and needs its folder: the hook code (`work_jira_hooks.py`)
+and `settings.ini` live there, not in the plugin.
 
 | Part | What it does |
 |---|---|
@@ -12,83 +12,80 @@ and nothing was tried on a real ticket. Do not install it for real work.
 | `plan-milestones` (skill) | Cuts the confirmed ticket into milestones, each with a proof. |
 | `build-milestone` (skill) | Builds one milestone per session: test, code, proof, review, tick. |
 | `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. |
-| `hello` (skill) and one hook | Only for the install test below. |
+| the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist. |
 
-## The 5-minute install test (Windows PowerShell)
+## The flow
 
-This only checks that a plugin can be installed on your laptop. It changes nothing in your
-projects. Do the steps in order. If a step shows an error, stop there and keep the error text.
+1. **clear-ticket.** You answer four questions (the pain, the fog words, the stakes, the smallest
+   first version). "I don't know" is fine: every guess and unknown becomes a question for the
+   ticket's creator. No plan until the creator says a clear yes.
+2. **plan-milestones.** The confirmed ticket is cut into milestones. You approve the plan.
+3. **build-milestone.** One milestone per session: test first, code, proof, an independent strict
+   review, the tick. Then a new session for the next one. After the last one, the creator's yes
+   closes the ticket.
 
-**1. Which Claude Code is this?**
+## The gate
 
-```powershell
-claude --version
-```
+Inside a ticket folder (a folder under `work_jira_folder=` from `settings.ini`), a hook checks every
+file Claude is about to write:
 
-**2. Does it know plugins?** You should see a list of commands (install, marketplace, validate).
+| Where the ticket stands | Claude can write |
+|---|---|
+| The creator has not said yes | notes only |
+| The creator said yes, no approved plan yet | notes and `PLAN.md` |
+| Approved plan with an open milestone | everything |
+| A milestone was ticked in this session | notes only, until a new session |
+| Every milestone is ticked | notes and `PLAN.md` (new code needs a new milestone first) |
+| The ticket is closed | notes only (a new wish is a new ticket, with its own folder) |
 
-```powershell
-claude plugin --help
-```
+A note is any `.md` file except `PLAN.md`, and `.gitignore`. A closed ticket stays closed: a new
+wish is a new ticket with its own folder. Limits, and what to do when a write is stopped:
+the app's README.md, "The gate: no code before the yes".
 
-**3. Get the test branch.**
+## Install (Windows PowerShell)
+
+The full steps are in the app's README.md, "Sync with work_jira", "Set it up (once)". In short:
 
 ```powershell
 cd $HOME\Desktop\work-assistant
-git fetch
-git switch feat/v2-plugin
-git pull
-```
-
-**4. Check the plugin files.** Last line should say `Validation passed`.
-
-```powershell
-claude plugin validate ./ticket-flow
-```
-
-**5. Try it for one session only** (nothing is installed).
-
-```powershell
-claude --plugin-dir ./ticket-flow
-```
-
-When Claude starts, look for a line that begins with `PLUGIN-TEST`. Then type:
-
-```
-plugin hello
-```
-
-Claude should answer `ticket-flow: the hello skill works.` Then type:
-
-```
-Copy the line in your context that starts with PLUGIN-TEST, word for word.
-```
-
-Keep that line. Type `/exit` to leave.
-
-**6. Install it for real.**
-
-```powershell
 claude plugin marketplace add ./
 claude plugin install ticket-flow@work-assistant
-claude
+.venv\Scripts\python check_setup.py
 ```
 
-Do the same two checks as in step 5 (`plugin hello`, then the PLUGIN-TEST line). Keep this
-second PLUGIN-TEST line too: it will be different from the first one. Type `/exit`.
+The last line checks the install and saves where the app folder is (`ticket-flow-home.txt` in Claude
+Code's own folder), so the hooks can find it. Start Claude again afterwards.
 
-**7. Take it out again and go back to the main branch.**
+The hooks start with the plain command `python`, so `python --version` must work in a new window.
+
+## Update and remove
+
+After a `git pull` in the app folder:
+
+```powershell
+claude plugin update ticket-flow@work-assistant
+```
+
+To take it out:
 
 ```powershell
 claude plugin uninstall ticket-flow@work-assistant
 claude plugin marketplace remove work-assistant
-git switch main
 ```
 
-### What to bring back
+## How the hooks find the app folder
 
-- the version from step 1
-- the two PLUGIN-TEST lines (steps 5 and 6)
-- the text of any error, and the step it came from. A message like
-  `blocked by enterprise policy` means the company switched plugins off: that is a useful
-  answer too.
+Each hook runs `scripts/run_hook.py` with one word (`gate`, `stop`, ...). That script looks for the
+app folder in two places:
+
+1. Around the plugin folder. This is the case when Claude Code reads the plugin in place.
+2. In `ticket-flow-home.txt`, written by `check_setup.py`. This is the case when Claude Code copied
+   the plugin to its own cache.
+
+Then it runs `work_jira_hooks.py` there with the app's own Python (`.venv`). If it finds nothing,
+you see one line when Claude starts, and the hooks do nothing: they never stop Claude by mistake.
+
+## Credit
+
+The skills are adapted from [obra/superpowers](https://github.com/obra/superpowers), MIT license
+(`LICENSE-superpowers.txt`).

@@ -73,3 +73,23 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   opened, so a bad character can't empty it any more; only a power cut / full disk during the write
   could. Fix if needed: write a temp file then os.replace (check it works on Windows when the file
   is open elsewhere).
+
+## ticket-flow plugin
+
+- **`python` on a work Mac.** The plugin's hooks start with the plain command `python` (tested on
+  Windows and on one Mac). A Mac that only has `python3` cannot start them. Not tried on a work Mac yet.
+- **The gate only sees Claude's file tools.** A file written by a shell command is not stopped; the
+  review's git diff is the backstop. Code kept outside the ticket folder is not checked at all.
+- **The gate is a guard rail, not a lock.** Claude can write the `Status` and `Plan approved by` lines
+  itself, since `requirements.md` is a note. Accepted 2026-11-15, and said in the README. A stronger
+  guard (Claude Code asks you before one of those two lines is written) is possible later: first check
+  that it works on the work laptop's Claude Code version.
+- **No log file for the hooks.** When the starter cannot find the app folder, or a file cannot be
+  read, you see one line on screen and nothing is saved. Decided 2026-11-15: the log file comes with
+  the logging lesson, for the whole app at once.
+- **check_setup.py reads Claude Code's plugin list file.** `plugins/installed_plugins.json` is not in
+  the Claude Code docs, so its layout may change. If it does, the check says "could not tell" and
+  nothing breaks. The documented way is `claude plugin list --json`.
+- **Read in place, the recorded version can be old.** On the work laptop the plugin is read from the
+  app folder, so new files are used right after `git pull`, but check_setup.py may still warn about
+  the version until `claude plugin update` is run. Check this in the live try.

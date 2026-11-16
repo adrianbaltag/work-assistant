@@ -2,9 +2,12 @@
 
 Run it:   python check_setup.py
 One line per check; each problem says what to do. Tokens are never printed.
-It sends Claude one tiny message (well under a cent) and asks Slack who you are. Nothing is changed.
+It sends Claude one tiny message (well under a cent) and asks Slack who you are.
+It saves one small file in Claude Code's own folder: ticket-flow-home.txt, the path of this folder, so the
+ticket-flow plugin's hooks can find it. Nothing else is changed.
 """
 import configparser
+import json
 import os
 import sys
 import time
@@ -16,6 +19,7 @@ from urllib.parse import urlparse
 HERE = Path(__file__).parent
 # Plain text marks, not emoji: an old Windows console (or output saved to a file) can't always show emoji.
 OK, BAD, WARN, SKIP = "[ OK ]", "[FAIL]", "[WARN]", "[SKIP]"
+POINTER = "ticket-flow-home.txt"       # tells the ticket-flow hooks where this folder is (ticket-flow/scripts/run_hook.py reads it)
 PING = "Reply with the word OK."
 PING_TOKENS = 64            # Sonnet 5.5 always thinks a little first; any answer at all proves the login
 
@@ -131,6 +135,67 @@ def check_work_jira(folder):
         return BAD, (f"work_jira_folder= {folder} can't be read ({err.strerror or err}). "
                      "Check the path and that you may open it.")
     return OK, f"work_jira_folder: {folder} ({count} project folders)"
+
+
+def claude_folder(env):
+    """Claude Code's own folder: ~/.claude, unless CLAUDE_CONFIG_DIR says another one."""
+    other = (env.get("CLAUDE_CONFIG_DIR") or "").strip()
+    return Path(other) if other else Path.home() / ".claude"
+
+
+def check_ticket_flow(claude, here=HERE):
+    """The ticket-flow plugin (optional). Saves where this folder is, for the plugin's hooks; then, when the
+    plugin is installed: is it this folder's version, and are the old pasted hooks still in settings.json?
+
+    claude = Claude Code's own folder. Only the pointer file is written; settings.json is only read.
+    """
+    claude, here = Path(claude), Path(here).resolve()
+    if not claude.is_dir():
+        return [(SKIP, f"ticket-flow plugin: Claude Code's folder ({claude}) was not found, so the plugin "
+                       "was not checked (optional).")]
+    lines = []
+    try:
+        (claude / POINTER).write_text(f"{here}\n", encoding="utf-8")
+    except OSError as err:
+        lines.append((WARN, f"ticket-flow plugin: could not save {claude / POINTER} ({err.strerror or err}). "
+                            "Its hooks may not find this folder. Check that you may write in that folder."))
+    try:
+        plugins = json.loads((claude / "plugins" / "installed_plugins.json").read_text(encoding="utf-8-sig"))["plugins"]
+        found = {name: [entry.get("version", "") for entry in entries]
+                 for name, entries in plugins.items() if name.startswith("ticket-flow@")}
+        wanted = json.loads((here / "ticket-flow" / ".claude-plugin" / "plugin.json")
+                            .read_text(encoding="utf-8-sig"))["version"]
+    except FileNotFoundError:
+        found = {}                       # no plugin was ever installed (or this folder has no plugin): same answer
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return lines + [(SKIP, "ticket-flow plugin: could not tell if it is installed (Claude Code's plugin list "
+                               "can't be read). In Claude Code, type /plugin to see it.")]
+    if not found:
+        return lines + [(SKIP, 'ticket-flow plugin: not installed (optional). README, "Sync with work_jira", '
+                               "shows how.")]
+    name, versions = sorted(found.items())[0]
+    old = [v for v in versions if v != wanted]
+    if old:
+        lines.append((WARN, f"ticket-flow plugin: the installed one is version {old[0] or 'unknown'}, this folder "
+                            f"has {wanted}. Run:  claude plugin update {name}  and then start Claude again."))
+    else:
+        lines.append((OK, f"ticket-flow plugin: installed, version {wanted}"))
+    events = pasted_hook_events(claude / "settings.json")
+    if events:
+        lines.append((WARN, f"Old hooks: {claude / 'settings.json'} still runs work_jira_hooks.py itself (under "
+                            f"{', '.join(events)}). The ticket-flow plugin runs these now, so each one runs twice. "
+                            'Open that file and delete those entries under "hooks". Keep the "permissions" part.'))
+    return lines
+
+
+def pasted_hook_events(settings_file):
+    """The hook events in Claude Code's settings.json that run work_jira_hooks.py (pasted in before the plugin
+    existed). [] when there are none, or the file can't be read. The file is never changed."""
+    try:
+        hooks = json.loads(Path(settings_file).read_text(encoding="utf-8-sig"))["hooks"]
+        return [event for event, groups in hooks.items() if "work_jira_hooks.py" in json.dumps(groups)]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
 
 
 def check_claude(env, settings, make_client):
@@ -273,8 +338,10 @@ def check_slack_app(env, slack_cfg, user_ok, socket, clock, sleep, app_running=F
                   "seconds. The network may block it: put slack_mode=backup in settings.ini (or try again).")]
 
 
-def main(env=os.environ, settings_path=None):
-    """Run every check, print one line each, return 0 (all good) or 1 (problems)."""
+def main(env=os.environ, settings_path=None, claude=None):
+    """Run every check, print one line each, return 0 (all good) or 1 (problems).
+
+    claude = Claude Code's own folder (tests pass a made-up one)."""
     lines = check_python() + check_packages()
     if BAD not in [mark for mark, _ in lines]:      # the rest needs the packages
         import app
@@ -283,6 +350,7 @@ def main(env=os.environ, settings_path=None):
         from slack_sdk.socket_mode import SocketModeClient
         found, settings, slack_cfg = check_settings(settings_path or app.SETTINGS_FILE)
         lines += found
+        lines += check_ticket_flow(claude or claude_folder(env))
         lines += check_claude(env, settings or {}, claude_chat.make_client)
         found, user_ok = check_slack_user(env, slack_cfg, lambda token: WebClient(token=token))
         lines += found

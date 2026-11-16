@@ -9,7 +9,7 @@ from contextlib import redirect_stderr
 from datetime import datetime
 
 import pytest
-from pathlib import Path, PureWindowsPath
+from pathlib import PureWindowsPath
 
 import notes
 import project_note as pn
@@ -188,32 +188,32 @@ def test_session_start_can_archive_and_add_in_one_go(tmp_path):
                         "Added cards for DEMO-3 (folders in work_jira).")
 
 
-def test_session_start_in_a_new_folder_asks_for_full_setup(tmp_path):
+def test_session_start_in_a_new_folder_starts_with_clear_ticket(tmp_path):
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path, log=None, files=["ticket.md"])
     pn.create(projects, work, "Alarm update", "", NOW)           # + New project made the card and the folder
     context, for_user = start(settings, work)
-    assert "new project folder" in context and "_templates" in context
-    assert "ticket.md" in context and "clear-requirements" in context and "grill-me" in context
+    assert "new project folder" in context and "ticket.md" in context
+    assert "ticket-flow:clear-ticket" in context and "only notes" in context
+    assert "_templates" not in context and "clear-requirements" not in context and "grill-me" not in context
+    assert "new session" not in context                          # no set-up session any more: the skill sets it up
     assert for_user == ""
 
 
-def test_session_start_in_an_old_folder_builds_missing_md_without_grilling(tmp_path):
+def test_session_start_in_an_old_folder_points_to_clear_ticket_for_the_missing_files(tmp_path):
     settings, _ = setup(tmp_path)
     work = work_project(tmp_path, "beaver_reports", log=None, files=["notes.md", "query.sql"])
     context, _ = start(settings, work)
-    assert "missing its md set" in context and "already in the folder" in context
-    assert "Do not run clear-requirements or grill-me" in context
+    assert "no tracking_log.md" in context and "already in the folder" in context
+    assert "ticket-flow:clear-ticket" in context and "_templates" not in context
 
 
-def test_session_start_in_a_set_up_folder_or_elsewhere_says_nothing(tmp_path):
+def test_session_start_outside_a_ticket_folder_says_nothing(tmp_path):
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path)
-    (work / "requirements.md").write_text("- [ ] M1 — demo · Done when: test_demo passes\n", encoding="utf-8")
-    (work / ".git").mkdir()                                     # has local git already: no offer
     pn.create(projects, work, "", "", NOW)
-    assert start(settings, work) == ("", "")
     assert start(settings, tmp_path) == ("", "")
+    assert start(settings, tmp_path / "work_jira") == ("", "")
 
 
 # ---------- main: reading hook input, printing, exit codes ----------
@@ -350,27 +350,19 @@ def test_session_start_without_a_session_id_or_outside_a_ticket_writes_no_notepa
     assert not (work / ".claude").exists() and not (tmp_path / ".claude").exists()
 
 
-def test_session_start_in_a_ticket_without_real_milestones_asks_about_clear_requirements(tmp_path):
+def test_session_start_in_a_ticket_without_real_milestones_points_to_clear_ticket(tmp_path):
     settings, work = ticket(tmp_path, reqs="## Milestones\n- [ ] M<n> — <what> · Done when: <proof>\n")
     context, _ = begin(settings, work)
-    assert "no milestones" in context and "ask the user" in context and "clear-requirements" in context
+    assert "ticket-flow:clear-ticket" in context and "clear-requirements" not in context
     (tmp_path / "b").mkdir()
     settings, work = ticket(tmp_path / "b", reqs=None)
-    assert "clear-requirements" in begin(settings, work)[0]
+    assert "ticket-flow:clear-ticket" in begin(settings, work)[0]
 
 
 def test_session_start_in_a_paused_ticket_without_milestones_says_nothing(tmp_path):
     settings, work = ticket(tmp_path, reqs="none yet — waiting for approval\n",
                             log=LOG.replace("M2 — parse the alarm file", "PENDING (user, 2026-10-22): waiting."))
     assert begin(settings, work) == ("", "")
-
-
-def test_session_start_in_a_new_folder_says_setup_only_then_a_new_session(tmp_path):
-    settings, projects = setup(tmp_path)
-    work = work_project(tmp_path, log=None, files=["ticket.md"])
-    context, _ = begin(settings, work)
-    assert "_templates" in context and "ticket.md" in context
-    assert "new session" in context and "Only set up" in context
 
 
 def test_editing_another_file_says_nothing(tmp_path):
@@ -384,10 +376,12 @@ def test_ticking_a_milestone_gives_claude_the_checklist_once(tmp_path):
     settings, work = ticket(tmp_path)
     begin(settings, work)
     message = edited(tick(work))
-    assert "M2 ticked" in message and "/code-review low" in message
+    assert "M2 ticked" in message and "ticket-flow:build-milestone" in message
+    assert "ticket-flow:code-reviewer" in message and "/code-review low" not in message     # the strict review only
     assert "## Last update" in message and "2026-10-23 — M2 ticked" in message
-    assert "Phase" in message and "STOP" in message and "do not start the next one" in message
+    assert "Phase" not in message and "STOP" in message and "do not start the next one" in message
     assert 0 <= message.index("git commit") < message.index("Tell the user")
+    assert "by name" in message and "git add ." not in message      # never every file in the folder at once
     assert "Never push" in message
     assert edited(work / "requirements.md") == ""              # told once, not on every later edit
 
@@ -557,79 +551,29 @@ def test_a_milestone_hook_problem_says_what_to_do(tmp_path, capsys, monkeypatch)
     assert hooks.ONE_STEP in out.out and "close" in out.err and "milestone-" in out.err
 
 
-# ---------- phase -> skills reminder at session start ----------
-
 PAUSED = LOG.replace("M2 — parse the alarm file", "PENDING (user, 2026-10-22): waiting.")
-TEMPLATE_PHASE = "- **Phase:** 1-Understand | 2-Plan | 3-Build | 4-Review | 5-Handover"
 
 
-def phase_ticket(tmp_path, phase_line, reqs=REQS, log=LOG):
-    """A set-up ticket whose CLAUDE.md has this Phase line (None = no CLAUDE.md at all)."""
-    settings, work = ticket(tmp_path, reqs=reqs, log=log)
-    if phase_line is not None:
-        (work / "CLAUDE.md").write_text(f"# DEMO-42\n\n- **Jira:** DEMO-42\n{phase_line}\n", encoding="utf-8")
-    return settings, work
-
-
-@pytest.mark.parametrize("line, skills", [
-    ("- **Phase:** 2-Plan", ["writing-plans"]),
-    ("- **Phase:** 3-Build", ["test-driven-development", "verification-before-completion"]),
-    ("- **Phase:** 4-Review", ["receiving-code-review", "verification-before-completion"]),
-    ("Phase: 3 - build", ["test-driven-development"]),
-    ("**Phase:** 2", ["writing-plans"]),
-])
-def test_session_start_names_the_skills_for_the_tickets_phase(tmp_path, line, skills):
-    settings, work = phase_ticket(tmp_path, line)
-    context, _ = begin(settings, work)
-    assert all(s in context for s in skills) and "no milestones" not in context
-
-
-@pytest.mark.parametrize("line", [
-    "- **Phase:** 1-Understand",
-    "- **Phase:** 5-Handover",
-    "| `writing-plans` | 2-Plan | Milestone lines |",          # a skills table row is not the Phase line
-    None,                                                     # no CLAUDE.md (folders with only tracking_log.md)
-])
-def test_session_start_says_nothing_for_phases_without_skills_or_no_phase_line(tmp_path, line):
-    settings, work = phase_ticket(tmp_path, line)
-    assert begin(settings, work) == ("", "")
-
-
-@pytest.mark.parametrize("line", [TEMPLATE_PHASE, "- **Phase:** TBD"])
-def test_session_start_with_the_phase_not_set_asks_claude_to_get_it_confirmed(tmp_path, line):
-    settings, work = phase_ticket(tmp_path, line)
-    context, _ = begin(settings, work)
-    assert "Phase" in context and "ask the user to confirm" in context and "CLAUDE.md" in context
-
-
-@pytest.mark.parametrize("line", ["- **Phase:** 3-Build", TEMPLATE_PHASE])
-def test_session_start_in_a_paused_ticket_never_mentions_the_phase(tmp_path, line):
-    settings, work = phase_ticket(tmp_path, line, log=PAUSED)
-    assert begin(settings, work) == ("", "")
-
-
-def test_session_start_asks_for_the_phase_before_the_missing_milestones(tmp_path):
-    settings, work = phase_ticket(tmp_path, TEMPLATE_PHASE, reqs="## Milestones\n")
-    context, _ = begin(settings, work)
-    assert 0 <= context.index("ask the user to confirm") < context.index("no milestones")
-
-
-def test_every_phase_skill_is_one_of_our_own_skills():
-    own = Path(hooks.__file__).with_name("work_jira_skills")
-    named = {s for _, skills in hooks.PHASE_SKILLS.values() for s in skills}
-    assert named and all((own / s / "SKILL.md").is_file() for s in named)
+def test_the_phase_line_of_an_old_ticket_is_ignored(tmp_path):
+    """The Phase line is gone (decided 2026-11-15): the next step comes from the ticket's files, not from a label."""
+    settings, work = ticket(tmp_path)
+    before, _ = begin(settings, work)
+    (work / "CLAUDE.md").write_text("# DEMO-42\n\n- **Phase:** 4-Review\n", encoding="utf-8")
+    assert begin(settings, work)[0] == before
+    assert "Phase" not in before and "writing-plans" not in before and "receiving-code-review" not in before
 
 
 # ---------- local git offer at session start ----------
 
 def test_session_start_offers_local_git_first_in_a_set_up_folder_without_it(tmp_path):
-    settings, work = phase_ticket(tmp_path, "- **Phase:** 3-Build")
-    (work / ".git").rmdir()
+    settings, work = ticket(tmp_path, git=False)
     context, _ = begin(settings, work)
     assert "no local git" in context and "git init" in context and "Never push" in context
-    assert str(Path(settings["work_jira_folder"]) / "_templates" / ".gitignore") in context
-    assert '".gitignore for ticket folders"' in context and '"git name"' in context      # README step names
-    assert 0 <= context.index("git init") < context.index("test-driven-development")
+    assert "_templates" not in context and ".gitignore" in context       # the skill writes it, nothing is copied
+    assert "by name" in context and "git add ." not in context
+    assert '"git name"' in context                                       # README step name
+    assert "/close-out" not in context and "/code-review" not in context
+    assert 0 <= context.index("git init") < context.index("was started before ticket-flow")     # the git offer comes first
 
 
 def test_session_start_never_offers_git_once_the_folder_has_it(tmp_path):

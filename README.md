@@ -333,15 +333,15 @@ With this set up, the dashboard follows that work by itself:
 | When | What happens | Tokens? |
 |---|---|---|
 | You click **+ New project** with the box **Work project** ticked | The app makes the card and `work_jira\<ID>\`, with your Jira description and "Created by" in `ticket.md`. If that folder already exists, the app leaves it as it was and tells you for 5 seconds that the description was not saved. | none |
-| You open a new project folder in VS Code and start Claude | A hook tells Claude to set the folder up from `work_jira\_templates` and read `ticket.md`, then stop and tell you to start a new session. clear-requirements and grill-me come in that new session. | Claude's normal work |
-| You start Claude in a project whose `requirements.md` has no milestones yet (and it is not PENDING) | A hook tells Claude to ask you whether to run clear-requirements (then grill-me) to write them. | a few |
-| You start Claude in a project that is not PENDING | A hook reads the `Phase:` line of the ticket's `CLAUDE.md` and names our own skills for that phase (2-Plan, 3-Build, 4-Review; see "Own skills" below). Phase 1, phase 5 or no Phase line: nothing. Phase still the template (`1-Understand \| 2-Plan \| ...`): Claude suggests one and asks you to confirm it. | a few |
-| You start Claude in a set-up project (it has `tracking_log.md`) that is not PENDING and has no `.git` folder | Before anything else, a hook tells Claude to offer you local git (see "Local git in each ticket folder" below). Yes = Claude copies the `.gitignore` from `_templates` and makes the first commit. No = it asks again next session. | a few |
+| You open a new project folder in VS Code and start Claude | A hook tells Claude to start with the **clear-ticket** skill. It reads `ticket.md`, makes the starter files (`CLAUDE.md`, `tracking_log.md`, `.gitignore`) and gets the ticket clear with you. | Claude's normal work |
+| You start Claude in a set-up project that is not PENDING | A hook reads `requirements.md` and names the next step: **clear-ticket** (no creator's yes yet), **plan-milestones** (yes, but no approved plan), **build-milestone** (an open milestone; or all ticked: close the ticket). A ticket from before the plugin (no `Status` line): Claude asks you two things once, in one message. Did the creator confirm it, and do you approve the milestones? | a few |
+| Claude is about to write a file inside a project folder | A hook (the gate) checks where the ticket stands, and stops code that comes too early. See [The gate](#the-gate-no-code-before-the-yes) below. | none, unless a write is stopped |
+| You start Claude in a set-up project (it has `tracking_log.md`) that is not PENDING and has no `.git` folder | Before anything else, a hook tells Claude to offer you local git (see "Local git in each ticket folder" below). Yes = Claude writes the `.gitignore` if there is none and makes the first commit. No = it asks again next session. | a few |
 | A folder in `work_jira` has no card (an older folder, or one you made by hand) | The next time Claude Code starts, a hook makes a card, named after the folder. If the folder has a `tracking_log.md`, the card is filled from it at once; if not, it fills in once Claude works in that folder. Type a better name on the card any time: the sync never changes it. | none |
 | The folder has a `tracking_log.md` but still no card (rare: the start-up hook could not make it) | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
 | Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. If `requirements.md` has milestones, they win: first unticked → `working_on:` (e.g. `M8 of 12 · hourly job runs`), the one after it → `next:` (e.g. `M9 · email the report`; short name = text before "· Done when"). Last milestone or all done: `next:` from *Next up*. No milestones: `working_on:` = *Now working on* (when PENDING, only the text after the reason). The dashboard re-reads the cards every 30 seconds, fits the window width, and cuts long text with "…" (hover for all). | none |
 | You send any message to Claude, in any folder | A hook reminds Claude: when you must do something, give you ONE step, then wait for your result. | ~25 per message |
-| Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: `/code-review low` for code, update `tracking_log.md`, Phase, one local git commit (if the folder has git; never pushed), tell you what's next, then stop. Every later message in that session reminds Claude: one milestone per session, start a new session. | ~80 once, then ~40 per message |
+| Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: update `tracking_log.md`, one local git commit of the reviewed files (if the folder has git; never pushed), tell you what's next, then stop. A code milestone is ticked only after the plugin's strict reviewer looked at it. Every later message in that session reminds Claude: one milestone per session, start a new session. Until then Claude can only write notes in that folder. | ~80 once, then ~40 per message |
 | Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
 | You close the session | A hook deletes the session's small notepad file in the project's `.claude` folder (it remembers which milestones were ticked when the session started). Left-over notepads older than 2 days are deleted at a later start. | none |
 | You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Archive page. **Restore** brings it back. | none |
@@ -360,63 +360,98 @@ cards and ideas are never touched. Nothing ever changes `priority`.
 > `work_jira\ABC-123`. The hooks know the project from the folder you opened. If you open all of
 > `work_jira`, the hooks only keep existing cards up to date and never ask Claude for anything.
 
+### The gate: no code before the yes
+
+Inside a project folder, what Claude can write depends on where the ticket stands. The gate reads
+that from `requirements.md`:
+
+| Where the ticket stands | Claude can write |
+|---|---|
+| The creator has not said yes (no `**Status:** CONFIRMED BY CREATOR` line; also a folder with no `requirements.md`) | notes only |
+| The creator said yes, but you did not approve a plan yet (no `Plan approved by` line) | notes and `PLAN.md` |
+| Approved plan with an open milestone | everything |
+| A milestone was ticked in this session | notes only, until you start a new session |
+| Every milestone is ticked | notes and `PLAN.md` (new code needs a new milestone first) |
+| The ticket is closed | notes only (a new wish is a new ticket, with its own folder) |
+
+A note is any `.md` file except `PLAN.md`, and `.gitignore`. When the gate stops a write, Claude gets a plain message
+that names the next step (which skill), and tells you.
+
+Good to know:
+
+- **Ticked a box by mistake?** Untick it. The gate opens again.
+- **A closed ticket stays closed.** A new wish from the creator is a new ticket: make it with
+  **+ New project**, so it gets its own folder. Claude can read the old folder's code from there.
+- **An older ticket** (no `Status` line) is closed too. Claude asks you two things, once: did the
+  creator confirm it, and do you approve the milestones. Your two answers open it.
+- **The gate only sees Claude's file tools.** A file Claude writes with a shell command is not
+  stopped. The code review reads the git changes, so it still shows up there.
+- **Code kept outside the project folder is not checked.** The gate looks at files inside
+  `work_jira\<project>\` only.
+- **The gate is a guard rail, not a lock.** It reads the creator's yes and your plan approval from
+  `requirements.md`, and Claude can write that file. The skills forbid writing a yes nobody gave,
+  and the file shows who said it and when, but no code checks that it is true. If a `Status` or
+  `Plan approved by` line appears that you did not agree to, say so and take it out.
+- **A problem never blocks you.** If the hook cannot read something (a locked file, `settings.ini`
+  moved), the write goes ahead and you see one line about it.
+
 ### Set it up (once)
 
 **1. Add the folder to `settings.ini`** (Part 1, Step 3), then run `.venv\Scripts\python check_setup.py`.
 The `work_jira_folder:` line should say `[ OK ]`.
 
-**2. Find your exact paths.** In PowerShell:
+**2. Check that `python` starts Python.** The plugin's hooks start with the plain command `python`:
 
 ```powershell
-"$HOME\Desktop\work-assistant".Replace('\', '/')
+python --version
 ```
 
-It prints something like `C:/Users/YOUR-NAME/Desktop/work-assistant`. Use that in step 3 wherever
-you see `C:/Users/YOUR-NAME/Desktop/work-assistant`.
+It should print `Python 3.10` or newer.
 
-> Why forward slashes? Windows accepts them, and in JSON a backslash must be written twice (`\\`).
-> Forward slashes avoid that mistake.
+**3. Install the ticket-flow plugin.** One plugin holds the three skills, the code reviewer and the
+hooks. It is installed from the app folder you already have, so nothing is downloaded:
 
-**3. Add the hooks to your Claude Code user settings.** Open the file in VS Code:
+```powershell
+cd $HOME\Desktop\work-assistant
+claude plugin marketplace add ./
+claude plugin install ticket-flow@work-assistant
+```
+
+**4. Run the check again.**
+
+```powershell
+.venv\Scripts\python check_setup.py
+```
+
+Look for `[ OK ] ticket-flow plugin: installed, version ...`. The check also saves a small file,
+`ticket-flow-home.txt`, in Claude Code's own folder (`.claude` in your home folder). It holds the
+path of the app folder, so the plugin's hooks can find it. If you ever move the app folder, run the
+check again.
+
+**5. Had the old hooks? Take them out.** Before the plugin, the hooks were pasted into
+`$HOME\.claude\settings.json`. With both in place every hook runs twice. The check in step 4 tells
+you if they are still there (a `[WARN] Old hooks:` line). To remove them:
 
 ```powershell
 code $HOME\.claude\settings.json
 ```
 
-The file is one `{ ... }` block. Add the `"hooks"` and `"permissions"` parts below inside it, next to
-what is already there (put a comma between parts). If the file is empty, paste all of this.
-If you already have a `"permissions"` part with an `"allow"` list, add the two lines to that list instead.
+Under `"hooks"`, delete every entry that names `work_jira_hooks.py`. Keep the `"permissions"` part.
+Save. VS Code underlines a JSON mistake in red: fix it before you go on.
+
+**6. Let Claude run `project_note.py` without asking.** Find your exact path first. In PowerShell:
+
+```powershell
+"$HOME\Desktop\work-assistant".Replace('\', '/')
+```
+
+It prints something like `C:/Users/YOUR-NAME/Desktop/work-assistant`. Open the settings file
+(`code $HOME\.claude\settings.json`). The file is one `{ ... }` block. Add the `"permissions"` part
+below inside it, next to what is already there (put a comma between parts), with your own path. If
+you already have a `"permissions"` part with an `"allow"` list, add the two lines to that list instead.
 
 ```json
 {
-  "hooks": {
-    "Stop": [
-      { "hooks": [ { "type": "command", "timeout": 30,
-          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
-          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "stop"] } ] }
-    ],
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "timeout": 30,
-          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
-          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-start"] } ] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "timeout": 30,
-          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
-          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "prompt"] } ] }
-    ],
-    "PostToolUse": [
-      { "matcher": "Edit|Write|MultiEdit",
-        "hooks": [ { "type": "command", "timeout": 30,
-          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
-          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "after-edit"] } ] }
-    ],
-    "SessionEnd": [
-      { "hooks": [ { "type": "command", "timeout": 10,
-          "command": "C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe",
-          "args": ["C:/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-end"] } ] }
-    ]
-  },
   "permissions": {
     "allow": [
       "PowerShell(C:/Users/YOUR-NAME/Desktop/work-assistant/.venv/Scripts/python.exe C:/Users/YOUR-NAME/Desktop/work-assistant/project_note.py *)",
@@ -426,44 +461,18 @@ If you already have a `"permissions"` part with an `"allow"` list, add the two l
 }
 ```
 
-Save. VS Code underlines a JSON mistake in red: fix it before you go on.
+> Why forward slashes? Windows accepts them, and in JSON a backslash must be written twice (`\\`).
+> Forward slashes avoid that mistake.
 
-**On a Mac**, the block above won't work: its paths are Windows paths. Use this one instead.
-Find your path with `echo ~/Desktop/work-assistant` in Terminal (it prints something like
-`/Users/YOUR-NAME/Desktop/work-assistant`), and open the settings file with
-`open -e ~/.claude/settings.json`. Two differences from Windows: Python is `.venv/bin/python`
-(not `.venv/Scripts/python.exe`), and only the `Bash(...)` allow line is needed.
+There is one line for PowerShell and one for Git Bash, because Claude Code on Windows can use
+either. If Claude still asks, it typed the command a little differently: answer Yes.
+
+**On a Mac** only the `Bash(...)` line is needed, with Mac paths: find yours with
+`echo ~/Desktop/work-assistant`, Python is `.venv/bin/python`, and the file opens with
+`open -e ~/.claude/settings.json`.
 
 ```json
 {
-  "hooks": {
-    "Stop": [
-      { "hooks": [ { "type": "command", "timeout": 30,
-          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
-          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "stop"] } ] }
-    ],
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "timeout": 30,
-          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
-          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-start"] } ] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "timeout": 30,
-          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
-          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "prompt"] } ] }
-    ],
-    "PostToolUse": [
-      { "matcher": "Edit|Write|MultiEdit",
-        "hooks": [ { "type": "command", "timeout": 30,
-          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
-          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "after-edit"] } ] }
-    ],
-    "SessionEnd": [
-      { "hooks": [ { "type": "command", "timeout": 10,
-          "command": "/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python",
-          "args": ["/Users/YOUR-NAME/Desktop/work-assistant/work_jira_hooks.py", "session-end"] } ] }
-    ]
-  },
   "permissions": {
     "allow": [
       "Bash(/Users/YOUR-NAME/Desktop/work-assistant/.venv/bin/python /Users/YOUR-NAME/Desktop/work-assistant/project_note.py *)"
@@ -472,57 +481,50 @@ Find your path with `echo ~/Desktop/work-assistant` in Terminal (it prints somet
 }
 ```
 
-If your settings file already has a `"hooks"` part (for example from other tools), add each entry
-above to the list for the same event, next to what is there. Don't make a second `"hooks"` part.
-
-
-What each part does:
-
-- `"command"` + `"args"`: runs the app's own Python with `work_jira_hooks.py` directly, with no
-  shell in between, so spaces and quotes can't break it. Why not one line like
-  `"command": "python work_jira_hooks.py stop"`? That goes through a shell, and on Windows the
-  shell may not be the one you expect.
-- `Stop` runs after every Claude reply. `SessionStart` runs when a Claude session starts.
-  `UserPromptSubmit` runs when you send a message. `PostToolUse` runs after Claude edits or writes
-  a file; the `"matcher"` limits it to those tools, so it never runs after a search or a command.
-  `SessionEnd` runs when the session closes. All of them finish in well under a second and send
-  nothing over the network.
-- Why `"timeout": 10` on `SessionEnd`? Claude Code gives that hook only 1.5 seconds unless you
-  give it more, and Python can be slow to start on Windows. If it still doesn't run (the window
-  was closed hard), the 2-day clean-up at a later start deletes the notepad.
-- The two `allow` lines let Claude run `project_note.py` without asking you each time. There is
-  one for PowerShell and one for Git Bash, because Claude Code on Windows can use either.
-  If Claude still asks, it typed the command a little differently: answer Yes.
-
-**4. Move your old allow rules (if you have any).** If `work_jira\.claude\settings.local.json` has a
-`"permissions"` → `"allow"` list, copy those lines into the `"allow"` list from step 3. When you open
+**7. Move your old allow rules (if you have any).** If `work_jira\.claude\settings.local.json` has a
+`"permissions"` → `"allow"` list, copy those lines into the `"allow"` list from step 6. When you open
 one project folder, Claude Code no longer reads the settings inside `work_jira\.claude`.
 
-**5. Add these lines to `work_jira\CLAUDE.md`:**
+**8. Add these lines to `work_jira\CLAUDE.md`:**
 
 ```markdown
 ## Dashboard sync
 - Started inside a project folder (work_jira\<name>) = that is the project. Don't ask which one.
-- Every project, Jira ticket or not, has the same md set from _templates.
 - Project paused: start "## Now working on" with PENDING (who, date): reason
 - Never edit the dashboard note.md by hand. The hooks keep it in sync.
   If a hook asks, run the project_note.py command it gives you.
 ```
 
 Then add the milestone rules: copy the block from `work_jira_rules.md` (in the work-assistant folder)
-into `work_jira\CLAUDE.md`, in place of the old "End of milestone" sentence.
+into `work_jira\CLAUDE.md`, in place of the older "Milestones" block if there is one.
 
-**6. Trust the folder once.** Open `work_jira` in VS Code and start Claude. When Claude Code asks
+**9. Trust the folder once.** Open `work_jira` in VS Code and start Claude. When Claude Code asks
 whether you trust this folder, say yes. Hooks only run in trusted folders, and trusting `work_jira`
 covers the project folders inside it.
 
-**7. Check it.** Close Claude and start it again (hooks are read when a session starts). In the
-Claude panel type `/hooks`. You should see five hooks: `Stop`, `SessionStart`, `UserPromptSubmit`,
-`PostToolUse` and `SessionEnd`, all running `work_jira_hooks.py`.
+**10. Check it.** Close Claude and start it again (hooks are read when a session starts). In the
+Claude panel type `/hooks`. You should see six hooks from ticket-flow: `SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` and `SessionEnd`.
+
+What the hooks do, and when:
+
+- `SessionStart` runs when a Claude session starts. `UserPromptSubmit` runs when you send a message.
+  `PreToolUse` (the gate) runs before Claude edits or writes a file, and `PostToolUse` right after.
+  `Stop` runs after every Claude reply. `SessionEnd` runs when the session closes. All of them
+  finish in well under a second and send nothing over the network.
+- Each hook starts a small script in the plugin (`run_hook.py`). It finds the app folder and runs
+  `work_jira_hooks.py` there with the app's own Python (`.venv`). So the hook code, `settings.ini`
+  and the tests all stay in one place: the app folder.
+- **After `git pull`** the plugin may have a new version. Run
+  `claude plugin update ticket-flow@work-assistant`, then start Claude again. `check_setup.py` warns
+  when the installed version is older than the one in the app folder.
+- **To take the plugin out:** `claude plugin uninstall ticket-flow@work-assistant`, then
+  `claude plugin marketplace remove work-assistant`. Do this before you switch the app folder to a
+  git branch that has no `ticket-flow` folder.
 
 ### The tracking_log.md headings the hooks read
 
-The hooks copy from these headings in each project's `tracking_log.md` (the layout in `_templates`):
+The hooks copy from these headings in each project's `tracking_log.md` (the **clear-ticket** skill writes this layout):
 
 ```markdown
 ## Now working on
@@ -541,49 +543,41 @@ top or the bottom. Several lines with that same date each become a History line 
 If a heading is missing, the Stop hook asks Claude once to put it back. You can also update a card
 by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
 
-### Own skills instead of the superpowers plugin (optional)
+### What is in the ticket-flow plugin
 
-The superpowers plugin pushes Claude to "check skills and brainstorm first" at every start and saves
-plans outside the ticket's md files. `work_jira_skills\` holds our own versions of the four
-superpowers skills a ticket uses, adapted to the ticket files (milestones in `requirements.md`,
-steps in `PLAN.md`, proof from `Done when:`). Adapted from
-[obra/superpowers](https://github.com/obra/superpowers), MIT license (`work_jira_skills\LICENSE-superpowers.txt`).
+| Part | What it does |
+|---|---|
+| `clear-ticket` (skill) | From a vague ticket to a real issue the creator said yes to. You answer four questions first; "I don't know" is fine. Every guess becomes a question for the creator. |
+| `plan-milestones` (skill) | Cuts the confirmed ticket into milestones, each small enough for one session and each with a proof. Lines in `requirements.md`, short steps in `PLAN.md`. You approve the plan. |
+| `build-milestone` (skill) | One milestone per session: test first, code, proof, independent review, tick, stop. After the last one it closes the ticket with the creator. |
+| `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. It cannot be skipped. |
+| the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist. |
 
-| Skill | Phase | What it does |
-|---|---|---|
-| `writing-plans` | 2-Plan | Milestone lines in `requirements.md`, steps per milestone in `PLAN.md` |
-| `test-driven-development` | 3-Build | Failing pytest first, then the smallest code that passes |
-| `verification-before-completion` | 3-Build, 4-Review | Tick a box only after the proof its `Done when:` asks for |
-| `receiving-code-review` | 4-Review | Check each review finding before fixing it; fix one at a time |
+You don't have to remember the names: the hooks name the right skill at the right moment, and you
+can also just say "clear this ticket", "plan the milestones" or "build the next milestone".
 
-**1. Copy the skills** into your Claude skills folder:
+The skills are adapted from [obra/superpowers](https://github.com/obra/superpowers), MIT license
+(`ticket-flow\LICENSE-superpowers.txt`).
 
-```powershell
-cd $HOME\Desktop\work-assistant
-Copy-Item .\work_jira_skills\* $HOME\.claude\skills -Recurse -Force -Exclude *.txt
-```
+**Used the four older skills?** `work_jira_skills\` (`writing-plans`, `test-driven-development`,
+`verification-before-completion`, `receiving-code-review`) is from before the plugin. The hooks no
+longer name them, and the plugin's three skills cover the same ground. If you copied them into
+`$HOME\.claude\skills`, you can take them out again.
 
-**2. Turn off the plugins you don't need.** In Claude Code type `/plugin` (VS Code panel: `/plugins`),
-go to the **Installed** tab, select each plugin and turn it off: `superpowers`, `playground`,
-`skill-creator`, `claude-code-setup`. This turns them off in every folder; turning one back on works
-the same way.
-
-**3. Rename the skills in your ticket files.** Ask Claude, started in `work_jira`:
-
-```text
-In work_jira, in _templates\CLAUDE.md and every ticket CLAUDE.md, delete the text "superpowers:" only. Change nothing else. List the files you changed.
-```
-
-**4. Check it.** Close Claude and start it again in a ticket folder. `/hooks` no longer lists a
-superpowers `SessionStart` hook, and asking for "the plan" uses `writing-plans`.
+**Turn off the plugins you don't need.** The superpowers plugin pushes Claude to "check skills and
+brainstorm first" at every start and saves plans outside the ticket's md files. In Claude Code type
+`/plugin` (VS Code panel: `/plugins`), go to the **Installed** tab, select each plugin you don't
+need and turn it off, for example `superpowers`. Turning one back on works the same way.
 
 ### Local git in each ticket folder (optional)
 
-Each ticket folder gets its own local git history, so `/close-out` and `/code-review` have changes
-to look at. Nothing is ever pushed anywhere. Claude offers to set it up the first time you work in a
-set-up ticket that is not PENDING, and makes one commit at the end of each milestone.
+Each ticket folder gets its own local git history, so the code reviewer has changes to look at.
+Nothing is ever pushed anywhere. Claude offers to set it up the first time you work in a set-up
+ticket that is not PENDING, and makes one commit at the end of each milestone. The `.gitignore`
+that keeps data (csv, Excel), logs and Claude's own files out of git is written by the
+**clear-ticket** skill.
 
-**1. git name.** Check that git knows your name (commits need it):
+**git name.** Check that git knows your name (commits need it):
 
 ```powershell
 git config --global user.name
@@ -597,16 +591,6 @@ git config --global user.email "you@example.com"
 ```
 
 Claude never changes these settings for you.
-
-**2. .gitignore for ticket folders.** Copy the file that keeps data (csv, Excel), logs and Claude's
-own files out of git into your `_templates` folder (change the `work_jira` path if yours is elsewhere):
-
-```powershell
-Copy-Item $HOME\Desktop\work-assistant\work_jira_templates\.gitignore $HOME\Desktop\work_jira\_templates\
-```
-
-**3. Add the commit step to `work_jira\CLAUDE.md`.** Copy the new step 5 from the "## Milestones" block
-in `work_jira_rules.md` into the same block in `work_jira\CLAUDE.md`.
 
 ---
 
@@ -624,7 +608,10 @@ Run `.venv\Scripts\python check_setup.py` first. The most common answers:
 | `missing permissions` | Your Slack app was made by hand and missed some. Easiest fix: make a new app from the manifest (Step 5). |
 | `the instant connection did not open` | The work network may block it. Put `slack_mode=backup` in `settings.ini`: the app then checks Slack every 30 seconds instead. |
 | Slack button says "reconnecting…" for minutes | Same as above: `slack_mode=backup`. |
-| A card doesn't follow its work_jira folder | Check you opened the project folder itself in VS Code (not all of `work_jira`), the folder is trusted, and `/hooks` shows both hooks. Then run `.venv\Scripts\python project_note.py sync <ID>` to see the error in plain English. |
+| A card doesn't follow its work_jira folder | Check you opened the project folder itself in VS Code (not all of `work_jira`), the folder is trusted, and `/hooks` shows the ticket-flow hooks. Then run `.venv\Scripts\python project_note.py sync <ID>` to see the error in plain English. |
+| A message starting `Not written:` in the Claude panel | The gate stopped a write: it is too early for that file. The message names the next step. See [The gate](#the-gate-no-code-before-the-yes). Ticked a box by mistake: untick it. |
+| `ticket-flow cannot find the Work Assistant folder` when Claude starts | Run `.venv\Scripts\python check_setup.py` in the app folder. It saves where the folder is. |
+| `[WARN] Old hooks:` in the check | The hooks you once pasted into `settings.json` are still there, next to the plugin. Take them out: "Set it up (once)", step 5. |
 | A message starting `work_jira hook` in the Claude panel | The hook hit a problem; Claude carries on. The message says what. Often `settings.ini` was moved or a note.md is open in another program. |
 | `Address already in use` or `WinError 10048` | The app is already running in another PowerShell window. Use that one, or close it first. |
 
@@ -637,6 +624,12 @@ git pull
 ```
 
 Then start the app as usual. Your `settings.ini` and your projects are never touched by an update.
+
+If you use the ticket-flow plugin, bring it up to date too, then start Claude again:
+
+```powershell
+claude plugin update ticket-flow@work-assistant
+```
 
 ---
 
@@ -652,7 +645,9 @@ Same steps as Windows, with these differences:
 - Use `cp` instead of `copy`, and `open -e settings.ini` instead of `notepad settings.ini`.
 - In `settings.ini`, paths are Mac paths: they start with `/Users/` and use forward slashes, no `C:`.
   For example `projects_folder=/Users/YOUR-NAME/Desktop/projects`. Run `whoami` to see YOUR-NAME.
-- Sync with work_jira: use the **Mac** hook block in [Set it up](#set-it-up-once), not the Windows one.
+- Sync with work_jira: in [Set it up](#set-it-up-once), use the Mac allow line. The plugin's hooks
+  start with the plain command `python`. Check with `python --version`. If the Mac answers
+  "command not found", the hooks cannot start there yet (not tried on a work Mac so far).
   Without the hooks the dashboard makes the card and folder, but the card never fills in.
 
 **Claude login (Part 1, Step 4).** Check whether it's already set:

@@ -168,9 +168,10 @@ echo $ANTHROPIC_BASE_URL
 You can skip both. The app works without them.
 
 - **Slack button:** README.md, "Part 1, Step 5".
-- **Cards that follow your work_jira folders:** README.md, "Sync with work_jira", then "Set it up (once)".
-  On a Mac, use the Mac hook block there. Without the hooks, **+ New project** still makes the card
-  and the folder, but the card never fills in with your progress.
+- **Cards that follow your work_jira folders, and the ticket flow:** README.md, "Sync with work_jira",
+  then "Set it up (once)". It installs one Claude Code plugin, `ticket-flow`, from this folder.
+  Without it, **+ New project** still makes the card and the folder, but the card never fills in
+  with your progress.
 
 ---
 
@@ -268,6 +269,12 @@ git pull
 
 **3. Start the app** as in Part 2. If the page still looks old, press **Ctrl+F5** (Mac: **Cmd+Shift+R**).
 
+**4. Only if you use the ticket-flow plugin:** bring it up to date, then start Claude again.
+
+```powershell
+claude plugin update ticket-flow@work-assistant
+```
+
 Your `settings.ini` and your project notes are never touched by an update.
 
 If `git pull` says **"Your local changes would be overwritten"**, stop. A file in the app folder
@@ -277,7 +284,7 @@ was changed on your laptop. Don't delete anything. Ask for help.
 
 ## Part 4: A new work project, start to finish
 
-You need `work_jira_folder=` in `settings.ini` and the hooks set up (Part 1, Step 5).
+You need `work_jira_folder=` in `settings.ini` and the ticket-flow plugin installed (Part 1, Step 5).
 
 1. **Dashboard:** click **+ New project**. Tick **Work project**. Type the ID (for example `ABC-123`),
    a title, and paste the Jira description. The app makes the card and the folder
@@ -299,14 +306,20 @@ You need `work_jira_folder=` in `settings.ini` and the hooks set up (Part 1, Ste
    ```
 
    (In VS Code: File → Open Folder → the project folder, then start Claude.)
-3. **First session: setup.** Type `set up this project`. Claude copies the tracking files from
-   `_templates`, reads `ticket.md`, then stops and asks you to start a new session.
-4. **Second session: requirements.** Type `/clear`. Claude offers **clear-requirements**, then **grill-me**.
-   Answer its questions. At the end it writes the milestones (M1, M2, …) in `requirements.md`.
+3. **First sessions: make the ticket clear.** Type `clear this ticket`. Claude sets the folder up,
+   reads `ticket.md`, and asks you four questions, one at a time. "I don't know" is a good answer.
+   Then it writes the questions for the ticket's creator. Send them, and come back with the reply
+   (paste it, or say it in your own words). This goes on until the creator says a clear yes.
+   Until then Claude can only write notes in the folder: no plan, no code.
+4. **Next session: the plan.** Type `/clear`, then `plan the milestones`. Claude writes the
+   milestones (M1, M2, …) in `requirements.md` and short steps in `PLAN.md`. You approve the plan.
    It also offers local git once. Say yes.
-5. **Every session after that: one milestone.** Claude works on one milestone, ticks it, updates
+5. **Every session after that: one milestone.** Type `build the next milestone`. Claude writes the
+   test first, then the code, proves it, has it reviewed by a strict reviewer, ticks it, updates
    `tracking_log.md`, then stops. The dashboard card updates by itself.
-6. **Finished?** Move the folder out of `work_jira`. Next time Claude starts, the card moves to the
+6. **After the last milestone:** Claude writes a short message for the creator. Their yes closes
+   the ticket. A new wish later on is a new ticket: start again at step 1, with a new ID.
+7. **Finished?** Move the folder out of `work_jira`. Next time Claude starts, the card moves to the
    Archive page by itself.
 
 ---
