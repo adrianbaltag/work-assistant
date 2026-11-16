@@ -38,7 +38,7 @@ Read `requirements.md`, `PLAN.md` and `tracking_log.md`. Take the first row that
 | A milestone was already ticked in this session | Stop. Tell the engineer to start a new session for the next one. |
 | Every milestone is ticked, and `## Now working on` in `tracking_log.md` says `waiting for <name> to confirm the result` | The result is already with the creator. Go to "Closing the ticket", Part 2, and ask the engineer for the reply. |
 | Every milestone is ticked | Nothing was sent yet. Go to "Closing the ticket", Part 1. |
-| The first open milestone is already built: the newest line under `## Last update` in `tracking_log.md` says `M<n> built, tests pass, waiting for review` | Do not build it again. Run the whole suite to see that it still passes, then go to Step 4. The changed files in the folder are this milestone's work. |
+| The first open milestone is already built: the newest line under `## Last update` in `tracking_log.md` says `M<n> built, tests pass, waiting for review` | Do not build it again. Go to Step 3 and get the whole proof again: run the suite, and ask for a user check again if "Done when" has one. An earlier session's proof does not count. Then go to Step 4. The files to review: with `.git`, the changed files in the folder; without it, the files listed in `.claude/review-files.txt`. |
 | There is an open milestone | Take the FIRST open one. Tell the engineer which one it is and what its "Done when" says. |
 
 Only when you took the last row (there is an open milestone to build), check these three
@@ -118,9 +118,14 @@ judges the code, not your reasons.
      a file with logins). Then save the changes to a file with
      `git diff HEAD --output=.claude/review.diff`. Make the `.claude` folder first if it is
      not there.
-   - Without `.git`: write down the list of files this session made or changed.
+   - Without `.git`: save the list of files this session made or changed in
+     `.claude/review-files.txt`, one path per line. If the file is already there, an earlier
+     session of this milestone wrote it: keep its lines and add yours. A later session cannot
+     know what this one changed, so the list must be in a file. If you picked the milestone up
+     from an earlier session and the file is missing, ask the engineer which files belong to
+     this milestone.
 2. **Start a fresh `ticket-flow:code-reviewer` agent.** Give it only these:
-   - the path of the diff file, or the list of changed files
+   - the path of the diff file, or the list of changed files from `.claude/review-files.txt`
    - the milestone ID, and the paths of `PLAN.md` and `requirements.md`
 
    Never give it your reasoning, a description of what you built, a note that the tests pass,
@@ -170,8 +175,9 @@ Never drop a finding silently.
 
 Then review again:
 
-- Make a new diff, the same way as in Step 4.
-- Start a NEW reviewer, never the old one. Give it the new diff, the same three paths, and
+- Make a new diff, the same way as in Step 4. Without `.git`, add the files the fixes made
+  or changed to `.claude/review-files.txt`.
+- Start a NEW reviewer, never the old one. Give it the new diff or list, the same three paths, and
   the earlier findings copied word for word.
 - If it reports again a finding the engineer already chose not to fix, do not ask a second
   time. It is in the log.
@@ -208,6 +214,9 @@ finding is fixed or logged. In this order:
      through the review first), or should git leave it alone (then add a line for it to
      `.gitignore`)? Data files and files with logins are always left alone.
    - `git commit -m "M<n> — <what it delivers>"`. Never push.
+
+   If the folder has no `.git`, delete `.claude/review-files.txt`, so the next milestone
+   starts its own list.
 5. If that was the last milestone, do part 1 of "Closing the ticket" now.
 6. Tell the engineer what was done and what comes next. Then STOP. The next milestone starts
    in a new session.

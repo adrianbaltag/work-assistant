@@ -168,7 +168,7 @@ def test_the_plan_commit_takes_the_files_the_first_skill_made(name):
     assert f"`{name}`" in commit_step
 
 
-def test_a_milestone_that_is_built_but_not_reviewed_goes_straight_to_the_review():
+def test_a_milestone_that_is_built_but_not_reviewed_is_not_built_again():
     """Else the next session starts the finished milestone again from its first test."""
     build = skill_text("build-milestone")
     step_0 = section(build, "Step 0")
@@ -190,3 +190,27 @@ def test_the_dashboard_can_read_the_goal_from_the_ticket_file_clear_ticket_write
                                       encoding="utf-8")
 
     assert pn.ticket_goal(tmp_path) == "Report the late orders."
+
+
+# ---------- the 2 findings left open on 2026-11-15: a milestone that waits for its review ----------
+
+REVIEW_FILES = "`.claude/review-files.txt`"
+
+
+def test_a_milestone_picked_up_again_is_proved_again_before_its_review():
+    """Else a suite that fails by now, or a user check nobody repeated, goes to the reviewer as "proved"."""
+    row = table_row(section(skill_text("build-milestone"), "Step 0"), "The first open milestone is already built")
+
+    assert "Step 3" in row and "user check" in row
+    assert row.index("Step 3") < row.index("Step 4")             # the proof first, then the review
+
+
+def test_without_git_the_list_of_changed_files_is_kept_for_a_later_session():
+    """Else a session that picks the milestone up changed nothing itself, and its reviewer gets no files."""
+    build = skill_text("build-milestone")
+    no_git = between(section(build, "Step 4"), "Without `.git`", "2. **Start a fresh")
+
+    assert REVIEW_FILES in no_git                                # saved in a file, not kept in the session's head
+    assert REVIEW_FILES in table_row(build, "The first open milestone is already built")
+    assert REVIEW_FILES in section(build, "Step 5")              # a fix round brings the list up to date
+    assert REVIEW_FILES in section(build, "Step 6")              # taken away at the tick: the next milestone starts clean
