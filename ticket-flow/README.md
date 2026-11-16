@@ -3,8 +3,16 @@
 From a vague ticket to a clear, confirmed problem, then milestones built one per session.
 One plugin holds the skills, the code reviewer and the hooks, so there is one thing to install.
 
-**Not ready yet.** Today it holds a small install test (a `hello` skill and one hook) and the
-first skill, `clear-ticket`. Do not install it for real work.
+**Not ready yet.** The three skills and the reviewer are written, but the hooks are not in yet
+and nothing was tried on a real ticket. Do not install it for real work.
+
+| Part | What it does |
+|---|---|
+| `clear-ticket` (skill) | From a vague ticket to a real issue the creator said yes to. |
+| `plan-milestones` (skill) | Cuts the confirmed ticket into milestones, each with a proof. |
+| `build-milestone` (skill) | Builds one milestone per session: test, code, proof, review, tick. |
+| `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. |
+| `hello` (skill) and one hook | Only for the install test below. |
 
 ## The 5-minute install test (Windows PowerShell)
 

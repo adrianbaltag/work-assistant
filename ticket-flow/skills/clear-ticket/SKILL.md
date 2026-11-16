@@ -62,8 +62,22 @@ folder."
 
 ## Step 1: read before you ask
 
-1. The ticket. If the user pasted it and there is no `ticket.md`, save the pasted text as
-   `ticket.md`, unchanged. No ticket key in the text: ask for it, never invent one.
+1. The ticket. If the user pasted it and there is no `ticket.md`, save it as `ticket.md` in
+   the layout below. Keep the `##` heading exactly as it is, wherever the ticket came from:
+   the dashboard card takes its Goal from the text under it. Leave `Created by:` empty if the
+   ticket does not name its creator.
+
+   ```markdown
+   # <TICKET-KEY>
+
+   Created by: <name>
+
+   ## Description (pasted from Jira)
+   <the pasted text, unchanged>
+   ```
+
+   No ticket key in the text: ask for it, never invent one. A `ticket.md` that is already
+   there is never rewritten.
    If this is the engineer's own idea and there is no ticket, see "No ticket" at the end.
 2. What exists today. Look for scripts or notes in the folder that already do part of the job.
    If there are any, tell the engineer in a few plain sentences what they do now. People often
