@@ -224,12 +224,25 @@ def write_ini(tmp_path, settings):
     return ini
 
 
-def test_main_stop_block_goes_to_stderr_with_exit_2(tmp_path, capsys):
+def test_main_stop_reminder_is_hook_feedback_not_a_hook_error(tmp_path, capsys):
+    """Exit 2 made Claude Code show the reminder as a "Stop hook error". As context it shows as "Stop hook feedback"."""
     settings, _ = setup(tmp_path)
     work = work_project(tmp_path)
     stdin = io.StringIO(json.dumps({"cwd": str(work), "stop_hook_active": False}))
-    assert hooks.main(["stop"], stdin, write_ini(tmp_path, settings), NOW) == 2
-    assert "create DEMO-42" in capsys.readouterr().err
+    assert hooks.main(["stop"], stdin, write_ini(tmp_path, settings), NOW) == 0
+    out = capsys.readouterr()
+    answer = json.loads(out.out)["hookSpecificOutput"]
+    assert answer["hookEventName"] == "Stop" and "create DEMO-42" in answer["additionalContext"]
+    assert out.err == ""
+
+
+def test_main_stop_never_reminds_twice_in_a_row(tmp_path, capsys):
+    settings, _ = setup(tmp_path)
+    work = work_project(tmp_path)
+    stdin = io.StringIO(json.dumps({"cwd": str(work), "stop_hook_active": True}))     # Claude carried on after a reminder
+    assert hooks.main(["stop"], stdin, write_ini(tmp_path, settings), NOW) == 0
+    out = capsys.readouterr()
+    assert (out.out, out.err) == ("", "")
 
 
 def test_main_session_start_prints_hook_json(tmp_path, capsys):

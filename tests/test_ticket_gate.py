@@ -303,7 +303,8 @@ def test_files_outside_the_ticket_folders_are_never_stopped(tmp_path):
     assert hooks.gate({}, settings) == ""
 
 
-# ---------- main: exit 2 stops the write, any problem lets it through ----------
+# ---------- main: a "deny" answer stops the write, any problem lets it through ----------
+# Not exit 2: Claude Code shows that as a red "PreToolUse:Write hook error" with the hook's file path, like a crash.
 
 def run_gate(tmp_path, settings, path, capsys):
     event = {"session_id": SESSION, "tool_name": "Write", "tool_input": {"file_path": str(path)}}
@@ -311,11 +312,21 @@ def run_gate(tmp_path, settings, path, capsys):
     return code, capsys.readouterr()
 
 
-def test_main_gate_stops_a_write_with_exit_2_and_the_message_for_claude(tmp_path, capsys):
+def denied(out):
+    """The reason in the gate's "deny" answer on stdout, or "" when the hook printed no answer (the write goes ahead)."""
+    if not out.out:
+        return ""
+    answer = json.loads(out.out)["hookSpecificOutput"]
+    assert answer["hookEventName"] == "PreToolUse" and answer["permissionDecision"] == "deny"
+    return answer["permissionDecisionReason"]
+
+
+def test_main_gate_stops_a_write_with_a_deny_answer_and_the_message_for_claude(tmp_path, capsys):
     settings, work = ticket(tmp_path, WAITING)
     code, out = run_gate(tmp_path, settings, work / "report.py", capsys)
-    assert code == 2 and "Not written" in out.err and "ticket-flow:clear-ticket" in out.err
-    assert out.out == ""
+    reason = denied(out)
+    assert "Not written" in reason and "ticket-flow:clear-ticket" in reason
+    assert (code, out.err) == (0, "")                           # a stop on purpose is not a hook error
 
 
 def test_main_gate_lets_a_note_through_and_says_nothing(tmp_path, capsys):
@@ -332,6 +343,7 @@ def test_a_file_that_cannot_be_read_never_stops_claude(tmp_path, capsys, monkeyp
     monkeypatch.setattr(pn, "requirements_text", locked)
     code, out = run_gate(tmp_path, settings, work / "report.py", capsys)
     assert code == 1 and "Claude can carry on" in out.err       # exit 1 = shown, the write goes ahead
+    assert denied(out) == ""
 
 
 def test_missing_settings_or_bad_hook_input_never_stop_claude(tmp_path, capsys):
@@ -341,13 +353,14 @@ def test_missing_settings_or_bad_hook_input_never_stop_claude(tmp_path, capsys):
     settings = {"projects_folder": str(tmp_path / "projects"), "work_jira_folder": str(tmp_path / "work_jira")}
     assert hooks.main(["gate"], io.StringIO("not json"), write_ini(tmp_path, settings), NOW) == 0
     assert hooks.main(["gate"], io.StringIO('{"tool_input": "odd"}'), write_ini(tmp_path, settings), NOW) != 2
+    assert denied(capsys.readouterr()) == ""                    # none of the three printed a "deny"
 
 
 def test_the_gate_works_without_a_projects_folder(tmp_path, capsys):
     """The gate reads the ticket folder only: a wrong projects_folder= must not switch it off or break it."""
     settings, work = ticket(tmp_path, WAITING)
-    code, _ = run_gate(tmp_path, {**settings, "projects_folder": ""}, work / "report.py", capsys)
-    assert code == 2
+    code, out = run_gate(tmp_path, {**settings, "projects_folder": ""}, work / "report.py", capsys)
+    assert code == 0 and "Not written" in denied(out)
 
 
 # ---------- session start names the next step, from the ticket's files ----------

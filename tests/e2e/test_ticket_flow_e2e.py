@@ -51,7 +51,10 @@ def hook(box, word, event):
 def test_the_gate_stops_code_and_lets_a_note_through(box):
     ticket = box[2]
     code = hook(box, "gate", {"session_id": "e2e", "tool_name": "Write", "tool_input": {"file_path": str(ticket / "report.py")}})
-    assert code.returncode == 2 and "Not written: report.py" in code.stderr and "ticket-flow:clear-ticket" in code.stderr
+    answer = json.loads(code.stdout)["hookSpecificOutput"]      # a "deny" answer, not exit 2: no red "hook error" label
+    assert (code.returncode, code.stderr, answer["permissionDecision"]) == (0, "", "deny")
+    assert "Not written: report.py" in answer["permissionDecisionReason"]
+    assert "ticket-flow:clear-ticket" in answer["permissionDecisionReason"]
     note = hook(box, "gate", {"session_id": "e2e", "tool_name": "Write", "tool_input": {"file_path": str(ticket / "tracking_log.md")}})
     assert (note.returncode, note.stdout, note.stderr) == (0, "", "")
 

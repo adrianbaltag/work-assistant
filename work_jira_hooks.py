@@ -17,8 +17,11 @@ Milestone guard: one milestone per session. session-start writes a notepad in th
 (which milestones in requirements.md were ticked at the start); a box ticked since then = this session's milestone.
 
 Claude Code sends the hook a small JSON on stdin (we use "cwd" = the folder Claude is in).
-Exit 0 = all fine. Exit 2 = Stop: Claude must keep going; gate: the write is stopped. Our stderr message
-tells Claude what to do.
+We always answer with exit 0 and, when there is something to say, a small JSON on stdout:
+    stop: the reminder goes in "additionalContext". Claude reads it and keeps going.
+    gate: a "deny" answer with the reason. The write is stopped and Claude reads the reason.
+Not exit 2 + stderr: that does the same job, but Claude Code shows it as a red "hook error" with this file's
+path, which looks like a crash (tried on Claude Code 2.1.267 and 2.1.326, 2026-11-16).
 Any other problem = exit 1, which Claude Code shows but never blocks on.
 """
 import json
@@ -119,7 +122,7 @@ NOTEPAD_DAYS = 2        # notepads left behind (crash, window closed hard) are d
 
 
 def stop(event, settings, now):
-    """After every Claude reply. Returns (exit code, message for Claude)."""
+    """After every Claude reply. Returns (2, reminder) when Claude must keep going, else (0, "")."""
     projects, work_jira = settings_paths(settings)
     cwd = event.get("cwd") or os.getcwd()
     work = pn.work_project(work_jira, cwd)
@@ -498,15 +501,16 @@ def main(argv, stdin=sys.stdin, settings_path=notes.SETTINGS_FILE, now=None):
     try:
         settings = notes.load_settings(settings_path)
         if which == "stop":
-            code, message = stop(event, settings, now or datetime.now())
-            if message:
-                print(message, file=sys.stderr)
-            return code
+            _, message = stop(event, settings, now or datetime.now())
+            if message:                              # shown as "Stop hook feedback": Claude reads it and keeps going
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": message}}))
+            return 0
         if which == "gate":
             message = gate(event, settings)
-            if message:
-                print(message, file=sys.stderr)      # exit 2 = the write is stopped, Claude reads this
-                return 2
+            if message:                              # the write is stopped, Claude reads the reason
+                print(json.dumps({"hookSpecificOutput": {
+                    "hookEventName": "PreToolUse", "permissionDecision": "deny",
+                    "permissionDecisionReason": message}}))
             return 0
         if which == "session-start":
             context, for_user = session_start(event, settings, now or datetime.now())

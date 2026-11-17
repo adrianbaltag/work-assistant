@@ -43,10 +43,11 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   Fix idea: rename the folder to capitals, or fill `jira:` with the uppercased name on import.
 - **Import and Stop each hold a copy of the "archived by you vs moved to prod" rule**
   (`import_missing`, `stop`). If one changes, change both, or move it into one helper.
-- **Stop hook's "update tracking_log.md" shows as "Stop hook error".** Office test 2026-10-23: the
-  block works (Claude adds the line, asks once), but CC 2.1.267 labels any exit-2 message "error".
-  Nothing is wrong. Fix idea if it confuses colleagues: Stop JSON `{"decision": "block", "reason": ...}`
-  instead of exit 2 (check the docs first for how that one is labelled).
+- **The gate's stop still shows in red, with "Error:".** Tried 2026-11-16: Claude Code shows every
+  stopped write that way. The gate now answers with a "deny" instead of exit 2, which takes the hook's
+  long file path out of the line. On Claude Code 2.1.267 (Windows) the line is then
+  `Error: Not written: ...`. On 2.1.326 (Mac) it still says `PreToolUse:Write hook error:` before our
+  message. Nothing more to fix in our code.
 
 ## Dashboard
 

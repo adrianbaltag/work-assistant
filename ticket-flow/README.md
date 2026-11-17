@@ -11,7 +11,7 @@ and `settings.ini` live there, not in the plugin.
 | `clear-ticket` (skill) | From a vague ticket to a real issue the creator said yes to. |
 | `plan-milestones` (skill) | Cuts the confirmed ticket into milestones, each with a proof. |
 | `build-milestone` (skill) | Builds one milestone per session: test, code, proof, review, tick. |
-| `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. |
+| `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. Sorts what it finds into "must fix" (holds the tick) and "good to know" (you pick). |
 | the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist. |
 
 ## The flow

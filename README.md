@@ -548,9 +548,9 @@ by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
 | Part | What it does |
 |---|---|
 | `clear-ticket` (skill) | From a vague ticket to a real issue the creator said yes to. You answer four questions first; "I don't know" is fine. Every guess becomes a question for the creator. |
-| `plan-milestones` (skill) | Cuts the confirmed ticket into milestones, each small enough for one session and each with a proof. Lines in `requirements.md`, short steps in `PLAN.md`. You approve the plan. |
+| `plan-milestones` (skill) | Cuts the confirmed ticket into as few milestones as the work needs, each with a proof. Says the price (sessions and reviews) before you approve. Lines in `requirements.md`, short steps in `PLAN.md`. You approve the plan. |
 | `build-milestone` (skill) | One milestone per session: test first, code, proof, independent review, tick, stop. After the last one it closes the ticket with the creator. |
-| `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. It cannot be skipped. |
+| `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. It cannot be skipped. Sorts what it finds into "must fix" (holds the tick) and "good to know" (you pick). What is not fixed goes in `review-notes.md`. |
 | the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist. |
 
 You don't have to remember the names: the hooks name the right skill at the right moment, and you
@@ -559,10 +559,10 @@ can also just say "clear this ticket", "plan the milestones" or "build the next 
 The skills are adapted from [obra/superpowers](https://github.com/obra/superpowers), MIT license
 (`ticket-flow\LICENSE-superpowers.txt`).
 
-**Used the four older skills?** `work_jira_skills\` (`writing-plans`, `test-driven-development`,
-`verification-before-completion`, `receiving-code-review`) is from before the plugin. The hooks no
-longer name them, and the plugin's three skills cover the same ground. If you copied them into
-`$HOME\.claude\skills`, you can take them out again.
+**Used the four older skills?** Before the plugin, this repo came with four skills (`writing-plans`,
+`test-driven-development`, `verification-before-completion`, `receiving-code-review`). They are no
+longer in the repo: the hooks don't name them, and the plugin's three skills cover the same ground.
+If you copied them into `$HOME\.claude\skills`, you can take them out again.
 
 **Turn off the plugins you don't need.** The superpowers plugin pushes Claude to "check skills and
 brainstorm first" at every start and saves plans outside the ticket's md files. In Claude Code type

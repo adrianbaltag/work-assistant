@@ -1,5 +1,5 @@
 {
   "name": "ticket-flow",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "From a vague ticket to a clear, confirmed problem, then milestones built one per session."
 }

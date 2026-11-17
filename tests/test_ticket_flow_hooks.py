@@ -171,7 +171,7 @@ def test_the_starter_hands_every_hook_to_the_apps_own_python(tmp_path, word):
 
 @pytest.mark.parametrize("code", [0, 1, 2])
 def test_the_starter_passes_the_hooks_answer_on_unchanged(tmp_path, code):
-    """2 = "stop this write" (gate) or "keep going" (Stop): Claude Code must get exactly what the hook said."""
+    """Claude Code must get exactly the exit code the hook gave (our hooks give 0 or 1; 2 would block)."""
     assert run(tmp_path, "gate", runner=Runner(code))[0] == code
 
 
