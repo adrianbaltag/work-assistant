@@ -14,17 +14,24 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
 - Milestone line: `- [ ] M1 — <what it delivers> · Done when: <proof>`.
   Proof = named pytest tests that pass (code milestone) OR
   `user check — <what the user looks at>` (review, Spyder, prod).
-  Tick a user-check milestone only after the user confirms in chat.
-- ONE milestone per session. Too big → split (M3a, M3b) before starting.
+  Tick a user-check milestone only after the user says in chat, in their
+  own words, what they saw, and it matches. Never say the expected answer
+  first.
+- ONE milestone per session. Split one (M3a, M3b) only when its code
+  truly does not fit one session: every milestone must earn its place.
 - Code milestone: no tick before a ticket-flow:code-reviewer review
-  passed, or every finding is fixed or listed in tracking_log.md.
+  passed, or every "must fix" is fixed, or is in review-notes.md with the
+  user's reason. And not before the user answered every finding:
+  "No answer yet" and "Open" in review-notes.md both say none.
+- No branches in a ticket folder: every commit goes straight on the
+  main line.
 - End of milestone, in this order:
   1. prove it  2. tick it in requirements.md
   3. tracking_log.md: under ## Last update add
      `YYYY-MM-DD — M<n> ticked, <proof>, <review>`; put the next unticked
      milestone under ## Now working on and the one after it under ## Next up
   4. if the folder has .git: `git add` the reviewed files and the md
-     files by name, then `git commit -m "M<n> — <what it delivers>"`.
-     Never push.
+     files by name (review-notes.md if it is there), then
+     `git commit -m "M<n> — <what it delivers>"`. Never push.
   5. tell the user what's next, then STOP.
 ```

@@ -66,12 +66,15 @@ TICKED = """{ids} ticked in requirements.md. Finish this milestone now, as Step 
 ticket-flow:build-milestone skill says, in this order:
 1. tracking_log.md: under ## Last update add `{today} — {ids} ticked, <proof>, <review>`; put the next unticked \
 milestone under ## Now working on and the one after it under ## Next up.
-2. If this folder has .git: git add the reviewed files, requirements.md, tracking_log.md and PLAN.md by name \
-(never every file at once), then git commit -m "{ids} — <what it delivers>". Never push.
+2. If this folder has .git: git add the reviewed files, requirements.md, tracking_log.md and PLAN.md by name, \
+and review-notes.md if it is there (never every file at once), then git commit -m "{ids} — <what it delivers>". \
+Never push.
 3. Tell the user what's next, then STOP. One milestone per session: do not start the next one.
-A code milestone is ticked only after a ticket-flow:code-reviewer review passed, or every finding is fixed or logged. \
-A "user check" milestone is ticked only after the user confirmed it in chat. If either is missing, untick it and do \
-that first.
+A code milestone is ticked only after a ticket-flow:code-reviewer review passed, or every "must fix" is fixed, \
+or is in review-notes.md with the user's reason. And only when the user has answered every finding: "No answer yet" \
+and "Open" in the milestone's block in review-notes.md both say none. \
+A "user check" milestone is ticked only after the user said in chat, in their own words, what they saw, and it \
+matched. A "yes" to an answer you said first does not count. If either is missing, untick it and do that first.
 For the rest of this session only notes (.md files, not PLAN.md) can be written in this ticket folder."""
 
 LOG_NOT_UPDATED = "{ids} ticked this session, but tracking_log.md is not updated yet: {todo}. Then tell the user what's next and stop."

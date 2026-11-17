@@ -386,6 +386,29 @@ def test_ticking_a_milestone_gives_claude_the_checklist_once(tmp_path):
     assert edited(work / "requirements.md") == ""              # told once, not on every later edit
 
 
+def test_the_checklist_after_a_tick_follows_step_6_of_build_milestone(tmp_path):
+    """Decided 2026-11-16: only a "must fix" holds the tick, and a user check needs the user's own answer."""
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    message = edited(tick(work))
+    assert "every finding is fixed or logged" not in message
+    assert 'every "must fix" is fixed, or is in review-notes.md with the user\'s reason' in message
+    commit = message[message.index("git add"):message.index("git commit")]
+    assert "review-notes.md if it is there" in commit           # else the next session finds it as a leftover change
+    assert "confirmed it in chat" not in message
+    assert "in their own words" in message and "does not count" in message   # not a "yes" to an answer Claude said first
+
+
+def test_the_checklist_after_a_tick_asks_for_the_users_answer_to_every_finding(tmp_path):
+    """Review finding 2026-11-16: a review that passed with notes was ticked before the user got to pick."""
+    settings, work = ticket(tmp_path)
+    begin(settings, work)
+    message = edited(tick(work))
+    assert "answered every finding" in message
+    assert '"No answer yet"' in message and '"Open"' in message  # the same two lists Step 6 of build-milestone reads
+    assert message.index('"No answer yet"') < message.index("untick it")     # so the guard sentence covers it
+
+
 def test_an_edit_without_a_new_tick_says_nothing(tmp_path):
     settings, work = ticket(tmp_path)
     begin(settings, work)

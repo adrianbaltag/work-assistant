@@ -40,7 +40,7 @@ Read `requirements.md`, `PLAN.md` and `tracking_log.md`. Take the first row that
 | A milestone was already ticked in this session | Stop. Tell the engineer to start a new session for the next one. |
 | Every milestone is ticked, and `## Now working on` in `tracking_log.md` says `waiting for <name> to confirm the result` | The result is already with the creator. Go to "Closing the ticket", Part 2, and ask the engineer for the reply. |
 | Every milestone is ticked | Nothing was sent yet. Go to "Closing the ticket", Part 1. |
-| The first open milestone is already built: the newest line under `## Last update` in `tracking_log.md` says `M<n> built, tests pass, waiting for review` | Do not build it again. Go to Step 3 and get the whole proof again: run the suite, and ask for a user check again if "Done when" has one. An earlier session's proof does not count. Then go to Step 4. The files to review: with `.git`, the changed files in the folder; without it, the files listed in `.claude/review-files.txt`. |
+| The first open milestone is already built: the newest line under `## Last update` in `tracking_log.md` says `M<n> built, tests pass, waiting for review`, or `review-notes.md` has a block for it | Do not build it again. Go to Step 3 and get the whole proof again: run the suite, and ask for a user check again if "Done when" has one. An earlier session's proof does not count. Then: if `review-notes.md` has a block for this milestone, the full review is done, so go to "Picked up from an earlier session" in Step 5. No block: the full review never ran, so go to Step 4. The files to review: with `.git`, the changed files in the folder; without it, the files listed in `.claude/review-files.txt`. |
 | There is an open milestone | Take the FIRST open one. Tell the engineer which one it is and what its "Done when" says. |
 
 Only when you took the last row (there is an open milestone to build), check these three
@@ -115,6 +115,9 @@ If the proof fails, say what really happened, with the output. Then fix it or as
 The reviewer is a separate agent that has never seen this session. It can only read. It
 judges the code, not your reasons.
 
+This first review is full and strict: it reads everything the milestone changed. A review
+after it only checks the repairs (Step 5).
+
 1. **Collect what changed.**
    - With `.git`: for each new file, by name, run `git add -N <file>` (never a data file or
      a file with logins). Then save the changes to a file with
@@ -132,7 +135,12 @@ judges the code, not your reasons.
 
    Never give it your reasoning, a description of what you built, a note that the tests pass,
    or a hint about what to skip. It must judge from the code alone.
-3. **Read the whole review** before you do anything.
+
+   Say nothing about how risky the job is. The reviewer works that out itself, from the
+   `RISKY:` line in `requirements.md` and from what the code does. Do not ask the engineer
+   about it either.
+3. **Read the whole review** before you do anything. It has a `RISK:` line, a `MUST FIX`
+   list, a `GOOD TO KNOW` list, and a last line: `VERDICT: PASS` or `VERDICT: FIX`.
 
 If the reviewer cannot be started (the plugin's agent is missing, an error, no budget left):
 do not review your own code and call that a review. The milestone stays open. Add under
@@ -146,71 +154,203 @@ the milestone waits as it is, with the line above in the log, until a review can
 
 ## Step 5: the findings
 
-`VERDICT: PASS` with no findings: go to Step 6.
+The review sorts its findings into two lists.
 
-Otherwise, first check each finding against the real code. A finding is a claim, not an
-order: find the line and see if the problem really happens.
+| List | What is in it | The tick |
+|---|---|---|
+| `MUST FIX` | A real case ("with this input, this wrong thing happens") and one of four reasons: a wrong result, a broken promise to the creator, harm to a live system, a secret | Waits until it is fixed, or the engineer says no and gives a reason |
+| `GOOD TO KNOW` | Everything else: weak spots, and doubts with no real case | Does not wait. The engineer sees these once and picks. |
 
-Then tell the engineer about all of them in ONE message, numbered. For each one:
+`VERDICT: PASS` means `MUST FIX` is empty. There can still be notes under `GOOD TO KNOW`.
+
+The reviewer sorts by how risky the job is. So the same weak spot can be a "must fix" in a
+job that changes a live system, and "good to know" in a job that only reads. Never move a
+finding to the other list yourself.
+
+**Write it down first.** As soon as a review comes back,
+before you tell or ask the engineer anything, put what it found in `review-notes.md`, beside
+`requirements.md` (make the file if it is not there). A later session goes on from it, so a
+break loses nothing. One block per milestone, also when the review found nothing:
+
+   ```markdown
+   # Review notes
+
+   What the code reviews found, and what happened to it. One block per milestone.
+
+   ## M<n> (YYYY-MM-DD)
+   Repair checks so far: 0
+
+   No answer yet (the engineer has not said what to do):
+   - MUST FIX: <the finding, word for word>
+   - GOOD TO KNOW: <the finding, word for word>
+
+   Open (picked for repair, not past a repair check yet):
+   - MUST FIX: <the finding, word for word>
+   - GOOD TO KNOW: <the finding, word for word>
+
+   Left as it is (the engineer's choice):
+   - GOOD TO KNOW: <the finding, word for word>
+   - MUST FIX: <the finding, word for word>. Reason (<engineer>): <their reason>
+   ```
+
+- A new finding goes under "No answer yet", word for word, with the reviewer's heading.
+- The engineer's answer moves it: to "Open" if they picked it, to "Left as it is" if not.
+  A "must fix" goes there with their reason: if they gave none, ask for it once.
+- "Left as it is" is settled: never ask again, also when a later review reports it again.
+- A finding leaves "Open" when a repair check says `FIXED`. A small "good to know" fix that
+  needs no new review (the table below) leaves it when the whole suite passes.
+- A list with nothing in it says `none`.
+
+No finding gets its own line in `tracking_log.md`. The log gets one line, at the tick
+(Step 6). Never drop a finding silently.
+
+`VERDICT: PASS` and no notes: go to Step 6.
+
+**Tell the engineer.** First check each finding against the real code. A finding is a claim,
+not an order: find the line and see if the problem really happens.
+
+Then tell the engineer about all of them in ONE message, numbered. The "must fix" ones come
+first, under their own heading. Then the "good to know" ones. For each one:
 
 - what is wrong, in plain words, and where
 - why it matters: what would happen to a real person using this
 - what the fix would change
-- if you believe the finding is wrong: say so, with facts (the file, the line, a test). No opinions.
+- if you believe the finding is wrong, or is in the wrong list: say so, with facts (the file,
+  the line, a test). No opinions.
 
-Mark a DESIGN finding as "a question about the approach". It is the engineer's call, and
-their answer may change the code.
+A finding that starts with `Approach:` is a doubt about the way the code is built. It is in
+one of the two lists like any other finding. Say that it is about the approach: fixing it
+may change more than one line.
 
-End with one question: "Which ones do I fix? Say 'all', or the numbers."
+Say which ones hold the tick and which do not. End with one question: "Which ones do I fix?
+Say 'all', or the numbers."
 
-Then wait. Fix nothing before the answer.
+Then wait. Fix nothing before the answer. This is the only time the engineer is asked about
+the "good to know" notes: a later review adds no new ones. When the answer comes, move each
+finding in the block before you repair anything.
 
-For each finding the engineer wants fixed, one at a time:
+**Repair what the engineer picked.** (A session that picked the milestone up stages nothing
+and checks the whole milestone: see the last part of this step.)
 
-1. Write a test that shows the bug, and watch it fail. If it passes, it does not show the bug
-   yet. If the bug cannot be shown in a test, tell the engineer and ask how to go on.
-2. Fix only that bug. Run the whole suite.
+1. If the folder has `.git`, first stage the files the last review looked at, by name:
+   `git add <file> <file> ...` (never a data file or a file with logins, never everything
+   at once). After a repair check, those are the files its repairs touched. Stage
+   `review-notes.md` too. From here on, a plain `git diff` shows only the repairs.
+2. Take the picked findings one at a time:
+   - Write a test that shows the problem, and watch it fail. If it passes, it does not show
+     the problem yet. If the problem cannot be shown in a test, tell the engineer and ask
+     how to go on.
+   - Fix only that. Run the whole suite.
 
-For each finding the engineer does NOT want fixed, add under `## Last update` in
-`tracking_log.md`: `YYYY-MM-DD — M<n> review: not fixed (<the finding, short>): <their reason>`.
-Never drop a finding silently.
+**Does it need a new review?**
 
-Then review again:
+| What you repaired | Then |
+|---|---|
+| At least one "must fix" | A repair check (below). |
+| Only "good to know" notes, and every fix stayed small | No new review. Go to Step 6. |
+| Only "good to know" notes, and a fix grew | A fix grew when it adds new behaviour, or changes code in another file than the one the note names (its own test does not count). Tell the engineer that it grew, and why. Then a repair check (below). |
+| Nothing | Go to Step 6. |
 
-- Make a new diff, the same way as in Step 4. Without `.git`, add the files the fixes made
-  or changed to `.claude/review-files.txt`.
-- Start a NEW reviewer, never the old one. Give it the new diff or list, the same three paths, and
-  the earlier findings copied word for word.
-- If it reports again a finding the engineer already chose not to fix, do not ask a second
-  time. It is in the log.
+**The repair check.** It does not review the milestone again. It checks only the repairs: is
+each old finding really fixed, and did a repair break something?
+If `Repair checks so far` says 2 or more, ask the engineer first, as the stop rule says.
 
-One round is: the fixes, then one fresh review. If there are still new findings after two
-rounds, stop. Tell the engineer plainly where things stand and ask what to do: another round,
-split the milestone, or think the approach over. No tick while that is open.
+- With `.git`: for each new file a repair made, by name, run `git add -N <file>`. Then save
+  only the repairs: `git diff --output=.claude/review.diff`. There is no `HEAD` in it this
+  time, so it leaves out what you staged.
+- Without `.git`: add the files the repairs made or changed to `.claude/review-files.txt`.
+  The reviewer gets only those files this time, not the whole list.
+- Start a NEW reviewer, never the old one. Give it only these:
+  - the words "Repair check"
+  - the "Open" list from `review-notes.md`, copied word for word, each finding under the
+    heading it had (`MUST FIX`, `GOOD TO KNOW` or `REPAIR NOTES`)
+  - the path of the diff file, or the list of the files the repairs touched
+  - the milestone ID, and the paths of `PLAN.md` and `requirements.md`
+
+As soon as it comes back, before anything else, bring the block up to date:
+add 1 to `Repair checks so far`. Take each `FIXED` finding off. Move each `NOT FIXED` one to
+"No answer yet", with what the reviewer says still goes wrong. Put what is new there too.
+
+What comes back:
+
+| It says | What it means |
+|---|---|
+| `FIXED` | The old finding is gone, and its test would catch it if it came back. |
+| `NOT FIXED` | The old finding is still there. It keeps the heading it had. |
+| `broken by a repair` under `MUST FIX` | Something worked before the repair and does not now, with a real case and one of the four reasons. A "must fix". |
+| `new, outside the repairs` | A new "must fix" the reviewer ran into. It adds no new "good to know" notes. |
+| `REPAIR NOTES` | A repair broke something that fits none of the four reasons. It does not hold the tick. The engineer sees it and picks, as with a "good to know" note. |
+
+- Nothing is under "No answer yet": go to Step 6.
+- Something is: tell the engineer in one message, as above, and move each finding by their
+  answer. After `VERDICT: PASS` none of it holds the tick, and what they pick is repaired
+  like any "good to know" note. After `VERDICT: FIX` it is the next round, if the stop rule
+  below allows one. Both start at step 1 of "Repair what the engineer picked".
+
+One round is: the repairs, then one repair check. So a milestone gets three reviews at most:
+the full one and two repair checks, in one session or in several. After two rounds (the
+block says `Repair checks so far: 2` or more), start no repair check on your own,
+whatever is open. If a repair check would be next, or a "must fix" is still open, stop.
+Tell the engineer plainly where things stand and ask what to do:
+another round, split the milestone, or think the approach over. No tick while a "must fix"
+is open. "Another round" is one round: ask again after every extra round.
 
 If the session ends with the milestone still open, add under `## Last update` in
 `tracking_log.md`:
-`YYYY-MM-DD — M<n> built, tests pass, waiting for review: findings still open after 2 rounds`.
-The next session reads that line in Step 0 and starts at the review, not at the first test.
+`YYYY-MM-DD — M<n> built, tests pass, waiting for review: <N> findings open in review-notes.md`.
+The block already holds every finding, so nothing else has to be saved.
+
+**Picked up from an earlier session.** Step 0 sends you here when `review-notes.md` has a
+block for this milestone. The full review is done: do not run it again. Trust nothing an
+earlier session staged or knew about files. In this order:
+
+1. Something is under "No answer yet": tell the engineer and move each finding by their
+   answer, as in "Tell the engineer". Never repair a finding the engineer did not pick.
+2. For each finding under "Open", see if its repair is there: a test that shows the problem,
+   and it passes. If not, repair it now, test first. Stage nothing in this session: skip
+   step 1 of "Repair what the engineer picked".
+3. Then run a repair check, whatever the table above says, also when "Open" says `none`:
+   the code may have changed since the last review, by hand or in Step 3 of this session.
+   If `Repair checks so far` says 2 or more, ask the engineer first, as the stop rule says.
+   When the check comes back, go on at "As soon as it comes back" above.
+
+Every repair check in this session, the first one too, gets the WHOLE milestone:
+
+- With `.git`: `git add -N` each new file, by name, then
+  `git diff HEAD --output=.claude/review.diff`, as in Step 4. If `git status` shows an
+  untracked code or test file you did not make, ask the engineer first if it belongs to
+  this milestone.
+- Without `.git`: add the files this session made or changed to `.claude/review-files.txt`,
+  then give it the whole list.
+- In place of the words "Repair check", say: "Repair check on a picked-up milestone. This
+  holds the whole milestone, not only the repairs. Check only these findings."
 
 ## Step 6: close the milestone
 
-Only when the proof is in hand and, for a code milestone, the review has passed or every
-finding is fixed or logged. In this order:
+Only when the proof is in hand and, for a code milestone, the review is settled: the last
+review said `VERDICT: PASS`, or every "must fix" is fixed or is under "Left as it is" in
+`review-notes.md` with the engineer's reason. In the milestone's block there,
+"No answer yet" and "Open" both say `none`. A "good to know" note never holds the tick.
+In this order:
 
 1. If any code changed since Step 3, run the whole suite once more.
 2. Tick it in `requirements.md`: `- [x] M<n> — ...`. This one line only.
-3. In `tracking_log.md`, add under `## Last update`:
-   `YYYY-MM-DD — M<n> ticked, <proof>, <review>`, for example
-   `2026-11-18 — M2 ticked, 6 tests pass, review passed after 1 fix round`.
+3. In `tracking_log.md`, add ONE line under `## Last update`:
+   `YYYY-MM-DD — M<n> ticked, <proof>, <review>`. The last part says how the review ended,
+   and how many findings of this milestone are under "Left as it is" in `review-notes.md`:
+   - `2026-11-18 — M2 ticked, 6 tests pass, review passed after 1 fix round`
+   - `2026-11-18 — M1 ticked, 23 tests pass, review passed, 4 notes in review-notes.md`
+   - `2026-11-18 — M3 ticked, 9 tests pass, review: 1 must fix not fixed, 2 notes in review-notes.md`
+
    For a check-only milestone the last part is `no code, no review`.
    Put the next open milestone under `## Now working on` and the one after it under
    `## Next up`.
 4. If the folder has `.git`, commit only what was looked at:
    - Delete `.claude/review.diff`.
-   - Add by name the files that were in the review, and `requirements.md`, `tracking_log.md`
-     and `PLAN.md` (and `CLAUDE.md` if you changed it): `git add <file> <file> ...`. Never
-     add everything at once.
+   - Add by name the files that were in a review, and `requirements.md`, `tracking_log.md`
+     and `PLAN.md`. Also `review-notes.md` if it is there, and `CLAUDE.md` if you changed it:
+     `git add <file> <file> ...`. Never add everything at once. A new test file made for a
+     small "good to know" fix (Step 5) goes in too.
    - Run `git status`. Any other new or changed file was not reviewed, so do not add it. Tell
      the engineer which file it is and ask: does it belong to this milestone (then it goes
      through the review first), or should git leave it alone (then add a line for it to
@@ -289,13 +429,18 @@ extra wish?"
 |---|---|
 | Starting the next milestone "because there is time" | One per session. Stop. |
 | Ticking in the same message as a code change, with no run after it | Run the suite, then tick |
-| Telling the reviewer what you did or why it is right | The diff and the three paths, nothing else |
+| Telling the reviewer what you did, why it is right, or how risky the job is | The diff and the three paths. In a repair check also the old findings, word for word. Nothing else. |
 | Sending fixes back to the same reviewer | A new one every time |
+| Running the full review again after a repair, or in a new session | Only the first review is full. The next ones are repair checks on the findings in `review-notes.md`. |
+| Holding the tick for a "good to know" note | Only a "must fix" holds the tick |
+| Moving a finding to the other list yourself | The reviewer sorts. If you disagree, tell the engineer why, with facts. |
 | Fixing a finding before the engineer answered | One message with all findings, then wait |
+| Asking about the "good to know" notes a second time | Once. What is not fixed is in `review-notes.md`. |
 | Fixing a bug with no test that shows it | The failing test comes first |
 | Fixing more than the finding ("while I'm here") | Only that bug |
-| Leaving out a finding the engineer said no to | It goes in the log, with their reason |
+| Leaving out a finding the engineer said no to | It goes in `review-notes.md`. A "must fix" goes there with their reason. |
+| Writing every unfixed finding into `tracking_log.md` | They go in `review-notes.md`. `tracking_log.md` gets one line, at the tick. |
 | Reviewing your own code when the reviewer cannot run | The milestone waits, and the log says why |
 | Ticking a user check the engineer has not confirmed | Wait for their answer |
-| Committing every file in the folder at once | Only the reviewed files and the three md files, by name |
+| Committing every file in the folder at once | Only the reviewed files and the ticket's md files (`review-notes.md` too), by name |
 | Taking a new wish for a fault in version 1 | Check it against the contract |
