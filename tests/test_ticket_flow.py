@@ -55,7 +55,7 @@ def test_the_dashboard_can_read_the_milestone_example_in_plan_milestones():
     names = pn.milestone_names(example)
     ticked = pn.read_milestones(example)
 
-    assert list(names) == ["M1", "M2", "M3", "M4"]
+    assert list(names) == ["M1", "M2", "M3"]                     # was M1-M4 until 2026-11-16: see "earn its place" below
     assert names["M1"] == "look at one real export file"
     assert all(names.values())                                   # every milestone has a short name for the card
     assert not any("Done when" in name for name in names.values())
@@ -735,3 +735,208 @@ def test_a_clean_milestone_closes_after_two_rounds_with_no_question():
     notes = " ".join(item(after_a_check, "- Something is:").split())
     assert "tell the engineer in one message" in notes and "move each finding by their answer" in notes
     assert "After `VERDICT: PASS` none of it holds the tick" in notes        # a PASS with notes still asks
+
+
+# ---------- decided 2026-11-16, after a live try on a made-up ticket: five wording faults ----------
+
+def one_line(text):
+    """The text with every run of spaces and line breaks turned into one space, so a wrapped rule reads as one line."""
+    return " ".join(text.split())
+
+
+def rules(name):
+    """The "Rules for the whole skill" block of a skill, as one line."""
+    return one_line(section(skill_text(name), "Rules for the whole skill"))
+
+
+# -- a milestone must earn its place (the try planned 7 milestones for a 100-line script) --
+
+def test_a_milestone_must_earn_its_place():
+    """Four things earn a milestone. The rest is ONE build milestone: cutting by function earns nothing."""
+    plan = skill_text("plan-milestones")             # not section(): the example in Step 4 has a `## ` line of its own
+    rule = one_line(between(plan, "- **One session each", "- **A proof each.**"))
+
+    assert "earns its place" in rule
+    for earns in ("one real sample", "a dry run", "a check only the engineer can do", "truly does not fit one session"):
+        assert earns in rule
+    assert "ONE build milestone" in rule
+    assert "Cutting by function earns nothing" in rule
+
+
+def test_the_milestone_example_has_one_build_milestone_and_the_engineers_checks():
+    """The example is what Claude copies: a short read-only script is not cut into read, find and write."""
+    lines = [line for line in milestone_example(skill_text("plan-milestones")).splitlines() if line.startswith("- [ ]")]
+
+    with_code = [line for line in lines if "test_" in line]
+    checks = [line for line in lines if "user check" in line]
+
+    assert len(with_code) == 1                                   # ONE build milestone, with all its tests
+    assert with_code[0].count("test_") == 6
+    assert len(checks) == len(lines) - 1 == 2                    # the real sample, and the check only the engineer can do
+
+
+def test_plan_milestones_no_longer_says_split_when_unsure():
+    plan = skill_text("plan-milestones")
+
+    assert "Unsure: split it" not in plan
+    assert "the whole script" not in plan                        # the old mistake row said: split it
+    assert "Unsure" in one_line(section(plan, "Step 6")) and "keep it as one" in one_line(section(plan, "Step 6"))
+    assert "ONE build milestone" in table_row(plan, "A milestone for each function")
+    too_big = between(section(skill_text("build-milestone"), "Step 0"), "**Too big?**", "**The log.**")
+    assert "truly" in too_big                                    # the build session splits for size only, like the plan
+
+
+def test_the_price_is_said_before_the_engineer_approves():
+    plan = skill_text("plan-milestones")
+    step_7 = section(plan, "Step 7")
+
+    assert "`<N> milestones = <N> sessions, <R> reviews`" in step_7
+    assert step_7.index("sessions, <R> reviews") < step_7.index('"Do you approve this plan?"')
+    assert "price" in section(plan, "Changing the plan later")   # a changed plan is approved again, so it has a price too
+
+
+# -- no branches in a ticket folder (the try made a branch nobody planned) --
+
+@pytest.mark.parametrize("name", ["plan-milestones", "build-milestone"])
+def test_the_skills_that_commit_say_no_branch_and_the_main_line(name):
+    said = rules(name)
+
+    assert "**No branches in a ticket folder.**" in said
+    assert "straight on the main line" in said
+    assert "Never make, switch, merge or delete a branch by yourself" in said
+    assert "never switch to one" not in said                     # review 2026-11-16: that also forbade what the engineer asks for
+    assert "even when the engineer's own rules say" in said      # it wins over a personal "work goes on a branch" rule
+
+
+@pytest.mark.parametrize("name", SKILLS)
+def test_no_skill_makes_or_switches_a_branch(name):
+    text = skill_text(name)
+
+    for command in ("git checkout", "git switch", "git branch"):
+        assert command not in text
+
+
+# -- who decides the steps (the try got two plans and two reviewers: the plugin's and the engineer's own) --
+
+STEPS_RULE = ("**This plugin decides the steps in a ticket folder:** plan, review, tick, commit, close. "
+              "The engineer's own rules, skills and agents for planning, reviewing, committing or closing work "
+              "stay quiet here")
+
+
+@pytest.mark.parametrize("name", SKILLS)
+def test_every_skill_says_the_plugin_decides_the_steps_and_own_code_rules_still_count(name):
+    said = rules(name)
+
+    assert STEPS_RULE in said                                    # the same line in all three: each skill is read alone
+    assert "HOW code is written" in said and "still count" in said
+
+
+@pytest.mark.parametrize("name", SKILLS)
+def test_no_skill_names_one_persons_own_skills(name):
+    """Colleagues have other skills: the rule is about kinds of rules, not about one person's list."""
+    for own in ("grill-me", "close-out", "model-advice"):
+        assert own not in skill_text(name)
+
+
+# -- a user check: the engineer says what they see, before Claude says what was expected --
+
+def test_a_user_check_asks_an_open_question_and_never_says_the_answer_first():
+    build = skill_text("build-milestone")
+    step_3 = one_line(section(build, "Step 3"))
+
+    assert "what they should see" not in build                   # the old row told Claude to say the answer first
+    assert "Ask an open question" in step_3
+    assert "Never say the expected answer first" in step_3
+    assert "Compare only after their answer" in step_3
+    assert step_3.index("Ask an open question") < step_3.index("Compare only after their answer")
+    assert "In every user check" in step_3                       # a general rule, not only for counts
+    assert "an answer you said first" in step_3                  # a "yes" to it is in the "not proof" list
+    assert "ask what they see" in table_row(build, "Saying what a user check should show")
+
+
+def test_a_user_check_line_in_the_plan_does_not_give_the_answer_away():
+    """build-milestone reads "Done when" out to the engineer: an answer written there is said first."""
+    plan = skill_text("plan-milestones")
+
+    assert "never the answer itself" in one_line(between(plan, "- **A proof each.**", "- **No `<angle"))
+    assert "what they see" in table_row(plan, "A user check line that gives the answer")
+
+
+# -- the proof of a yes says only what really happened (the try wrote "confirmed, no but", and nobody had asked) --
+
+def test_the_proof_of_the_creators_yes_has_two_labels_and_no_check_nobody_made():
+    clear = skill_text("clear-ticket")
+    step_8 = one_line(section(clear, "Step 8"))
+
+    assert "Pasted:\n" in fenced(clear, "## The creator's yes")
+    assert "`Told by <engineer>: <what the creator said>`" in step_8
+    assert "the only two labels" in step_8
+    assert "says only what really happened" in step_8
+    assert 'unless you asked it in this chat and the engineer answered' in step_8
+    assert "only when you asked and the engineer answered" in step_8          # said at the question too, not only at the proof
+    step_6 = one_line(section(clear, "Step 6"))
+    assert "pasted from Slack" in step_6 and "told by Sam" in step_6 and "Only two labels" in step_6
+    assert "only if you asked" in table_row(clear, 'Writing "confirmed, no but"')
+
+
+def test_closing_a_ticket_writes_only_what_really_happened():
+    """The same proof, at the end of the ticket: pasted, told by the engineer, or closed by the engineer."""
+    build = skill_text("build-milestone")
+    closing = one_line(section(build, "Closing the ticket"))
+
+    assert "Pasted:\n" in fenced(build, "## Closed")
+    assert "`Told by <engineer>: <what the creator said>`" in closing
+    assert "say only what really happened" in closing
+    assert 'unless you asked it in this chat and the engineer answered' in closing
+    assert "`YYYY-MM-DD — ticket closed by <engineer>`" in closing           # not "confirmed by" when nobody confirmed
+
+
+# ---------- review findings, 2026-11-16: each test below failed before its fix ----------
+
+def test_the_engineers_own_idea_has_a_proof_line_that_is_true():
+    """Nobody pasted or retold anything, so neither of the two labels fits: the yes was said in this chat."""
+    clear = skill_text("clear-ticket")
+    own_idea = one_line(section(clear, "No ticket"))
+
+    assert "neither `Pasted:` nor `Told by <engineer>:`" in own_idea
+    assert "`Said in this chat: <the engineer's own words>`" in own_idea
+    assert "`(own project, <name>, <date>)`" in own_idea
+    step_8 = one_line(section(clear, "Step 8"))
+    assert "the only two labels for a reply the engineer brings" in step_8     # so the two rules no longer disagree
+    assert 'see "No ticket"' in step_8
+
+
+def test_an_old_plan_is_not_approved_without_its_price():
+    """The price comes before every yes to a plan, also the one for milestones from before the plugin."""
+    row = table_row(section(skill_text("plan-milestones"), "Step 0"), "Milestone lines from before this skill")
+
+    assert "price" in row and "Step 7" in row
+    assert row.index("price") < row.index('"Do you approve these milestones as the plan?"')
+    assert "already ticked" in row                               # part of that price is paid: say how much
+
+
+@pytest.mark.parametrize("name", ["plan-milestones", "build-milestone"])
+def test_a_folder_on_another_branch_is_reported_and_nothing_is_done_alone(name):
+    """Decided 2026-11-16: check the branch at the start. Not on the main line: say what is there, ask, do nothing alone."""
+    step_0 = section(skill_text(name), "Step 0")
+    check = one_line(step_0[step_0.index("**The branch.**"):])
+
+    assert "`git status`" in check                               # its first line names the branch
+    assert "do nothing by yourself" in check
+    assert "which branch the folder is on" in check and "what is on it" in check
+    assert "ask what to do" in check
+    assert "Do not go on until that is settled" in check
+    assert "Then do what the engineer says" in check             # their answer is carried out: the skill does not forbid it
+    assert "Step 0" in rules(name)                               # the rule points at the check
+
+
+def test_the_branch_check_in_build_milestone_is_for_every_row_that_goes_on():
+    """The closing commits and a milestone that waits for its review also commit: not only an open milestone."""
+    step_0 = section(skill_text("build-milestone"), "Step 0")
+
+    assert step_0.index("| There is an open milestone |") < step_0.index("**The branch.**")
+    assert step_0.index("**The branch.**") < step_0.index("Only when you took the last row")
+
+
+def test_clear_ticket_commits_nothing_so_it_needs_no_branch_check():
+    assert "git commit" not in skill_text("clear-ticket")

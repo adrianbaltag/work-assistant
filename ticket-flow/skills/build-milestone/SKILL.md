@@ -25,6 +25,14 @@ Then stop.
 - Build only what the milestone says. A new idea goes on a list for the engineer, not into
   the code.
 - Talk in plain, simple words. When the engineer must do something: ONE step, then wait.
+- **No branches in a ticket folder.** Every commit goes straight on the main line (the
+  folder's one branch, `main` or `master`). A ticked milestone is one commit. Never make,
+  switch, merge or delete a branch by yourself, even when the engineer's own rules say that
+  work goes on a branch. A folder that is already on another branch: Step 0 says what to do.
+- **This plugin decides the steps in a ticket folder:** plan, review, tick, commit, close. The
+  engineer's own rules, skills and agents for planning, reviewing, committing or closing work
+  stay quiet here: do not run them on top of these steps. Their rules for HOW code is written
+  (logging, code checks such as ruff, style) still count.
 - The ticket's `CLAUDE.md`, and `MY_DEFAULTS.md` if there is one in the project folder or the
   folder above it, say how this team lays out, runs and logs its code. Follow them.
 
@@ -43,15 +51,24 @@ Read `requirements.md`, `PLAN.md` and `tracking_log.md`. Take the first row that
 | The first open milestone is already built: the newest line under `## Last update` in `tracking_log.md` says `M<n> built, tests pass, waiting for review`, or `review-notes.md` has a block for it | Do not build it again. Go to Step 3 and get the whole proof again: run the suite, and ask for a user check again if "Done when" has one. An earlier session's proof does not count. Then: if `review-notes.md` has a block for this milestone, the full review is done, so go to "Picked up from an earlier session" in Step 5. No block: the full review never ran, so go to Step 4. The files to review: with `.git`, the changed files in the folder; without it, the files listed in `.claude/review-files.txt`. |
 | There is an open milestone | Take the FIRST open one. Tell the engineer which one it is and what its "Done when" says. |
 
+**The branch.** Whichever row you took, unless it told you to stop: if the folder has `.git`,
+run `git status` before anything else. Its first line names the branch. `main` or `master`: go
+on. Anything else: do nothing by yourself. Tell the engineer which branch the folder is on
+and what is on it that the main line does not have (`git log main..HEAD --oneline` lists
+those commits; say `master` if that is the main line's name), and ask what to do. Do not go
+on until that is settled. Then do what the engineer says: switching, merging or deleting a
+branch is their call, never yours. Why: work that sits only on that branch must not be left
+behind, or moved, without the engineer.
+
 Only when you took the last row (there is an open milestone to build), check these three
 things before you start. In every other row, skip them.
 
 - **Leftover changes.** If the folder has `.git`, run `git status`. Changed files from before
   this session would get mixed into this milestone's review. Tell the engineer what is there
   and ask what to do with it. Do not start until that is settled.
-- **Too big?** Read the milestone's section in `PLAN.md`. If it will not fit in one session,
-  stop and split it (M3a, M3b) by the rules in `ticket-flow:plan-milestones`. The engineer
-  approves the split. Then build the first half.
+- **Too big?** Read the milestone's section in `PLAN.md`. Only if it truly will not fit in one
+  session, stop and split it (M3a, M3b) by the rules in `ticket-flow:plan-milestones`. The
+  engineer approves the split. Then build the first half.
 - **The log.** If `## Now working on` in `tracking_log.md` names another milestone, or still
   says the ticket waits for the creator to confirm the result, fix it: it names the milestone
   you are about to build.
@@ -98,8 +115,20 @@ Read the milestone's "Done when" and get exactly that proof.
 | "Done when" says | The proof | Then |
 |---|---|---|
 | Named tests pass | Run the whole suite now. Read all of the output: those tests exist and pass, nothing fails, no errors. | Quote the result, for example "6 passed". |
-| `user check — ...` | Give the engineer numbered steps to check it themselves: what to open or run, and what they should see. One step at a time. | Wait for them to say it worked. No answer, or "not yet", is not a pass. |
+| `user check — ...` | The engineer does the looking, by the rules in "A user check" below: you show where to look, they say what they see. | Wait for their answer, then compare. No answer, or "not yet", is not a pass. |
 | Both | Both. Tests first. | |
+
+**A user check.** The engineer's own eyes are the proof, so the engineer does the looking. In
+every user check, whatever it checks (a count, a value, a file, a screen, a list of changes):
+
+1. Show what to look at: what to open or run, and where to look. One step at a time.
+2. Ask an open question: "What do you see there?", "How many rows do you count?"
+3. Never say the expected answer first, and never count it, read it off or sum it up for
+   them. After "you should see 12 rows, right?" the engineer can only say yes, and that yes
+   proves nothing.
+4. Compare only after their answer. It fits what `requirements.md`, the tests or the script's
+   own output say: a pass. It does not: say what was expected, and take it as a failed proof
+   (below).
 
 These are not proof:
 
@@ -107,6 +136,7 @@ These are not proof:
 - a test that passes for another milestone
 - another agent saying it worked: run the tests yourself
 - green tests, when "Done when" asks for a user check
+- the engineer's "yes" to an answer you said first: ask again, with an open question
 
 If the proof fails, say what really happened, with the output. Then fix it or ask. Do not go on.
 
@@ -355,7 +385,8 @@ In this order:
      the engineer which file it is and ask: does it belong to this milestone (then it goes
      through the review first), or should git leave it alone (then add a line for it to
      `.gitignore`)? Data files and files with logins are always left alone.
-   - `git commit -m "M<n> — <what it delivers>"`. Never push.
+   - `git commit -m "M<n> — <what it delivers>"`, straight on the main line: no branch.
+     Never push.
 
    If the folder has no `.git`, delete `.claude/review-files.txt`, so the next milestone
    starts its own list.
@@ -401,15 +432,21 @@ extra wish?"
 
    ```markdown
    ## Closed
-   > <the creator's exact words, when the engineer pasted them>
+   Pasted:
+   > <the creator's exact words>
    (<name>, <where: Slack, Jira comment, email, call>, <date>)
    ```
 
-   No paste: in place of the quote line write `Told by <engineer>: <what the creator said>`.
+   No paste: in place of the first two lines write `Told by <engineer>: <what the creator said>`.
    Closed by the engineer: write `Closed by <engineer> (<date>): <what they said>`.
+   These three are the only labels, and the lines say only what really happened. Never write
+   that something was checked or ruled out ("confirmed, no but") unless you asked it in this
+   chat and the engineer answered. Then add their answer as a line of its own:
+   `Asked about a "but": <the engineer's answer>`.
 2. In `tracking_log.md`: take out the PENDING line, write `Ticket closed` under
    `## Now working on` and `Nothing` under `## Next up`, and add under `## Last update`:
-   `YYYY-MM-DD — ticket closed, confirmed by <name>`.
+   `YYYY-MM-DD — ticket closed, confirmed by <name>`. When the engineer closed it, the line
+   is `YYYY-MM-DD — ticket closed by <engineer>`.
 3. If the folder has `.git`: add the files you just changed, by name
    (`git add requirements.md tracking_log.md`, and `CLAUDE.md` if `git status` shows it
    changed), then `git commit -m "Ticket closed"`. Never push.
@@ -441,6 +478,11 @@ extra wish?"
 | Leaving out a finding the engineer said no to | It goes in `review-notes.md`. A "must fix" goes there with their reason. |
 | Writing every unfixed finding into `tracking_log.md` | They go in `review-notes.md`. `tracking_log.md` gets one line, at the tick. |
 | Reviewing your own code when the reviewer cannot run | The milestone waits, and the log says why |
-| Ticking a user check the engineer has not confirmed | Wait for their answer |
+| Ticking a user check the engineer has not answered | Wait for their answer |
+| Saying what a user check should show, then asking "right?" | Show where to look, ask what they see, compare after their answer |
+| Making a branch for a milestone | No branches in a ticket folder. Commit on the main line. |
+| Finding the folder on another branch, and switching back or merging by yourself | Say which branch and what is on it, and ask. The engineer decides. |
+| Running the engineer's own planning, review or closing skill as well | The plugin decides the steps. Their rules for how code is written still count. |
 | Committing every file in the folder at once | Only the reviewed files and the ticket's md files (`review-notes.md` too), by name |
 | Taking a new wish for a fault in version 1 | Check it against the contract |
+| Writing "confirmed, no but" when nobody asked | Only what happened. A check goes in the file only if you asked it and the engineer answered. |

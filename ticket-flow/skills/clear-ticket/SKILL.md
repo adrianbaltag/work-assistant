@@ -24,6 +24,10 @@ becomes a question for the person who can close it.
 - Never fill a gap yourself. If nobody in the chat knows, it is a question for someone.
 - Never answer for the engineer. Their own answer, even "I don't know", is what you need.
 - Made-up names and data only in examples.
+- **This plugin decides the steps in a ticket folder:** plan, review, tick, commit, close. The
+  engineer's own rules, skills and agents for planning, reviewing, committing or closing work
+  stay quiet here: do not run them on top of these steps. Their rules for HOW code is written
+  (logging, code checks such as ruff, style) still count.
 
 ## The three labels
 
@@ -220,8 +224,8 @@ Never insist on a paste, and never ask for a written recap of a call.
 With the answer:
 
 1. Match each answer to its question. Replies are often rough ("2: close, never delete").
-2. Change the label to **Known** and add who said it, where, and the date. Say honestly how
-   it reached you: `(Maria, Slack, 2026-11-15)` for pasted words,
+2. Change the label to **Known** and add who said it, how it reached you, and the date. Only
+   two labels say how: `(Maria, pasted from Slack, 2026-11-15)` for pasted words,
    `(Maria, told by Sam, 2026-11-15)` when the engineer retold it. Copy the answer into
    "Answers so far". Use quote marks only for pasted words.
 3. Look for anything new: a new rule, a new wish, a "you missed X". New things open new
@@ -266,7 +270,8 @@ The engineer brings the creator's reply, pasted or in their own words (their cal
 Step 6). Read it strictly.
 
 If it was not pasted, ask one short question before you accept a yes: "Did they add any 'but'
-or any extra wish?" A retold yes often drops the "but".
+or any extra wish?" A retold yes often drops the "but". Then wait. The file can say there was
+no "but" only when you asked and the engineer answered.
 
 | The creator says | What it is | What to do |
 |---|---|---|
@@ -292,12 +297,17 @@ On a real yes:
    **Status:** CONFIRMED BY CREATOR (YYYY-MM-DD)
 
    ## The creator's yes
-   > <their exact words, when the engineer pasted them>
+   Pasted:
+   > <their exact words>
    (<name>, <where: Slack, Jira comment, email, call>, <date>)
    ```
 
-   No paste: in place of the quote line write `Told by <engineer>: <what the creator said>`.
-   The file must show which of the two it was.
+   No paste: in place of the first two lines write `Told by <engineer>: <what the creator said>`.
+   `Pasted:` and `Told by <engineer>:` are the only two labels for a reply the engineer
+   brings (their own idea: see "No ticket"), and the proof says only what really happened.
+   Never write that something was checked or ruled out ("confirmed, no but") unless you asked
+   it in this chat and the engineer answered. Then add their answer as a line of its own:
+   `Asked about a "but": <the engineer's answer>`.
 
 2. In `tracking_log.md`: remove the PENDING line, write
    `Plan the milestones` under `## Now working on`, and add under `## Last update`:
@@ -308,8 +318,10 @@ On a real yes:
 ## No ticket (the engineer's own idea)
 
 The engineer is the creator. Run the same steps: they still answer the four questions, and the
-three checks still apply. In Step 8 they confirm the real issue themselves, and the proof line
-says `(own project, <name>, <date>)`.
+three checks still apply. In Step 8 they confirm the real issue themselves, in this chat.
+Nobody pasted or retold a reply, so neither `Pasted:` nor `Told by <engineer>:` is true here.
+In place of those lines write `Said in this chat: <the engineer's own words>`, and under it
+`(own project, <name>, <date>)`.
 
 ## Starter files
 
@@ -380,5 +392,6 @@ __pycache__/
 | Writing a plan, milestones or pseudo-code "while we wait" | Nothing until the creator's yes |
 | Taking "looks good, but ..." as a yes | It is a new ask. Settle it first. |
 | Insisting on a paste, or on a written recap of a call | Paste or tell is the engineer's call |
-| Writing a retold answer as if it were a quote | Say which it was: pasted words, or told by the engineer |
+| Writing a retold answer as if it were a quote | Say which it was: `Pasted:`, or `Told by <engineer>:` |
+| Writing "confirmed, no but" when nobody asked | Only what happened. A check goes in the file only if you asked it and the engineer answered. |
 | Asking about team defaults one by one | One message that lists them all |

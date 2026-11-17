@@ -6,8 +6,8 @@ argument-hint: <nothing, or the change you want in the plan>
 
 # Plan milestones
 
-The creator said yes to the real issue. This skill cuts version 1 into milestones: small pieces,
-built one per session, each with a proof that it works.
+The creator said yes to the real issue. This skill cuts version 1 into milestones: as few as
+the work needs, built one per session, each with a proof that it works.
 
 A good plan lets a new session build a milestone three days later without guessing. Write down
 what was decided: which files, which names, which values, which proof. Leave out what any
@@ -24,6 +24,14 @@ Python developer would do anyway.
 - The plan never changes what the creator agreed to. If it has to, the creator must say yes
   again: stop and go back to the `ticket-flow:clear-ticket` skill.
 - Made-up names and data only in examples.
+- **This plugin decides the steps in a ticket folder:** plan, review, tick, commit, close. The
+  engineer's own rules, skills and agents for planning, reviewing, committing or closing work
+  stay quiet here: do not run them on top of these steps. Their rules for HOW code is written
+  (logging, code checks such as ruff, style) still count.
+- **No branches in a ticket folder.** Every commit goes straight on the main line (the
+  folder's one branch, `main` or `master`). Never make, switch, merge or delete a branch by
+  yourself, even when the engineer's own rules say that work goes on a branch. A folder that
+  is already on another branch: Step 0 says what to do.
 
 ## Step 0: is the ticket ready for a plan?
 
@@ -43,9 +51,18 @@ Then look for milestone lines in `requirements.md`:
 | What you find | Go to |
 |---|---|
 | No milestone lines | Step 1 |
-| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. Then say that building the first open milestone starts in a new session. No: it is a draft, the next row. |
+| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. Then say that building the first open milestone starts in a new session. No: it is a draft, the next row. |
 | Milestone lines, but no `Plan approved by` line | The plan is a draft. Read it and `PLAN.md`, then go to Step 6. |
 | Milestone lines and a `Plan approved by` line | The plan is done. Say so, and say that building the first open milestone starts in a new session. If the engineer wants to change the plan, see "Changing the plan later". |
+
+**The branch.** Whichever row you took, unless it told you to stop: if the folder has `.git`,
+run `git status` before anything else. Its first line names the branch. `main` or `master`: go
+on. Anything else: do nothing by yourself. Tell the engineer which branch the folder is on
+and what is on it that the main line does not have (`git log main..HEAD --oneline` lists
+those commits; say `master` if that is the main line's name), and ask what to do. Do not go
+on until that is settled. Then do what the engineer says: switching, merging or deleting a
+branch is their call, never yours. Why: work that sits only on that branch must not be left
+behind, or moved, without the engineer.
 
 ## Step 1: read before you plan
 
@@ -103,16 +120,27 @@ Each line has exactly this form. Other tools read it, and the dashboard card sho
 ## Milestones
 
 - [ ] M1 — look at one real export file · Done when: user check — Sam opens one real file and its columns match the contract
-- [ ] M2 — read the export into rows · Done when: test_reads_export, test_skips_rows_without_order_number pass
-- [ ] M3 — find the late orders · Done when: test_finds_late_orders, test_no_late_orders pass
-- [ ] M4 — write the report file · Done when: test_writes_report, test_missing_export_writes_nothing pass
+- [ ] M2 — build the late orders report · Done when: test_reads_export, test_skips_rows_without_order_number, test_finds_late_orders, test_no_late_orders, test_writes_report, test_missing_export_writes_nothing pass
+- [ ] M3 — run it on today's real export · Done when: user check — Sam runs the script on today's export and looks up three of its orders by hand
 ```
 
 Rules for the lines:
 
-- **One session each.** If a milestone will not fit in one session, split it now: M3a, M3b.
+- **One session each, and each one earns its place.** A milestone costs a whole session, and
+  one with code costs a review as well. Only four things earn a milestone of their own:
+  1. one real sample (the M1 rule below)
+  2. a dry run, for risky work ("Risky work" below)
+  3. a check only the engineer can do: a `user check` of the real result
+  4. code that truly does not fit one session. Split it into as few parts as fit: M2a, M2b.
+
+  Everything else is ONE build milestone, with all its tests. Cutting by function earns
+  nothing: "read the export", "find the late orders" and "write the report" are three
+  functions of one short script, not three milestones. So a short script is one build
+  milestone, plus the checks only the engineer can do.
 - **A proof each.** Named tests that pass, for code. Or `user check — <what the engineer looks
-  at>`, for something only a person can confirm. Both together is fine.
+  at>`, for something only a person can confirm. Both together is fine. A user check line
+  says what the engineer looks at and what it is held against, never the answer itself (not
+  "the report has 12 rows"): in the build session the engineer says what they see first.
 - **No `<angle brackets>` in a real line.** A line with `<...>` is read as template text and
   skipped.
 - **M1 is one real sample**, when the work reads anything the engineer did not make (a file
@@ -135,18 +163,24 @@ Rules for the lines:
 
 ## Step 5: the steps, in PLAN.md
 
-Write `PLAN.md` in the project folder. One section per milestone, about ten lines at most.
+Write `PLAN.md` in the project folder. One section per milestone. Keep it short: about one
+line for each test or function.
 
 ```markdown
-### M2 — read the export into rows
+### M2 — build the late orders report
 
-Files: `late_orders.py` (function `read_export(path) -> list[dict]`), `tests/test_late_orders.py`
+Files: `late_orders.py`, `tests/test_late_orders.py`
 
 1. Test `test_reads_export`: a sample file with 3 rows gives 3 dicts with keys order, due, shipped.
 2. Run the tests: it fails, the function is missing.
-3. Write `read_export`.
+3. Write `read_export(path) -> list[dict]`.
 4. Run the tests: all pass.
 5. Test `test_skips_rows_without_order_number`: a row with an empty order column is left out.
+6. Test `test_finds_late_orders`, then `late_orders(rows, today) -> list[dict]`: of three open
+   orders due 1, 3 and 4 days ago, only the last one comes back.
+7. Test `test_no_late_orders`: no order is late, the list is empty.
+8. Test `test_writes_report`, then `write_report(rows, path)`: 2 late orders give a file with 2 rows.
+9. Test `test_missing_export_writes_nothing`: no export file, so no report file and one line in the log.
 ```
 
 A step names one of these: a test and what it checks, with exact values from
@@ -164,7 +198,9 @@ code: cut it back to names and tests.
 Go through these yourself and fix what you find before you show the plan.
 
 1. **Coverage.** Every Then and And in the contract has a milestone. Name any gap.
-2. **Size.** Each milestone fits one session. Unsure: split it.
+2. **Size.** Every milestone earns its place by one of the four reasons in Step 4. One that
+   does not goes into the build milestone. Unsure if the code fits one session: keep it as
+   one. The build session looks at the size again before it starts, and can still split it.
 3. **Names.** A function has the same name, inputs and output in every milestone that uses it.
 4. **Inputs that break things.** Think of the three to five inputs most likely to break it for
    a real user (an empty cell, a missing file, a strange ID). Each has a test, in the
@@ -173,8 +209,16 @@ Go through these yourself and fix what you find before you show the plan.
 
 ## Step 7: the engineer approves
 
-Show the milestone lines in chat and say that the steps are in `PLAN.md`. Ask: "Do you approve
-this plan?" If they want changes, make them and show the lines again.
+Show the milestone lines in chat and say that the steps are in `PLAN.md`. Then say the price,
+in one line, before you ask for the yes:
+
+`<N> milestones = <N> sessions, <R> reviews`
+
+Every milestone is one session. Every milestone with code gets an independent review, and a
+check-only milestone gets none. For the example in Step 4: "3 milestones = 3 sessions, 1 review".
+
+Then ask: "Do you approve this plan?" If they want changes, make them, and show the lines and
+the price again.
 
 On their yes, in this order:
 
@@ -201,14 +245,14 @@ Plans meet reality. When a build session shows that the plan is wrong:
 
 | What happened | Do this |
 |---|---|
-| A milestone is too big | Split it: M3 becomes M3a and M3b. |
+| A milestone truly does not fit one session | Split it: M3 becomes M3a and M3b. |
 | A step in `PLAN.md` was wrong | Fix the step. |
 | A milestone is missing | Add it with the next free number. |
 | The creator wants something new | That is not a plan change. It goes to `ticket-flow:clear-ticket`: the creator confirms the new contract, or it waits under "Later". |
 
-Never renumber or reword a ticked milestone. Show the engineer the changed lines, get their
-yes, put today's date on the `Plan approved by` line, and add a line under `## Last update`
-in `tracking_log.md` that says what changed and why.
+Never renumber or reword a ticked milestone. Show the engineer the changed lines and the new
+price (as in Step 7), get their yes, put today's date on the `Plan approved by` line, and add
+a line under `## Last update` in `tracking_log.md` that says what changed and why.
 
 Then commit the change, if the folder has `.git`, so the next session does not find it as
 leftover changes. In the middle of building a milestone: the changed files go in with that
@@ -222,8 +266,11 @@ Never push.
 |---|---|
 | Planning before the creator's yes | Stop and point to clear-ticket |
 | Writing code or tests "to get ahead" | Only the plan. Building is a new session. |
-| A milestone that is "the whole script" | One session each. Split it. |
+| A milestone for each function of a short script | ONE build milestone. A milestone must earn its place. |
+| Splitting a milestone "to be safe" | Only when the code truly does not fit one session |
+| Asking for the yes without the price | Milestones, sessions and reviews in one line, then the question |
 | "Done when: it works" | Named tests, or a user check that says what to look at |
+| A user check line that gives the answer ("the report has 12 rows") | Say what the engineer looks at. They say what they see. |
 | Skipping the real sample because the data "is surely like the ticket says" | M1 looks at one real record |
 | A step like "handle errors" | Say which error and which test |
 | Planning something from "Later" because it is easy | Version 1 only |
