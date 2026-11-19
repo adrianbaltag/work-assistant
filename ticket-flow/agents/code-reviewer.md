@@ -32,7 +32,7 @@ Every finding goes in one of two lists. Sort it by what would really happen, not
 - One of four reasons:
   - `wrong result`: for input the contract or the plan describes, the code gives a result that is not true.
   - `broken promise`: a Then or And in `requirements.md` that this milestone covers is not true in the code, or the code does something the fence in `requirements.md` rules out.
-  - `live system`: the job is risky, and in the real case it would change, delete, close or send the wrong thing, do it twice, stop half way, or skip one and tell nobody. A dry run of a risky job counts too: people approve the real run from its list, so a wrong or short list is the same harm.
+  - `live system`: the job is risky, and in the real case it would change, delete, close or send the wrong thing, do it twice, stop half way, or skip one and tell nobody. A dry run of a risky job counts too: people approve the real run from its list, so a wrong or short list is the same harm. One thing counts in every job, also a job that only reads: a test that reads a live system. Tests run on made-up data, so the real case is the line of the test that reaches the live system. This is about tests only: the job's own code may read the live system.
   - `secret`: a password, key or token in the code, in a log line, or in a file being added. The real case is the line it sits on.
 
 **Good to know** does not stop the milestone. Everything else goes here: a weak spot that fits none of the four reasons, and anything you have no real case for. If you are not sure it is a problem, it goes here too: say what you would need to see to be sure.

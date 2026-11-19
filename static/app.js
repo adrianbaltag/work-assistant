@@ -15,13 +15,24 @@ const step = s => {
   if (!name.length) return clip(s);
   return `<span title="${esc(s)}"><span class="mnum">${esc(num)}</span><span class="clip">${esc(name.join(" · "))}</span></span>`;
 };
+// shown_status = the status the page shows. Python works it out: "pending" while someone blocks the
+// project (you, with the card's Blocker button, or Claude's tracking log), else the status in the note.
 const stripe = p => p.priority === "critical" ? "var(--critical)"
-  : p.status === "pending" ? "var(--pending)" : p.status === "active" ? "var(--active)" : "var(--idea)";
+  : p.shown_status === "pending" ? "var(--pending)" : p.shown_status === "active" ? "var(--active)" : "var(--idea)";
+// The "Blocked by" cell of a row: one line per blocker, with who set it in front:
+// "you" (the Blocker button on the card) or "log" (Claude's tracking log says PENDING).
+// A project with no Claude folder shows the Blocked by text typed on its card, with no label.
+const blockedBy = p => {
+  const lines = p.blockers.map(b => `<span class="blk clip" title="${esc(b.by)}: ${esc(b.text)}">`
+    + `<span class="by">${esc(b.by)}</span>${esc(b.text || "pending")}</span>`);
+  if (!p.linked && p.blocked_by) lines.push(`<span class="blk clip" title="${esc(p.blocked_by)}">${esc(p.blocked_by)}</span>`);
+  return lines.join("") || '<span class="none">—</span>';
+};
 
 const TABS = {
   all:      {label: "All open",   c: "var(--text)",    keep: p => true},
   critical: {label: "Critical",   c: "var(--critical)",  keep: p => p.priority === "critical"},
-  pending:  {label: "Pending",    c: "var(--pending)",  keep: p => p.status === "pending"},
+  pending:  {label: "Pending",    c: "var(--pending)",  keep: p => p.shown_status === "pending"},
   quiet:    {label: "Gone quiet", c: "var(--quiet)", keep: p => p.quiet},
 };
 let tab = "all";
@@ -118,6 +129,7 @@ function focusedInList() {
   if (!el || !($("list").contains(el) || $("tabs").contains(el))) return null;
   if (el.dataset.tab) return `[data-tab="${el.dataset.tab}"]`;
   if (el.dataset.open) return `[data-open="${CSS.escape(el.dataset.open)}"]`;
+  if (el.dataset.add) return `[data-add="${CSS.escape(el.dataset.add)}"]`;
   if (el.dataset.arrow) return `[data-arrow="${el.dataset.arrow}"]`;
   if (el.dataset.go) return `[data-go="${el.dataset.go}"]:not([data-arrow])`;
   return null;
@@ -181,17 +193,23 @@ function listHtml(rows, head, filtering, focusId) {
       : `<button data-go="${n}" ${n === page ? 'aria-current="page"' : ""}>${n}</button>`).join("")
     + `<button data-go="${page + 1}" data-arrow="next" ${page === pages ? "disabled" : ""}>Next ›</button></nav>`;
 
-  // Each row is a button: click (or Enter) opens that project's card.
+  // One list line = two buttons side by side (a button can't sit inside a button):
+  // the row itself (click or Enter opens that project's card) and a small "+" after it
+  // (opens the same card with the cursor already in its Note / Blocker box). Tab reaches both.
+  // A row whose note can't be read (p.problem) has no "+": there is no card to write in.
   return `<div class="plist">${head}${shown.map((p, i) => `
-    <button type="button" class="prow" data-open="${esc(p.id)}" style="--stripe:${stripe(p)};animation-delay:${i * 40}ms">
+    <div class="prow-wrap" style="animation-delay:${i * 40}ms">
+    <button type="button" class="prow" data-open="${esc(p.id)}" style="--stripe:${stripe(p)}">
       <span class="c"><span class="pname clip" title="${esc(p.title)}">${esc(p.title)}</span><span class="pjira clip">${p.jira ? esc(p.jira) : "no Jira"}</span></span>
-      <span class="c"><span class="pill st-${esc(p.status)}">${esc(p.status)}</span></span>
+      <span class="c"><span class="pill st-${esc(p.shown_status)}">${esc(p.shown_status)}</span></span>
       <span class="c"><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span></span>
       <span class="c next">${step(p.working_on)}</span>
       <span class="c next">${step(p.next)}</span>
-      <span class="c">${p.blocked_by ? `<span class="blk">${clip(p.blocked_by)}</span>` : '<span class="none">—</span>'}</span>
+      <span class="c">${blockedBy(p)}</span>
       <span class="c"><span class="ago ${p.quiet ? "q" : ""}">${ago(p.days_ago)}</span></span>
-    </button>`).join("")}<div class="pfoot"><span>${count}</span>${pager}</div></div>`;
+    </button>${p.problem ? '<span class="padd"></span>'
+      : `<button type="button" class="padd" data-add="${esc(p.id)}" title="Add a note or blocker" aria-label="Add a note or blocker to ${esc(p.title)}"><span aria-hidden="true">+</span></button>`}
+    </div>`).join("")}<div class="pfoot"><span>${count}</span>${pager}</div></div>`;
 }
 
 // Filters, resize, fonts: draw again from the projects already read. Not after a failed read:
@@ -274,8 +292,11 @@ function askAll() {
   });
 }
 
-// Click a row = open that project's card (card.js). Also the page buttons and "Clear filters".
+// Click a row = open that project's card (card.js). Click its "+" = open the card with the cursor
+// in the Note / Blocker box. Also the page buttons and "Clear filters".
 $("list").addEventListener("click", e => {
+  const add = e.target.closest("[data-add]");
+  if (add) return openCard(add.dataset.add, true);
   const row = e.target.closest("[data-open]");
   // You dragged over the text to copy it (mouse only: Enter has e.detail 0 and always opens).
   if (row && e.detail && String(window.getSelection())) return;

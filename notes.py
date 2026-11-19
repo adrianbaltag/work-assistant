@@ -27,6 +27,10 @@ STATUSES = ("active", "pending", "idea")     # "done" = archived, not a status
 QUIET_DAYS = 7               # untouched this long = "gone quiet"
 IGNORED_FILES = {"desktop.ini", "thumbs.db"}     # the system makes these: they are no change of yours (lower case)
 WORK_FOLDER_DEPTH = 2        # a work card's days-ago also looks this many folder levels into its work folder
+WORK_SOURCE = "work_jira"    # source: work_jira = the card follows a Claude work folder (its folder: line)
+SYNCED_FIELDS = ("status", "blocked_by", "working_on", "next")   # on such a card the sync fills these in: not yours to edit
+MY_BLOCKER = "my_blocker"    # card field: why YOU blocked the project (the card's Blocker button). Empty = not blocked.
+                             # Its own line, so the sync (which rewrites status: and blocked_by:) never touches it.
 HISTORY_HEADING = "## History"
 HISTORY_LINE = re.compile(r"(\d{4}-\d{2}-\d{2}) · (.+?) · (.*)")    # 2026-10-14 · you · text
 FILE_DIRS = ("sessions", "raw")    # the only sub-folders the card shows and edits
@@ -218,20 +222,51 @@ def list_projects(projects_folder):
     return [read_or_problem(folder) for folder in project_folders(projects_folder)]
 
 
+def linked_folder(fields):
+    """The Claude work folder this card follows (source: work_jira + folder:), as text. "" = it follows none.
+
+    The folder may be away right now (VPN off): the card is still linked, the sync fills it again later.
+    """
+    work = str(fields.get("folder") or "").strip()
+    return work if fields.get("source") == WORK_SOURCE else ""
+
+
+def blockers(project):
+    """Who blocks this project now: [{"by": "you" or "log", "text": the reason}]. Worked out, never stored.
+
+    "you" = the card's my_blocker line (the Blocker button). "log" = tracking_log.md says PENDING: the sync
+    copied that into status / blocked_by, so only a linked card has it. Both can be on at once.
+    """
+    found = []
+    mine = str(project.get(MY_BLOCKER) or "").strip()
+    if mine:
+        found.append({"by": "you", "text": mine})
+    reason = str(project.get("blocked_by") or "").strip()
+    if linked_folder(project) and (project["status"] == "pending" or reason):
+        found.append({"by": "log", "text": reason})
+    return found
+
+
 def dashboard(projects, now):
-    """Add days_ago and quiet to each project, sorted for the dashboard.
+    """Add days_ago, quiet, linked, blockers, blocked and shown_status to each project, sorted for the dashboard.
 
     Critical projects first, then the longest-untouched. Ideas never go quiet.
     A card that follows a work folder (source: work_jira) counts that folder's files too.
     days_ago is never negative (a clock ahead on a network drive).
+    shown_status = what the page shows: "pending" while anyone blocks the project (see blockers),
+    else the saved status. status itself stays what note.md says.
     """
     for p in projects:
-        updated, work = p["updated"], p.get("folder", "")
-        if p.get("source") == "work_jira" and work and Path(work).is_dir():
+        updated, work = p["updated"], linked_folder(p)
+        if work and Path(work).is_dir():
             updated = max(updated, newest_change(work, WORK_FOLDER_DEPTH))
         last = datetime.fromtimestamp(updated).date()
         p["days_ago"] = max(0, (now.date() - last).days)
         p["quiet"] = p["status"] != "idea" and p["days_ago"] >= QUIET_DAYS
+        p["linked"] = bool(work)
+        p["blockers"] = blockers(p)
+        p["blocked"] = bool(p["blockers"])
+        p["shown_status"] = "pending" if p["blocked"] else p["status"]
     return sorted(projects, key=lambda p: (p["priority"] != "critical", -p["days_ago"]))
 
 

@@ -12,7 +12,7 @@ and `settings.ini` live there, not in the plugin.
 | `plan-milestones` (skill) | Cuts the confirmed ticket into milestones, each with a proof. |
 | `build-milestone` (skill) | Builds one milestone per session: test, code, proof, review, tick. |
 | `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. Sorts what it finds into "must fix" (holds the tick) and "good to know" (you pick). |
-| the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist. |
+| the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist, your dashboard messages (Note, Blocker, Unblock). |
 
 ## The flow
 
@@ -41,6 +41,25 @@ file Claude is about to write:
 A note is any `.md` file except `PLAN.md`, and `.gitignore`. A closed ticket stays closed: a new
 wish is a new ticket with its own folder. Limits, and what to do when a write is stopped:
 the app's README.md, "The gate: no code before the yes".
+
+## Messages from the dashboard
+
+From a project's card on the dashboard you can send Claude a **Note**, a **Blocker** or an **Unblock**.
+The hooks hand it over; no skill is needed.
+
+| When | What the hooks do |
+|---|---|
+| A session starts in the ticket folder, or you send your next message | The message is handed to Claude. The card shows "seen by Claude" and the date. |
+| Claude's reply ends and `tracking_log.md` did not change since | Claude is reminded once to write the message into the log. |
+| The next session starts and the log still did not change | The message is handed over again. |
+| Every session start while your blocker is on | Claude is told the blocker is still on. |
+
+Claude writes each message into `tracking_log.md` as one dated line. A note is answered with one line:
+`Got your dashboard note: <your text>. Written to the log.` A blocker makes Claude ask once: stop,
+or work on what the blocker does not touch? Only your Unblock lifts it. The gate stays as it is:
+Claude can write `tracking_log.md` wherever the ticket stands.
+
+More, and the limits: the app's README.md, "Messages from the dashboard to Claude".
 
 ## Install (Windows PowerShell)
 

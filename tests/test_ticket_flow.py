@@ -478,7 +478,8 @@ def test_fixing_a_good_to_know_note_needs_no_new_review_unless_the_fix_grows():
     small = table_row(step_5, 'Only "good to know" notes, and every fix stayed small')
     grew = table_row(step_5, 'Only "good to know" notes, and a fix grew')
     assert "No new review" in small and "Step 6" in small
-    assert "new behaviour" in grew and "another file" in grew
+    # (c), 2026-11-18: was "changes code in another file than the one the note names"
+    assert "A fix grew when it adds new behaviour, or touches a code file the note does not name" in grew
     assert "Tell the engineer" in grew and "repair check" in grew
     assert "repair check" in table_row(step_5, 'At least one "must fix"')
 
@@ -940,3 +941,65 @@ def test_the_branch_check_in_build_milestone_is_for_every_row_that_goes_on():
 
 def test_clear_ticket_commits_nothing_so_it_needs_no_branch_check():
     assert "git commit" not in skill_text("clear-ticket")
+
+
+# ---------- decided 2026-11-18: seven wording points (a-g), each test below failed before its fix ----------
+
+def test_claude_never_adds_the_risky_line_itself_to_settle_a_finding():
+    """Else "no RISKY: line" is repaired by writing one, and a job that changes a live system gets no dry run."""
+    step_5 = one_line(section(skill_text("build-milestone"), "Step 5"))
+
+    assert "Never add a `RISKY:` line yourself" in step_5
+    assert "the job turned out risky" in step_5                  # Claude stops and says so...
+    assert "dry run" in step_5 and "`ticket-flow:plan-milestones`" in step_5     # ...and the plan gets its dry run
+    row = table_row(section(skill_text("plan-milestones"), "Changing the plan later"), "The job turned out risky")
+    assert "The engineer decides" in row and "dry run" in row    # the normal planning path takes it from there
+
+
+def test_a_test_that_reads_a_live_system_is_a_must_fix_in_every_job():
+    """Decided: also in a job that only reads. The one real sample of M1 is a check by hand, not a test."""
+    live = line_starting(section(reviewer_text(), "The two lists"), "  - `live system`")
+
+    assert "test that reads a live system" in live
+    assert "every job" in live and "only reads" in live
+    assert "test that reads a live system" in table_row(section(skill_text("build-milestone"), "Step 5"), "`MUST FIX`")
+    sample = one_line(between(skill_text("plan-milestones"), "- **M1 is one real sample**", "- **The riskiest part early.**"))
+    assert "Its proof is a user check" in sample                 # M1 stays as it is
+
+
+def test_a_user_check_gets_its_own_milestone_only_when_the_build_session_cannot_hold_it():
+    """Else every check the engineer could do on the spot costs one more session."""
+    plan = skill_text("plan-milestones")
+    rule = one_line(between(plan, "- **One session each", "- **A proof each.**"))
+
+    assert "rides on the build milestone" in rule
+    assert "a real run at work, another day, or another person" in rule
+    assert "Only four things earn a milestone of their own" in rule          # still four: Step 6 counts on it
+
+
+def test_the_engineers_own_project_is_not_asked_about_a_but():
+    """There is no creator, so nobody retold a yes that could have dropped a "but"."""
+    step_8 = one_line(section(skill_text("clear-ticket"), "Step 8"))
+    part_2 = one_line(between(skill_text("build-milestone"), "**Part 2: the reply.**", "| What comes back"))
+
+    assert "skip this question" in step_8 and 'see "No ticket"' in step_8
+    assert "own project" in part_2 and "skip this question" in part_2
+
+
+def test_after_two_rounds_the_findings_and_the_round_question_come_in_one_message():
+    """Else the engineer answers "which ones do I fix?", and is asked "another round?" right after."""
+    step_5 = section(skill_text("build-milestone"), "Step 5")
+    stop_rule = one_line(between(step_5, "One round is:", "If the session ends"))
+
+    assert "in ONE message" in stop_rule
+    ask = one_line(item(picked_up_part(), "1. "))                # a picked-up session always has a repair check next
+    assert "2 or more" in ask and "same message" in ask
+
+
+def test_the_approval_of_an_old_plan_is_committed_by_name():
+    """Else the first build session finds requirements.md as a leftover change and stops."""
+    row = table_row(section(skill_text("plan-milestones"), "Step 0"), "Milestone lines from before this skill")
+
+    assert "`git add requirements.md`" in row and "git commit" in row and "Never push" in row
+    assert "Step 7, item 3" in row                               # the same way the plan commit does it
+    assert row.index("add the `Plan approved by` line") < row.index("git commit") < row.index("starts in a new session")

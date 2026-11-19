@@ -51,7 +51,7 @@ Then look for milestone lines in `requirements.md`:
 | What you find | Go to |
 |---|---|
 | No milestone lines | Step 1 |
-| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. Then say that building the first open milestone starts in a new session. No: it is a draft, the next row. |
+| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. If the folder has `.git`, commit it by name, as in Step 7, item 3: `git add requirements.md`, the same `git status` check, then `git commit -m "Plan approved"`. Never push. Then say that building the first open milestone starts in a new session. No: it is a draft, the next row. |
 | Milestone lines, but no `Plan approved by` line | The plan is a draft. Read it and `PLAN.md`, then go to Step 6. |
 | Milestone lines and a `Plan approved by` line | The plan is done. Say so, and say that building the first open milestone starts in a new session. If the engineer wants to change the plan, see "Changing the plan later". |
 
@@ -130,13 +130,16 @@ Rules for the lines:
   one with code costs a review as well. Only four things earn a milestone of their own:
   1. one real sample (the M1 rule below)
   2. a dry run, for risky work ("Risky work" below)
-  3. a check only the engineer can do: a `user check` of the real result
+  3. a check only the engineer can do, when it cannot be done in the build session: it
+     needs a real run at work, another day, or another person
   4. code that truly does not fit one session. Split it into as few parts as fit: M2a, M2b.
 
   Everything else is ONE build milestone, with all its tests. Cutting by function earns
   nothing: "read the export", "find the late orders" and "write the report" are three
-  functions of one short script, not three milestones. So a short script is one build
-  milestone, plus the checks only the engineer can do.
+  functions of one short script, not three milestones. A `user check` the engineer can do
+  right there in the build session rides on the build milestone too: its "Done when" names
+  the tests and the user check. So a short script is one build milestone, plus the checks
+  that earn a milestone of their own.
 - **A proof each.** Named tests that pass, for code. Or `user check — <what the engineer looks
   at>`, for something only a person can confirm. Both together is fine. A user check line
   says what the engineer looks at and what it is held against, never the answer itself (not
@@ -248,6 +251,7 @@ Plans meet reality. When a build session shows that the plan is wrong:
 | A milestone truly does not fit one session | Split it: M3 becomes M3a and M3b. |
 | A step in `PLAN.md` was wrong | Fix the step. |
 | A milestone is missing | Add it with the next free number. |
+| The job turned out risky: it would change a live system, and `requirements.md` has no `RISKY:` line | Say so. The engineer decides if the job goes on as risky work, never you. If it does: put `RISKY: <what it changes>` at the top of `requirements.md` (the one line a plan change adds above `## Milestones`), and add what "Risky work" in Step 4 asks for. The dry run comes before any change. |
 | The creator wants something new | That is not a plan change. It goes to `ticket-flow:clear-ticket`: the creator confirms the new contract, or it waits under "Later". |
 
 Never renumber or reword a ticked milestone. Show the engineer the changed lines and the new

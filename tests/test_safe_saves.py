@@ -72,7 +72,8 @@ def test_safe_write_when_the_file_is_open_elsewhere_says_so_and_cleans_up(tmp_pa
 
 def test_a_lone_surrogate_in_history_gives_400_and_keeps_the_note(tmp_path, client):
     before = (tmp_path / "DEMO-1" / "note.md").read_bytes()
-    response = client.post(f"{URL}/history", json={"text": "\ud83d", "stamp": notes.note_stamp(tmp_path / "DEMO-1")})
+    # The card's Note box (it took the place of "Add a line to the history"): the same promise.
+    response = client.post(f"{URL}/message", json={"kind": "note", "text": "\ud83d"})
     assert response.status_code == 400
     assert "broken character" in response.json["error"]
     assert (tmp_path / "DEMO-1" / "note.md").read_bytes() == before
@@ -209,7 +210,7 @@ def test_a_locked_note_gives_the_plain_message_on_every_save_route(tmp_path, cli
     stamp = stamp_of(tmp_path)
     posts = [("fields", {"fields": FORM, "stamp": stamp}),
              ("note", {"text": NOTE + "more\n", "stamp": stamp}),
-             ("history", {"text": "hello", "stamp": stamp})]
+             ("message", {"kind": "note", "text": "hello"})]
     for route, body in posts:
         response = client.post(f"{URL}/{route}", json=body)
         assert response.status_code == 400, route
@@ -255,7 +256,7 @@ def test_saving_a_file_with_a_locked_target_gives_the_plain_message(tmp_path, cl
 
 @pytest.mark.parametrize("path, body", [
     ("fields", {}), ("fields", {"fields": "nope", "stamp": "x"}), ("note", {"stamp": "x"}), ("note", {"text": "x"}),
-    ("history", {"stamp": "x"}), ("history", {"text": 5, "stamp": "x"}), ("files/raw", []),
+    ("message", {"kind": "note"}), ("message", {"kind": "note", "text": 5}), ("files/raw", []),
     ("files/raw/a.txt", {"stamp": "x"}), ("files/raw/a.txt/rename", []), ("apply", [1]),
 ])
 def test_a_missing_key_or_wrong_body_gives_a_plain_json_error(tmp_path, client, path, body):
@@ -266,7 +267,7 @@ def test_a_missing_key_or_wrong_body_gives_a_plain_json_error(tmp_path, client, 
     assert response.is_json and response.json["error"]
 
 
-@pytest.mark.parametrize("path", ["fields", "note", "history", "files/raw", "files/raw/a.txt",
+@pytest.mark.parametrize("path", ["fields", "note", "message", "files/raw", "files/raw/a.txt",
                                   "files/raw/a.txt/rename"])
 def test_a_body_that_is_not_json_gives_a_plain_json_error(tmp_path, client, path):
     (tmp_path / "DEMO-1" / "raw").mkdir()

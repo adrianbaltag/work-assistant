@@ -5,6 +5,7 @@ Login comes from environment variables, read by the anthropic library itself:
 ANTHROPIC_API_KEY (home), or ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL (work gateway).
 """
 import base64
+import copy
 import os
 from pathlib import Path
 
@@ -33,7 +34,9 @@ A project is a folder: note.md (fields between --- lines, then free notes, then 
 section, newest first), sessions/ (dated session summaries) and raw/ (transcripts, emails, \
 screenshots and other source material). A work project also has a work folder: its ticket.md \
 (the Jira description), requirements.md (the milestones) and tracking_log.md (where the work \
-stands) are attached too. The project's files are attached at the start of the conversation.
+stands) are attached too. The project's files are attached at the start of the conversation. \
+A my_blocker field with text means the person blocked the project themselves, for that reason; \
+it stays blocked until they clear it.
 
 """ + HOW_TO_ANSWER
 
@@ -42,9 +45,10 @@ ALL_SYSTEM = """You help one person keep track of all their open work projects.
 
 The note.md of every open project is attached at the start of the conversation, critical \
 projects first. Each note has fields between --- lines (title, status, priority, \
-working_on, next, blocked_by, jira, ...), then free notes, then a ## History section, newest first. Its heading \
-gives the title, status and priority (defaults filled in) and how long ago anything in that \
-project's folder last changed. You see only the notes, not \
+working_on, next, blocked_by, my_blocker, jira, ...), then free notes, then a ## History section, newest first. \
+Its heading gives the title, status and priority (defaults filled in) and how long ago anything in that \
+project's folder last changed. A my_blocker field with text means the person blocked the project \
+themselves: the heading then says status: pending and who blocks it. You see only the notes, not \
 the session or raw files: when an answer needs those, say to ask in that project's card. You \
 can't change anything from here. Name projects by title and ID.
 
@@ -61,6 +65,10 @@ saved before that. Use it when they ask you to update the project, or when the f
 show that a field is out of date and they asked for an update. Call it at most once per answer, \
 and say in one or two sentences what you suggest and why. Never change priority: only the \
 person sets it."""
+# A linked card (it follows a Claude work folder): the sync fills these in, so a proposal for them would be overwritten.
+LINKED_SYSTEM = """ This project follows a work folder: status, working_on, next and blocked_by are \
+filled in from its tracking_log.md and requirements.md, so you can't change them here. If one looks \
+wrong, say so: it is fixed in those files."""
 PROPOSE_TOOL = {
     "name": "propose_changes",
     "description": "Suggest changes to this project's note.md and sessions/ folder. They wait for the "
@@ -89,6 +97,18 @@ PROPOSE_TOOL = {
         "additionalProperties": False,
     },
 }
+
+
+def propose_fields(linked=False):
+    """The fields Claude may suggest a change for. linked = the card follows a work folder: not the synced four."""
+    return [f for f in PROPOSE_FIELDS if not (linked and f in notes.SYNCED_FIELDS)]
+
+
+def propose_tool(linked=False):
+    """PROPOSE_TOOL, offering only propose_fields(linked). A copy: PROPOSE_TOOL itself is never changed."""
+    tool = copy.deepcopy(PROPOSE_TOOL)
+    tool["input_schema"]["properties"]["fields"]["items"]["properties"]["field"]["enum"] = propose_fields(linked)
+    return tool
 
 
 class ClaudeError(Exception):
@@ -227,7 +247,9 @@ def all_projects_context(projects_folder, now, cap=TEXT_CAP):
         days = max(0, p["days_ago"])      # a clock ahead on a network drive would give -1
         ago = "today" if days == 0 else "1 day ago" if days == 1 else f"{days} days ago"
         # The heading repeats the main fields with the dashboard's defaults, for notes that leave them out.
-        about = f"title: {p['title']}, status: {p['status']}, priority: {p['priority']}, updated {ago}"
+        # The status is the one the dashboard shows: pending while someone blocks the project (notes.blockers).
+        about = f"title: {p['title']}, status: {p['shown_status']}, priority: {p['priority']}, updated {ago}"
+        about += "".join(f", blocked by {b['by']}: {b['text']}" for b in p["blockers"])
         blocks.append({"type": "text", "text": f"=== {label} ({about}) ===\n{note}"})
     if not projects:
         blocks.append({"type": "text", "text": "There are no open projects."})
@@ -235,12 +257,14 @@ def all_projects_context(projects_folder, now, cap=TEXT_CAP):
     return blocks, skipped
 
 
-def clean_proposal(raw):
+def clean_proposal(raw, linked=False):
     """Check a proposal (from Claude, or sent back by the page on Approve) and tidy it.
 
     Returns {"fields": [{"field", "value"}, ...], "history_line", "session_note"}, or None if it
     changes nothing. Raises ValueError (plain English) if it touches what it must not.
+    linked = the card follows a work folder: the four synced fields are then not Claude's to change either.
     """
+    allowed = propose_fields(linked)
     mixed_up = ValueError("The suggested changes got mixed up. Ask Claude again.")
     if not (isinstance(raw, dict) and isinstance(raw.get("fields"), list)
             and isinstance(raw.get("history_line"), str) and isinstance(raw.get("session_note"), str)):
@@ -250,7 +274,9 @@ def clean_proposal(raw):
         if not (isinstance(item, dict) and isinstance(item.get("field"), str) and isinstance(item.get("value"), str)):
             raise mixed_up
         field, value = item["field"], " ".join(item["value"].split())     # one line: note.md fields are one line each
-        if field not in PROPOSE_FIELDS:
+        if field not in allowed:
+            if field in PROPOSE_FIELDS:      # a synced field on a linked card
+                raise ValueError(f"Claude may not change {field} here: it is filled in from the work folder's files.")
             raise ValueError(f"Claude may not change {field}. Ask again.")
         if field == "status" and value not in notes.STATUSES:
             raise ValueError(f"status must be one of: {', '.join(notes.STATUSES)}. Ask again.")
@@ -264,18 +290,21 @@ def clean_proposal(raw):
     return proposal if any(proposal.values()) else None
 
 
-def ask(client, model, context, history, question, can_propose=False, system=SYSTEM):
+def ask(client, model, context, history, question, can_propose=False, system=SYSTEM, linked=False):
     """Send the context, the earlier chat and the new question. Returns (answer text, proposal or None).
 
     history = [{"role": "user" | "assistant", "text": ...}, ...], oldest first, from the page.
     The context rides on the first user message, so it stays the same (and cached) all chat long.
     can_propose = Claude gets the propose_changes tool (project panel only).
     system = Claude's instructions: SYSTEM (one project) or ALL_SYSTEM (the global page).
+    linked = the card follows a work folder: the tool does not offer the four synced fields.
     """
     turns = [*history, {"role": "user", "text": question}]
     messages = [{"role": t["role"], "content": t["text"]} for t in turns]
     messages[0] = {"role": "user", "content": context + [{"type": "text", "text": turns[0]["text"]}]}
-    extra = {"system": system + PROPOSE_SYSTEM, "tools": [PROPOSE_TOOL]} if can_propose else {"system": system}
+    extra = {"system": system}
+    if can_propose:
+        extra = {"system": system + PROPOSE_SYSTEM + (LINKED_SYSTEM if linked else ""), "tools": [propose_tool(linked)]}
     try:
         response = client.messages.create(model=model, max_tokens=MAX_TOKENS, messages=messages, **extra)
     except anthropic.APIError as err:
@@ -291,7 +320,7 @@ def ask(client, model, context, history, question, can_propose=False, system=SYS
     proposal = None
     if calls:
         try:
-            proposal = clean_proposal(calls[0])
+            proposal = clean_proposal(calls[0], linked)
         except ValueError as err:
             text += f"\n\n(Claude suggested changes the app can't use: {err})"
     if proposal and not text:

@@ -1,6 +1,8 @@
 # Rule block for work_jira\CLAUDE.md
 
 Put the block below in `work_jira\CLAUDE.md`, in place of the older "Milestones" block.
+It has two parts: "Milestones" and "Dashboard messages". If you pasted an older copy
+(no "Dashboard messages" part), paste this one over it.
 The ticket-flow hooks (README, "Sync with work_jira") check part of it.
 
 ```markdown
@@ -12,11 +14,12 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
   before the creator's yes; then also PLAN.md; code only with an approved
   plan and an open milestone; after a tick, notes only until a new session.
 - Milestone line: `- [ ] M1 — <what it delivers> · Done when: <proof>`.
-  Proof = named pytest tests that pass (code milestone) OR
-  `user check — <what the user looks at>` (review, Spyder, prod).
-  Tick a user-check milestone only after the user says in chat, in their
-  own words, what they saw, and it matches. Never say the expected answer
-  first.
+  Proof = named pytest tests that pass (code milestone),
+  `user check — <what the user looks at>` (review, Spyder, prod), or
+  both when the user can check in the build session.
+  Tick a milestone with a user check only after the user says in chat, in
+  their own words, what they saw, and it matches. Never say the expected
+  answer first.
 - ONE milestone per session. Split one (M3a, M3b) only when its code
   truly does not fit one session: every milestone must earn its place.
 - Code milestone: no tick before a ticket-flow:code-reviewer review
@@ -34,4 +37,27 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
      files by name (review-notes.md if it is there), then
      `git commit -m "M<n> — <what it delivers>"`. Never push.
   5. tell the user what's next, then STOP.
+
+## Dashboard messages (a hook hands them to you)
+- The user can send a Note, a Blocker or an Unblock from the dashboard.
+  A hook gives it to you at session start or with the next prompt. The
+  words in quotes are the user's own.
+- Write each one into tracking_log.md yourself, one line per message
+  under ## Last update:
+  `YYYY-MM-DD — Dashboard note: <text>`,
+  `YYYY-MM-DD — Dashboard blocker: <text>` or
+  `YYYY-MM-DD — Dashboard unblock`.
+- Note: after writing it, answer with ONE line of this shape:
+  `Got your dashboard note: <text>. Written to the log.`
+  It needs a new milestone: propose the milestone line and its place
+  (for example M2b or M4) and wait for the user's OK; the current
+  milestone goes on. It conflicts with the current milestone: stop and
+  ask. The ticket is closed: write it down, then say that a new wish is
+  a new ticket with its own folder.
+- Blocker: after writing it, tell the user and ask ONCE:
+  "stop, or work on what the blocker does not touch?"
+  No PENDING for it: the card already shows the user's blocker. You
+  never clear it: only the user's Unblock on the dashboard does.
+- Unblock: the user's blocker is lifted. Write it down and say so in
+  one line.
 ```

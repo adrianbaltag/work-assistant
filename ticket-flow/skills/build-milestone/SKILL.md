@@ -6,8 +6,7 @@ argument-hint: <milestone ID, or the creator's reply to the result>
 
 # Build milestone
 
-One milestone, one session. Test first, code, proof, an independent review, then the tick.
-Then stop.
+One milestone, one session: test first, code, proof, an independent review, the tick. Then stop.
 
 ## Rules for the whole skill
 
@@ -143,10 +142,8 @@ If the proof fails, say what really happened, with the output. Then fix it or as
 ## Step 4: the independent review (code milestones)
 
 The reviewer is a separate agent that has never seen this session. It can only read. It
-judges the code, not your reasons.
-
-This first review is full and strict: it reads everything the milestone changed. A review
-after it only checks the repairs (Step 5).
+judges the code, not your reasons. This first review is full and strict: it reads
+everything the milestone changed. A review after it only checks the repairs (Step 5).
 
 1. **Collect what changed.**
    - With `.git`: for each new file, by name, run `git add -N <file>` (never a data file or
@@ -184,11 +181,9 @@ the milestone waits as it is, with the line above in the log, until a review can
 
 ## Step 5: the findings
 
-The review sorts its findings into two lists.
-
 | List | What is in it | The tick |
 |---|---|---|
-| `MUST FIX` | A real case ("with this input, this wrong thing happens") and one of four reasons: a wrong result, a broken promise to the creator, harm to a live system, a secret | Waits until it is fixed, or the engineer says no and gives a reason |
+| `MUST FIX` | A real case ("with this input, this wrong thing happens") and one of four reasons: a wrong result, a broken promise to the creator, harm to a live system (in every job: a test that reads a live system), a secret | Waits until it is fixed, or the engineer says no and gives a reason |
 | `GOOD TO KNOW` | Everything else: weak spots, and doubts with no real case | Does not wait. The engineer sees these once and picks. |
 
 `VERDICT: PASS` means `MUST FIX` is empty. There can still be notes under `GOOD TO KNOW`.
@@ -252,6 +247,11 @@ A finding that starts with `Approach:` is a doubt about the way the code is buil
 one of the two lists like any other finding. Say that it is about the approach: fixing it
 may change more than one line.
 
+A finding can say that the code changes something live and `requirements.md` has no
+`RISKY:` line. Then the job turned out risky. Never add a `RISKY:` line yourself to settle
+it. Stop and tell the engineer that the job turned out risky. The plan changes first, by
+the rules in `ticket-flow:plan-milestones` ("Changing the plan later"): it gets its dry run.
+
 Say which ones hold the tick and which do not. End with one question: "Which ones do I fix?
 Say 'all', or the numbers."
 
@@ -278,7 +278,7 @@ and checks the whole milestone: see the last part of this step.)
 |---|---|
 | At least one "must fix" | A repair check (below). |
 | Only "good to know" notes, and every fix stayed small | No new review. Go to Step 6. |
-| Only "good to know" notes, and a fix grew | A fix grew when it adds new behaviour, or changes code in another file than the one the note names (its own test does not count). Tell the engineer that it grew, and why. Then a repair check (below). |
+| Only "good to know" notes, and a fix grew | A fix grew when it adds new behaviour, or touches a code file the note does not name (its own test does not count). Tell the engineer that it grew, and why. Then a repair check (below). |
 | Nothing | Go to Step 6. |
 
 **The repair check.** It does not review the milestone again. It checks only the repairs: is
@@ -322,8 +322,9 @@ the full one and two repair checks, in one session or in several. After two roun
 block says `Repair checks so far: 2` or more), start no repair check on your own,
 whatever is open. If a repair check would be next, or a "must fix" is still open, stop.
 Tell the engineer plainly where things stand and ask what to do:
-another round, split the milestone, or think the approach over. No tick while a "must fix"
-is open. "Another round" is one round: ask again after every extra round.
+another round, split the milestone, or think the approach over. If findings wait for an
+answer too, ask both in ONE message: the findings, then this question. No tick while a
+"must fix" is open. "Another round" is one round: ask again after every extra round.
 
 If the session ends with the milestone still open, add under `## Last update` in
 `tracking_log.md`:
@@ -336,6 +337,7 @@ earlier session staged or knew about files. In this order:
 
 1. Something is under "No answer yet": tell the engineer and move each finding by their
    answer, as in "Tell the engineer". Never repair a finding the engineer did not pick.
+   If `Repair checks so far` says 2 or more, the stop rule's question goes in the same message.
 2. For each finding under "Open", see if its repair is there: a test that shows the problem,
    and it passes. If not, repair it now, test first. Stage nothing in this session: skip
    step 1 of "Repair what the engineer picked".
@@ -416,7 +418,8 @@ as a leftover change: `git add tracking_log.md`, then
 
 **Part 2: the reply.** The engineer brings it, pasted or in their own words. That is their
 call, as in clear-ticket. If it was not pasted, ask once: "Did they add any 'but' or any
-extra wish?"
+extra wish?" The engineer's own project (the yes in `requirements.md` says `own project`):
+there is no creator, so skip this question.
 
 | What comes back | What it is | Do this |
 |---|---|---|
@@ -473,12 +476,9 @@ extra wish?"
 | Moving a finding to the other list yourself | The reviewer sorts. If you disagree, tell the engineer why, with facts. |
 | Fixing a finding before the engineer answered | One message with all findings, then wait |
 | Asking about the "good to know" notes a second time | Once. What is not fixed is in `review-notes.md`. |
-| Fixing a bug with no test that shows it | The failing test comes first |
 | Fixing more than the finding ("while I'm here") | Only that bug |
 | Leaving out a finding the engineer said no to | It goes in `review-notes.md`. A "must fix" goes there with their reason. |
-| Writing every unfixed finding into `tracking_log.md` | They go in `review-notes.md`. `tracking_log.md` gets one line, at the tick. |
 | Reviewing your own code when the reviewer cannot run | The milestone waits, and the log says why |
-| Ticking a user check the engineer has not answered | Wait for their answer |
 | Saying what a user check should show, then asking "right?" | Show where to look, ask what they see, compare after their answer |
 | Making a branch for a milestone | No branches in a ticket folder. Commit on the main line. |
 | Finding the folder on another branch, and switching back or merging by yourself | Say which branch and what is on it, and ask. The engineer decides. |

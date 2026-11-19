@@ -19,7 +19,10 @@ Setup steps for people: README.md. Parked ideas and known gaps: TODO.md.
 - `slack_inbox.py`: Slack rules (what glows, rows, catch-up, read check), no threads; `plain_error` for Slack.
 - `slack_live.py`: Slack background part (Socket Mode / backup polling, rate gate).
 - `project_note.py`: keeps a dashboard card in step with its `work_jira` folder (tracking_log.md, milestones).
-- `work_jira_hooks.py`: the Claude Code hooks (dashboard sync, next step, the gate, milestone guard). No Flask.
+- `dashboard_inbox.py`: Note / Blocker / Unblock message files for Claude (`<work folder>/.claude/dashboard-inbox/`).
+  The app only adds them, the hooks only mark them. Pure Python, no Flask.
+- `work_jira_hooks.py`: the Claude Code hooks (dashboard sync, next step, the gate, milestone guard,
+  dashboard messages handed to Claude). No Flask.
 - `ticket-flow/`: the Claude Code plugin (3 skills, strict reviewer, `hooks/hooks.json`). Its
   `scripts/run_hook.py` only finds this folder and runs `work_jira_hooks.py`. Bump `version` in
   `.claude-plugin/plugin.json` with every change to the plugin (the Mac's copy is keyed by version).

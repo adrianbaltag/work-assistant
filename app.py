@@ -15,6 +15,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 import claude_chat
+import dashboard_inbox
 import notes
 import project_note
 import slack_inbox
@@ -35,6 +36,39 @@ TODO_ODD = "The page sent something odd. Reload the page (F5) and try again."
 TODO_ROW = {"row": int, "text": str}     # which todo a change is for: its place in todos.md + its words
 CRASHED = ("Something went wrong inside the app. Reload the page (F5) and try again. "
            "If it happens again, look at the terminal where the app runs.")
+
+# The card's Note / Blocker / Unblock box (api_message)
+MESSAGE_TRIES = 3       # note.md saved by someone else in the same moment: read it again, this many times at most
+MESSAGES_SHOWN = 3      # the card lists this many sent messages, newest first
+NO_WORDS = "The message is empty. Type a few words first."
+NO_BLOCKER = "Your blocker is already off. Reload the page (F5) to see the card as it is now."
+BUSY_NOTE = "note.md is being saved by another program right now. Wait a moment, then send it again."
+WORK_AWAY = ("Not sent: can't find this project's work folder {} (moved, or the VPN is off). "
+             "Nothing was changed. Connect it, then send it again.")
+NOT_SENT = ("Not sent: the message could not be left in the work folder ({}). Nothing was changed. "
+            "Check that the folder is there and that you may write to it, then send it again.")
+HALF_SENT = ("Your message is on the card (see History), but Claude did NOT get it: it could not be left in the "
+             "work folder ({}). Tell Claude yourself in its next session.")
+
+
+class Refused(Exception):
+    """A message from the card that must not be saved. str(err) = the plain words for the page."""
+
+
+def history_text(kind, text):
+    """The History line of a card message. Its words are the ones Claude gets in the message."""
+    if kind == "note":
+        return text
+    if kind == "blocker":
+        return f"Blocker: {text}"
+    return f"Unblocked: {text}" if text else "Unblocked"
+
+
+def folder_is_there(path):
+    try:
+        return Path(path).is_dir()
+    except OSError:         # e.g. a share that refuses us
+        return False
 
 
 class PageSentOdd(Exception):
@@ -323,7 +357,31 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         except OSError:
             return jsonify(error=UNREADABLE.format(notes.NOTE_FILE)), 400
         return jsonify(project=project, text=text, stamp=stamp, jira_url=jira_url,
-                       history=notes.read_history(text), files=notes.list_files(folder))
+                       history=notes.read_history(text), files=notes.list_files(folder),
+                       messages=sent_messages(project))
+
+    def sent_messages(project):
+        """The card's newest messages to Claude, newest first: kind, text, sent, and status =
+        "waiting for Claude" or "seen by Claude <day>" (the hooks mark a message seen).
+
+        None = the card follows no work folder, so nothing is ever sent.
+        [] = nothing sent yet, or the work folder can't be read right now.
+        """
+        work = notes.linked_folder(project)
+        if not work:
+            return None
+        try:
+            found = dashboard_inbox.read_all(work)
+        except OSError as err:
+            app.logger.warning("The dashboard messages in %s can't be read (%s): the card shows none", work, err)
+            return []
+        return [{"kind": m["kind"], "text": m["text"], "sent": m["sent"], "status": dashboard_inbox.status_text(m)}
+                for m in reversed(found[-MESSAGES_SHOWN:])]
+
+    def is_linked(folder):
+        """True when this card follows a Claude work folder: Ask Claude then leaves the four synced fields alone."""
+        text = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
+        return bool(notes.linked_folder(notes.parse_note(text)[0]))
 
     def chat_input():
         """Read {question, history: [{role, text}, ...]} sent by the page. Returns (question, history, error).
@@ -365,7 +423,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         stamp = notes.note_stamp(folder)
         context, skipped = claude_chat.project_context(folder, datetime.now(), text_limit)
         try:
-            reply, proposal = claude_chat.ask(claude(), model, context, history, question, can_propose=True)
+            reply, proposal = claude_chat.ask(claude(), model, context, history, question, can_propose=True,
+                                              linked=is_linked(folder))
         except claude_chat.ClaudeError as err:
             return jsonify(error=str(err)), 502
         return jsonify(reply=reply, proposal=proposal, skipped=skipped, stamp=stamp)
@@ -380,7 +439,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         data = request.get_json(silent=True)
         data = data if isinstance(data, dict) else {}
         try:
-            proposal = claude_chat.clean_proposal(data.get("proposal"))     # never trust the page blindly
+            proposal = claude_chat.clean_proposal(data.get("proposal"), is_linked(folder))     # never trust the page blindly
         except ValueError as err:
             return jsonify(error=str(err)), 400
         if not proposal:
@@ -444,15 +503,26 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     @app.post("/api/projects/<project_id>/fields")
     def api_save_fields(project_id):
+        """Save changes. JSON {fields: {name: value}, stamp}: only the fields that are sent are written
+        (the page sends the boxes you changed), every other line of note.md stays as it is.
+
+        On a linked card the sync fills in status / blocked_by / working_on / next from Claude's files:
+        those four are never written from here, whatever the page sends.
+        """
         folder = folder_or_404(project_id)
         sent = page_json(fields=dict)["fields"]
-        fields = {k: str(sent.get(k, "")).strip() for k in FORM_FIELDS}
-        if not fields["title"]:
+        fields = {k: str(sent[k]).strip() for k in FORM_FIELDS if k in sent}
+        if "title" in fields and not fields["title"]:
             return jsonify(error="Give the project a name first."), 400
         for key, allowed in CHOICES.items():
-            if fields[key] not in allowed:
+            if key in fields and fields[key] not in allowed:
                 return jsonify(error=f"{key} must be one of: {', '.join(allowed)}"), 400
-        return save(folder, lambda text: notes.set_fields(text, fields))
+
+        def with_fields(text):
+            linked = notes.linked_folder(notes.parse_note(text)[0])
+            return notes.set_fields(text, {k: v for k, v in fields.items()
+                                           if not (linked and k in notes.SYNCED_FIELDS)})
+        return save(folder, with_fields)
 
     @app.post("/api/projects/<project_id>/note")
     def api_save_note(project_id):
@@ -460,15 +530,89 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         new_text = page_json(text=str)["text"]
         return save(folder, lambda text: new_text)
 
-    @app.post("/api/projects/<project_id>/history")
-    def api_add_history(project_id):
+    # ---------- the card's Note / Blocker / Unblock box ----------
+
+    def write_message(folder, kind, text, now):
+        """Put a card message into note.md: one History line by "you"; Blocker / Unblock also set / empty my_blocker.
+
+        Returns (note text before, stamp before, stamp after, the work folder or ""). Raises Refused.
+        It takes no stamp from the page: it reads note.md, adds only its own things and saves. If someone
+        else saves note.md in that very moment (StaleNote), it reads their version and adds to that one.
+        """
+        change = {"blocker": {notes.MY_BLOCKER: text}, "unblock": {notes.MY_BLOCKER: ""}}.get(kind, {})
+        for _ in range(MESSAGE_TRIES):
+            before = notes.note_stamp(folder)
+            old = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
+            fields = notes.parse_note(old)[0]
+            if kind == "unblock" and not fields.get(notes.MY_BLOCKER):
+                raise Refused(NO_BLOCKER)
+            work = notes.linked_folder(fields)
+            if work and not folder_is_there(work):      # checked before anything is saved
+                app.logger.warning("Card message for %s not saved: its work folder %s is not there", folder.name, work)
+                raise Refused(WORK_AWAY.format(work))
+            # set_fields also adds an empty --- block to a note that has none, so the save is accepted
+            new = notes.set_fields(notes.add_history(old, history_text(kind, text), f"{now:%Y-%m-%d}"), change)
+            try:
+                return old, before, notes.write_note(folder, new, before, now), work
+            except notes.StaleNote:
+                continue
+        app.logger.warning("Card message for %s not saved: note.md changed %s times while saving", folder.name, MESSAGE_TRIES)
+        raise Refused(BUSY_NOTE)
+
+    def put_back(folder, old, stamp, now):
+        """Undo our own save of note.md, when the message could not be left for Claude. False = not undone.
+
+        Only while note.md is still exactly what we saved (stamp): someone else's newer save is never thrown away.
+        """
+        try:
+            notes.write_file(folder / notes.NOTE_FILE, folder, old, stamp, now)
+        except (notes.StaleNote, OSError, ValueError) as err:
+            app.logger.error("note.md of %s could not be put back after a failed message (%s: %s): the card "
+                             "has a line Claude did not get", folder.name, type(err).__name__, err)
+            return False
+        return True
+
+    @app.post("/api/projects/<project_id>/message")
+    def api_message(project_id):
+        """The card's Note / Blocker / Unblock box. JSON {kind: "note" | "blocker" | "unblock", text}.
+
+        Note = one History line by "you". Blocker = that + my_blocker gets the reason. Unblock = that +
+        my_blocker is emptied (no words needed). status: and blocked_by: are never touched.
+        A linked card (it follows a Claude work folder): the message is also left there for Claude.
+        The card is saved first, then the message file. If the file can't be written, the card is put back
+        as it was: all or nothing. If even that fails, the error says exactly what is where.
+        Answers {stamp, before, sent}: note.md's stamp after and before, and whether Claude gets it.
+        """
         folder = folder_or_404(project_id)
-        said = page_json(text=str)["text"].strip()
-        if not said:
-            return jsonify(error="Write something first."), 400
-        today = datetime.now().strftime("%Y-%m-%d")
-        # set_fields(..., {}) adds an empty --- block if the note has none, so the save is accepted
-        return save(folder, lambda text: notes.set_fields(notes.add_history(text, said, today), {}))
+        data = page_json(kind=str, text=str)
+        kind, text = data["kind"], " ".join(data["text"].split())      # one line, as dashboard_inbox.add makes it
+        if kind not in dashboard_inbox.KINDS:
+            raise PageSentOdd()
+        if kind in dashboard_inbox.NEEDS_TEXT and not text:
+            return jsonify(error=NO_WORDS), 400
+        now = datetime.now()
+        try:
+            old, before, stamp, work = write_message(folder, kind, text, now)
+        except Refused as err:
+            return jsonify(error=str(err)), 400
+        except UnicodeDecodeError:
+            app.logger.warning("Card message for %s not saved: note.md is not UTF-8", project_id)
+            return jsonify(error=notes.NOT_UTF8.format(notes.NOTE_FILE)), 400
+        except ValueError as err:           # a broken character (half an emoji)
+            app.logger.warning("Card message for %s not saved: %s", project_id, err)
+            return jsonify(error=str(err)), 400
+        except OSError as err:
+            app.logger.warning("Card message for %s not saved: note.md could not be read or changed (%s)", project_id, err)
+            return jsonify(error=LOCKED.format(notes.NOTE_FILE)), 400
+        if work:
+            try:
+                dashboard_inbox.add(work, kind, text, now)
+            except (OSError, ValueError) as err:
+                why = getattr(err, "strerror", None) or str(err)
+                app.logger.error("Card message for %s could not be left in %s (%s)", project_id, work, why)
+                undone = put_back(folder, old, stamp, now)
+                return jsonify(error=(NOT_SENT if undone else HALF_SENT).format(why)), 400
+        return jsonify(stamp=stamp, before=before, sent=bool(work))
 
     # ---------- sessions\ and raw\ files ----------
 

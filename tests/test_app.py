@@ -157,10 +157,10 @@ def test_save_raw_note_without_fields_block_is_refused(tmp_path, client):
 
 
 def test_add_history_line(tmp_path, client):
+    """The card's Note button (it took the place of "Add a line to the history"). More: test_two_way_page.py."""
     make_project(tmp_path, "DEMO-1111", {"title": "Old"})
-    stamp = open_card(client)["stamp"]
-    response = client.post("/api/projects/DEMO-1111/history",
-                           json={"text": "Senior said: Northeast only", "stamp": stamp})
+    response = client.post("/api/projects/DEMO-1111/message",
+                           json={"kind": "note", "text": "Senior said: Northeast only"})
     assert response.status_code == 200
     first = open_card(client)["history"][0]
     assert (first["who"], first["text"]) == ("you", "Senior said: Northeast only")
@@ -170,10 +170,14 @@ def test_add_history_line(tmp_path, client):
 def test_add_history_line_to_note_without_fields_block(tmp_path, client):
     (tmp_path / "loose").mkdir()
     (tmp_path / "loose" / "note.md").write_text("just text\n", encoding="utf-8")
-    stamp = open_card(client, "loose")["stamp"]
-    response = client.post("/api/projects/loose/history", json={"text": "first", "stamp": stamp})
+    response = client.post("/api/projects/loose/message", json={"kind": "note", "text": "first"})
     assert response.status_code == 200
     assert open_card(client, "loose")["history"][0]["text"] == "first"
+
+
+def test_the_old_history_route_is_gone(tmp_path, client):
+    make_project(tmp_path, "DEMO-1111", {"title": "Old"})
+    assert client.post("/api/projects/DEMO-1111/history", json={"text": "x", "stamp": "x"}).status_code == 404
 
 
 # ---------- slice 4: sessions\ and raw\ files ----------

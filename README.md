@@ -97,8 +97,19 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
   folder changed for 7 days or more (ideas never go quiet).
 - **Order:** critical projects first, then the ones untouched the longest.
 - **Click a project** to open its card. There you can edit the fields, the full note.md,
-  the files in `sessions\` and `raw\` (new, edit, rename, upload, paste), add a History line,
+  the files in `sessions\` and `raw\` (new, edit, rename, upload, paste),
   open the notes folder, open the Jira ticket, and **Ask Claude** about this project.
+- **One box at the top of every card,** with three buttons. **Note** adds a History line.
+  **Blocker** marks the project as blocked by you, with your reason. **Unblock** clears it
+  (it shows only while your blocker is on). A sent message can't be edited.
+  The **+** at the end of a dashboard row opens that card with the cursor already in the box.
+- **Two blockers.** A project shows as pending while either blocker is on: yours (tag `you`)
+  or the tracking log's PENDING (tag `log`). It is active again only when both are gone.
+  Your blocker is its own line in note.md (`my_blocker:`); the sync never touches it.
+- **A project that follows a Claude project folder:** Claude also gets your message
+  (see "Messages from the dashboard to Claude"). Status, Working on, Next step and Blocked by
+  are shown as text under *Filled in by Claude's files*: change them in `tracking_log.md` or
+  `requirements.md`. **Save changes** only writes the boxes you changed.
 - **Nothing is ever deleted.** Deleting a file or a project moves it to an archive folder;
   the **Archive** page puts it back with **Restore**.
 - If a file changed on disk while you were editing it in the app (for example Claude Code saved it),
@@ -343,6 +354,7 @@ With this set up, the dashboard follows that work by itself:
 | You send any message to Claude, in any folder | A hook reminds Claude: when you must do something, give you ONE step, then wait for your result. | ~25 per message |
 | Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: update `tracking_log.md`, one local git commit of the reviewed files (if the folder has git; never pushed), tell you what's next, then stop. A code milestone is ticked only after the plugin's strict reviewer looked at it. Every later message in that session reminds Claude: one milestone per session, start a new session. Until then Claude can only write notes in that folder. | ~80 once, then ~40 per message |
 | Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
+| You send a **Note**, a **Blocker** or an **Unblock** from a project's card | A hook hands it to Claude when a session starts in that project, or with your next message in a running session. Claude writes it into `tracking_log.md`. See [Messages from the dashboard to Claude](#messages-from-the-dashboard-to-claude) below. | ~200 once per message |
 | You close the session | A hook deletes the session's small notepad file in the project's `.claude` folder (it remembers which milestones were ticked when the session started). Left-over notepads older than 2 days are deleted at a later start. | none |
 | You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Archive page. **Restore** brings it back. | none |
 
@@ -394,6 +406,55 @@ Good to know:
   `Plan approved by` line appears that you did not agree to, say so and take it out.
 - **A problem never blocks you.** If the hook cannot read something (a locked file, `settings.ini`
   moved), the write goes ahead and you see one line about it.
+
+### Messages from the dashboard to Claude
+
+On a card that follows a project folder you can send Claude three kinds of message:
+a **Note**, a **Blocker** and an **Unblock**.
+
+| Step | What happens |
+|---|---|
+| You send it | The app saves it as a small file in the project folder, in `.claude\dashboard-inbox`. The card shows **waiting for Claude**. |
+| Claude gets it | A hook hands it to Claude when a session starts in that folder, or with your next message in a running session. The card then shows **seen by Claude** and the date. |
+| Claude writes it down | Claude adds one line to `tracking_log.md`, for example `2026-11-18 — Dashboard note: <your text>`. The sync copies that line to the card's History. |
+
+What Claude does with each kind:
+
+- **Note.** Claude writes it down and answers with one line:
+  `Got your dashboard note: <your text>. Written to the log.`
+  If the note needs a new milestone, Claude proposes the milestone line and where it goes, and
+  waits for your OK. The milestone in work goes on. If the note goes against the current
+  milestone, Claude stops and asks. On a closed ticket Claude still writes the note down, and
+  tells you that a new wish is a new ticket.
+- **Blocker.** Claude writes it down, tells you, and asks once: stop, or work on what the blocker
+  does not touch? Nothing is locked. Only your **Unblock** lifts the blocker: Claude cannot. While
+  it is on, Claude is told about it again at every session start.
+- **Unblock.** The blocker is lifted. Claude writes it down and says so.
+
+Three checks make sure a message is not lost:
+
+1. You see the `Got your dashboard note` line in Claude's reply. No such line: ask Claude.
+2. If `tracking_log.md` did not change after Claude got the message, a hook reminds Claude once,
+   after its reply.
+3. If it still did not change, the message is handed over again at the next session start.
+
+Good to know:
+
+- **The checks look at the file, not at the words.** They only see that `tracking_log.md` changed
+  (its time and size). If Claude changed the log for another reason and skipped your note, checks
+  2 and 3 think it is done. Check 1 covers that.
+- **The card decides if your blocker is on.** That is the `my_blocker:` line in note.md, the one
+  the dashboard shows. If you empty that line by hand, Claude is no longer told about the blocker.
+  A blocker you set before the project followed a Claude folder is told to Claude too.
+- **Many messages at once come a few at a time.** Claude gets at most 8 in one go; the rest comes
+  with your next messages.
+- **"seen by Claude" means handed over.** A hook gave the message to Claude. It does not yet mean
+  that Claude wrote it down.
+- **Claude gets it in that project's folder only.** A session started in the whole `work_jira`
+  folder, or in another project, does not get the message: it waits.
+- **Git never sees these files.** The `dashboard-inbox` folder hides itself from git, also in an
+  older project folder that does not ignore `.claude\`.
+- **A problem never blocks you.** A message file that can't be read is skipped, and Claude carries on.
 
 ### Set it up (once)
 
@@ -495,8 +556,9 @@ one project folder, Claude Code no longer reads the settings inside `work_jira\.
   If a hook asks, run the project_note.py command it gives you.
 ```
 
-Then add the milestone rules: copy the block from `work_jira_rules.md` (in the work-assistant folder)
-into `work_jira\CLAUDE.md`, in place of the older "Milestones" block if there is one.
+Then add the rules for milestones and dashboard messages: copy the block from `work_jira_rules.md`
+(in the work-assistant folder) into `work_jira\CLAUDE.md`, in place of the older "Milestones" block
+if there is one. Pasted it before the "Dashboard messages" part was added? Paste the new block over it.
 
 **9. Trust the folder once.** Open `work_jira` in VS Code and start Claude. When Claude Code asks
 whether you trust this folder, say yes. Hooks only run in trusted folders, and trusting `work_jira`
@@ -556,7 +618,7 @@ by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
 | `plan-milestones` (skill) | Cuts the confirmed ticket into as few milestones as the work needs, each with a proof. Says the price (sessions and reviews) before you approve. Lines in `requirements.md`, short steps in `PLAN.md`. You approve the plan. |
 | `build-milestone` (skill) | One milestone per session: test first, code, proof, independent review, tick, stop. After the last one it closes the ticket with the creator. |
 | `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. It cannot be skipped. Sorts what it finds into "must fix" (holds the tick) and "good to know" (you pick). What is not fixed goes in `review-notes.md`. |
-| the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist. |
+| the hooks | Dashboard sync, the next step at session start, the gate, the end-of-milestone checklist, your dashboard messages (Note, Blocker, Unblock). |
 
 You don't have to remember the names: the hooks name the right skill at the right moment, and you
 can also just say "clear this ticket", "plan the milestones" or "build the next milestone".

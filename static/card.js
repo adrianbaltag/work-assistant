@@ -2,13 +2,16 @@
 // and the files in its sessions\ and raw\ folders.
 // Every save sends back the "stamp" the card got when it opened that file. If the file changed since
 // (e.g. Claude Code saved it), Flask answers 409 and we offer "Save mine anyway" / "Load the new version".
-// Uses $, esc, ago and load from app.js.
+// The Note / Blocker / Unblock box at the top is different: it sends no stamp, because Flask only adds
+// its own line to note.md (see sendMessage).
+// Uses $, esc, ago and load from app.js, and changedFields, shortText and oneLineAt from paging.js.
 
 const FIELDS = ["title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder"];
 const GROWS = ["working_on", "next", "blocked_by"];      // these boxes grow with their text: a long value wraps, nothing is cut
 const UPLOAD_LIMIT_MB = 50;     // same as app.py
-let card = null;    // what Flask sent (project, text, stamp, history, files) + id + sel (which view is shown)
+let card = null;    // what Flask sent (project, text, stamp, history, files, messages) + id + sel (which view is shown)
                     // + file (the open sessions\ or raw\ file) + renaming / confirmDel / newOpen (small UI states)
+                    // + drawn (what each field box showed when it was drawn; Save sends only the changed ones)
 
 const kb = b => b >= 1024 ? Math.round(b / 1024) + " KB" : b + " B";
 const extOf = name => name.includes(".") ? name.split(".").pop().toLowerCase() : "";
@@ -38,7 +41,8 @@ async function fetchFile(dir, name) {
   return {...await response.json(), dir, name};
 }
 
-async function openCard(id) {
+// toBox = true (the "+" on a dashboard row): the cursor starts in the Note / Blocker box.
+async function openCard(id, toBox = false) {
   // inert = the page behind the card can't be clicked or reached with Tab, already while the card
   // loads (Enter on a row there would open another card and skip the "unsaved changes" question).
   document.querySelector(".app").inert = true;
@@ -54,8 +58,9 @@ async function openCard(id) {
   startChat();        // once per opening: saves and reloads redraw the card but keep the chat
   $("ov").hidden = false;
   fitFields();        // only now: a hidden box has no height to measure
+  $("m-view").scrollTop = 0;      // start at the top (the Note / Blocker box), not where the last card was left
   document.body.style.overflow = "hidden";
-  $("m-close").focus();
+  (toBox ? $("msg-text") : $("m-close")).focus();
 }
 
 function closeCard() {
@@ -136,7 +141,7 @@ function drawHead() {
   const p = card.project;
   $("m-head").innerHTML = `<div class="t"><div class="path">projects\\${esc(card.id)}\\</div>
       <h2 id="m-title">${esc(p.title)}</h2>
-      <div class="pills"><span class="pill st-${esc(p.status)}">${esc(p.status)}</span><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span>${p.jira ? `<span class="pill pr-normal">${esc(p.jira)}</span>` : ""}<span class="pill pr-normal">updated ${ago(p.days_ago)}</span></div></div>
+      <div class="pills"><span class="pill st-${esc(p.shown_status)}" id="m-status">${esc(p.shown_status)}</span><span class="pill pr-${esc(p.priority)}">${esc(p.priority)}</span>${p.jira ? `<span class="pill pr-normal">${esc(p.jira)}</span>` : ""}<span class="pill pr-normal">updated ${ago(p.days_ago)}</span></div></div>
     <button class="btn" id="m-back">← Dashboard</button><button class="x" id="m-close" aria-label="Close project">×</button>`;
 }
 
@@ -163,12 +168,25 @@ function drawView() {
   card.clean = typed();
 }
 
+// Draw the middle column again, but keep what is typed in the Note / Blocker box: pressing Save
+// must not throw an unsent message away. It is put back after drawView, so the card still counts
+// it as "unsaved" and asks before you close.
+function drawViewKeepMessage() {
+  const unsent = $("msg-text") ? $("msg-text").value : "";
+  drawView();
+  if (unsent && $("msg-text")) {
+    $("msg-text").value = unsent;
+    fitBox($("msg-text"));
+  }
+}
+
 // The newline after <textarea> is on purpose: the browser drops one there, so a file's own first newline survives.
+// .savebar = the warnings and the Save buttons; it sticks to the bottom of the column (app.css), always in view.
 function drawNote() {
   $("m-view").innerHTML = `<div class="v-head"><h3>note.md</h3><span class="meta">the fields between the --- lines feed the dashboard</span></div>
     <textarea class="editor" id="v-text" spellcheck="false">\n${esc(card.text)}</textarea>
-    <div id="v-alert"></div>
-    <div class="foot"><button class="btn primary" id="v-savenote">Save note.md</button><button class="btn" id="v-undo">Undo changes</button></div>`;
+    <div class="savebar"><div id="v-alert"></div>
+    <div class="foot"><button class="btn primary" id="v-savenote">Save note.md</button><button class="btn" id="v-undo">Undo changes</button></div></div>`;
 }
 
 function drawOverview() {
@@ -183,27 +201,130 @@ function drawOverview() {
     const all = options.includes(p[key]) ? options : [p[key], ...options];
     return `<label>${label}<select id="f-${key}">${all.map(o => `<option ${p[key] === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>${hint}</label>`;
   };
-  $("m-view").innerHTML = `<div class="v-head"><h3>Overview & fields</h3><span class="meta">stored at the top of note.md</span></div>
-    <div class="grid">
-      ${input("title", "Project name", "wide")}
-      ${select("status", "Status", ["active", "pending", "idea"])}
-      ${select("priority", "Priority", ["critical", "high", "normal"], '<span class="hint">Only you set this. Claude never changes it.</span>')}
+  // One line of plain text for a linked card: label, then the value (or a grey dash).
+  const fact = (key, label, value = esc(p[key])) =>
+    `<span class="k">${label}</span><span class="v" id="s-${key}">${value || '<span class="none">—</span>'}</span>`;
+  // p.linked = this card follows a Claude work folder. Claude's files then fill in these four values,
+  // so they are plain text here and Save never sends them. A card with no Claude folder keeps its boxes.
+  const synced = !p.linked ? "" : `<div class="box facts" id="v-synced"><h4>Filled in by Claude's files</h4>
+      ${fact("status", "Status", `<span class="pill st-${esc(p.status)}">${esc(p.status)}</span>`)}
+      ${fact("working_on", "Working on")}
+      ${fact("next", "Next step")}
+      ${fact("blocked_by", "Blocked by")}</div>`;
+  const yours = p.linked ? "" : `
       ${grow("working_on", "Working on", "wide")}
       ${grow("next", "Next step", "wide")}
-      ${grow("blocked_by", "Blocked by")}
+      ${grow("blocked_by", "Blocked by")}`;
+  $("m-view").innerHTML = `<div class="v-head"><h3>Overview & fields</h3><span class="meta">stored at the top of note.md</span></div>
+    ${messageBox()}
+    ${synced}
+    <div class="grid">
+      ${input("title", "Project name", "wide")}
+      ${p.linked ? "" : select("status", "Status", ["active", "pending", "idea"])}
+      ${select("priority", "Priority", ["critical", "high", "normal"], '<span class="hint">Only you set this. Claude never changes it.</span>')}${yours}
       ${input("jira", "Jira")}
       ${input("folder", "Code folder", "wide", '<span class="hint">Info only, e.g. work_jira\\DEMO-1111</span>')}
     </div>
     <div class="row"><button class="btn sm" id="v-openfolder">Open notes folder</button><button class="btn sm" id="v-jira">Open in Jira</button></div>
-    <div class="box"><h4>Add a line to the history</h4>
-      <textarea id="f-line" rows="2" placeholder="e.g. Senior said: Northeast markets only"></textarea>
-      <div class="row" style="margin-top:8px"><button class="btn sm" id="v-addline">Add line</button></div>
-      <div id="v-log"></div></div>
-    <div id="v-alert"></div>
-    <div class="foot"><button class="btn primary" id="v-save">Save changes</button><span class="sp"></span><button class="btn danger" id="v-arch">Mark done & archive</button></div>`;
+    <div class="box"><h4>History</h4><div id="v-log"></div></div>
+    <div class="savebar"><div id="v-alert"></div>
+    <div class="foot"><button class="btn primary" id="v-save">Save changes</button><span class="sp"></span><button class="btn danger" id="v-arch">Mark done & archive</button></div></div>`;
+  card.drawn = boxValues();
+  drawMessageState();
   drawLog();
   drawJiraButton();
   fitFields();
+}
+
+// What each field box holds right now, e.g. {title: "Demo", jira: ""}. Only the boxes that are on
+// the card: a linked card has none for the four values Claude's files fill in.
+const boxValues = () => Object.fromEntries(FIELDS.filter(k => $("f-" + k)).map(k => [k, $("f-" + k).value]));
+
+// ---------- the Note / Blocker / Unblock box ----------
+
+// The box at the top of every card: one text box and three buttons.
+// Note = one History line by you. Blocker = that, and the project is blocked by you until Unblock.
+// Unblock needs no words; its button shows only while your blocker is on (drawMessageState).
+function messageBox() {
+  const where = card.project.linked ? "Goes into the History, and Claude gets it in its next session."
+    : "Goes into the History.";
+  return `<div class="box" id="msg"><h4>Note or blocker</h4>
+      <textarea class="grow" id="msg-text" rows="1" aria-label="Note or blocker" placeholder="e.g. Dana said: Northeast markets only"></textarea>
+      <div class="row msg-btns"><button class="btn sm primary" id="msg-note">Note</button><button class="btn sm" id="msg-blocker">Blocker</button><button class="btn sm" id="msg-unblock" hidden>Unblock</button><span class="hint">${where}</span></div>
+      <div id="msg-alert" role="alert"></div>
+      <div id="msg-state"></div></div>`;
+}
+
+const MESSAGE_KINDS = {note: "Note", blocker: "Blocker", unblock: "Unblock"};
+
+// Under the buttons: who blocks the project now ("you" = your Blocker, "log" = Claude's tracking log),
+// and on a linked card the last messages with "waiting for Claude" or "seen by Claude <date>".
+function drawMessageState() {
+  const p = card.project;
+  $("msg-unblock").hidden = !p.blockers.some(b => b.by === "you");
+  const blocked = p.blockers.map(b =>
+    `<div class="blocked">Blocked by <span class="by">${esc(b.by)}</span>${esc(b.text || "pending")}</div>`).join("");
+  const sent = (card.messages || []).map(m => `<li><span class="k">${MESSAGE_KINDS[m.kind]}</span>`
+    + `<span class="clip" title="${esc(m.text)}">${esc(m.text) || "—"}</span><span class="st">${esc(m.status)}</span></li>`).join("");
+  $("msg-state").innerHTML = (blocked ? `<div id="msg-blocked">${blocked}</div>` : "")
+    + (sent ? `<ul class="sent" id="msg-sent" aria-label="Sent to Claude">${sent}</ul>` : "");
+}
+
+// An error from the box, shown right under its buttons. If you moved to another view meanwhile
+// (note.md, a file), the box is not on screen: then it is shown as a toast.
+function messageError(text) {
+  if ($("msg-alert")) $("msg-alert").innerHTML = text ? `<span class="err">${esc(text)}</span>` : "";
+  else if (text) toast(text, 8);
+}
+
+// Send what is in the box. No stamp is needed: Flask adds only its own things to note.md (one History
+// line, and your blocker), so it never answers "this note changed since you opened it".
+// A sent message can't be edited. Only the parts that show it are drawn again (title pills, this box,
+// the History), so anything you typed in the field boxes stays.
+function sendMessage(kind) {
+  const box = $("msg-text"), text = box.value.trim();
+  messageError("");
+  if (!text && kind !== "unblock") {
+    messageError("Type a few words first.");
+    return box.focus();
+  }
+  if (card.sending) return;      // a second click while the first is on its way
+  card.sending = true;
+  const id = card.id;
+  act("message", {kind, text}, async data => {
+    if (!card || card.id !== id) return;      // the card was closed meanwhile
+    if ($("msg-text")) {                      // the box as it is now (a Save may have drawn it again)
+      $("msg-text").value = "";
+      fitBox($("msg-text"));
+      $("msg-text").focus();                  // ready for the next one (and Unblock, now hidden, can't keep the focus)
+    }
+    toast(kind === "note" ? "Note added" : kind === "blocker" ? "Blocked by you" : "Unblocked");
+    await afterMessage(data);
+  }, messageError).finally(() => { if (card && card.id === id) card.sending = false; });
+}
+
+// After a message: read the card again and show what the message changed.
+// The card's stamp (and its copy of note.md) moves on only when it is safe:
+// - note.md was unchanged before the message (data.before). If someone else had saved it meanwhile,
+//   the stamp stays old, so "Save changes" still warns about that.
+// - you are still on this view. If you switched to note.md while the message was on its way, that
+//   editor shows the text from before the message: with the old stamp, saving it gives the usual
+//   "this note changed" warning and never wipes the new History line.
+async function afterMessage(data) {
+  let fresh;
+  try {
+    fresh = await fetchCard(card.id);
+  } catch (err) {
+    return messageError(`Sent, but the card could not be read again (${err.message}). Close it and open it again.`);
+  }
+  const onOverview = Boolean($("msg"));
+  if (onOverview && card.stamp === data.before) Object.assign(card, {stamp: data.stamp, text: fresh.text});
+  Object.assign(card, {project: fresh.project, history: fresh.history, messages: fresh.messages});
+  drawHead();
+  if (onOverview) {
+    drawMessageState();
+    drawLog();
+  }
 }
 
 // Open in Jira uses what is in the Jira box right now (saved or not) + jira_url from settings.ini.
@@ -219,11 +340,12 @@ function drawJiraButton() {
 const openJira = () => window.open(jiraLink(), "_blank", "noopener");
 const openFolder = () => act("open-folder", {}, async () => toast("Opened the notes folder."));
 
-// Make each growing box (GROWS) as tall as its text. fitBox is the To do page's helper (todo.js).
-// A box that is not on screen (the card is closed, or another view is shown) is skipped.
+// Make each growing box (GROWS, and the Note / Blocker box) as tall as its text. fitBox is the To do
+// page's helper (todo.js). A box that is not on screen (the card is closed, another view is shown,
+// or a linked card that has no such box) is skipped.
 function fitFields() {
-  for (const key of GROWS) {
-    const box = $("f-" + key);
+  for (const id of [...GROWS.map(key => "f-" + key), "msg-text"]) {
+    const box = $(id);
     if (box && box.offsetParent) fitBox(box);
   }
 }
@@ -260,7 +382,8 @@ function drawFile() {
   const body = f.kind === "text" ? `<textarea class="editor" id="v-text" spellcheck="false">\n${esc(f.text)}</textarea>`
     : f.kind === "image" ? `<div class="imgprev"><img src="${api(fileApi(f.dir, f.name))}/bytes?v=${encodeURIComponent(f.stamp)}" alt="${esc(f.name)}"></div>`
     : `<div class="empty"><b>Can't show this file here.</b>It is not plain text (for example Excel or PDF), or it is bigger than 1 MB. Rename and Delete still work.</div>`;
-  $("m-view").innerHTML = `<div class="v-head" id="v-head"></div>${body}<div id="v-confirm"></div><div id="v-alert"></div><div class="foot" id="v-foot"></div>`;
+  $("m-view").innerHTML = `<div class="v-head" id="v-head"></div>${body}
+    <div class="savebar"><div id="v-confirm"></div><div id="v-alert"></div><div class="foot" id="v-foot"></div></div>`;
   drawFileBar();
 }
 
@@ -351,16 +474,17 @@ async function refreshFiles() {
 
 // ---------- note.md ----------
 
-const saveFields = () => save("fields", {fields: Object.fromEntries(FIELDS.map(k => [k, $("f-" + k).value])), stamp: card.stamp},
-  async data => { await reread(data); drawHead(); drawView(); toast("Saved"); });
+// Save changes: only the boxes you changed are sent (changedFields, in paging.js). A box you did not
+// touch is never written, and a linked card has no boxes for the values Claude's files fill in.
+// What is typed in the Note / Blocker box stays where it is (drawViewKeepMessage).
+const saveFields = () => {
+  const fields = changedFields(card.drawn, boxValues());
+  if (!Object.keys(fields).length) return toast("Nothing to save: no field was changed");
+  save("fields", {fields, stamp: card.stamp},
+    async data => { await reread(data); drawHead(); drawViewKeepMessage(); toast("Saved"); });
+};
 const saveNote = () => save("note", {text: $("v-text").value, stamp: card.stamp},
   async data => { await reread(data); drawHead(); drawView(); toast("Saved note.md"); });
-// Adding a line redraws only the history list, so unsaved field edits stay in the form.
-const addLine = () => {
-  const text = $("f-line").value.trim();
-  if (!text) return;
-  save("history", {text, stamp: card.stamp}, async data => { await reread(data); $("f-line").value = ""; drawHead(); drawLog(); toast("Line added"); });
-};
 
 async function reloadCard() {
   try {
@@ -369,7 +493,9 @@ async function reloadCard() {
   } catch (err) {
     return toast(`Could not load it: ${err.message}`);
   }
-  drawCard();
+  drawHead();
+  drawTree();
+  drawViewKeepMessage();      // the new version of the note; an unsent Note / Blocker text stays
   toast("Loaded the new version");
 }
 
@@ -381,6 +507,7 @@ async function showFile(dir, name) {
   card.renaming = card.confirmDel = false;
   drawTree();
   drawView();
+  $("m-view").scrollTop = 0;      // another view: start at its top
 }
 
 async function pick(key) {
@@ -399,6 +526,7 @@ async function pick(key) {
   Object.assign(card, {sel: key, file: null, renaming: false, confirmDel: false});
   drawTree();
   drawView();
+  $("m-view").scrollTop = 0;
 }
 
 const saveFile = () => {
@@ -499,7 +627,8 @@ const screenshotName = f => {
 
 const ACTIONS = {
   "m-back": closeCard, "m-close": closeCard,
-  "v-save": saveFields, "v-savenote": saveNote, "v-addline": addLine, "v-savefile": saveFile,
+  "v-save": saveFields, "v-savenote": saveNote, "v-savefile": saveFile,
+  "msg-note": () => sendMessage("note"), "msg-blocker": () => sendMessage("blocker"), "msg-unblock": () => sendMessage("unblock"),
   "v-undo": () => { $("v-text").value = card.file ? card.file.text : card.text; },
   "v-reload": reloadCard, "v-force": () => card.retry(),
   "t-new": () => toggleNew(true), "nf-cancel": () => toggleNew(false), "nf-ok": createFile,

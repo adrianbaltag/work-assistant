@@ -26,6 +26,7 @@
   --radius:14px; --radius-sm:12px; --radius-xs:7px;
   /* dashboard list heights: app.js reads these to count how many rows fit in the window */
   --row-h:46px; --head-h:38px; --foot-h:54px;
+  --add-w:44px;            /* the "+" button at the end of each dashboard row */
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}   /* .overlay sets display:flex, which would beat the plain hidden attribute */
@@ -170,7 +171,7 @@ tbody tr:last-child td{border-bottom:0}
   .pager button:not([data-arrow]):not([aria-current]),.pager .gap{display:none}
 }
 @media (prefers-reduced-motion:no-preference){
-  .plist.anim button.prow{animation:rise .35s ease-out backwards}   /* only on a page change or tile click */
+  .plist.anim .prow-wrap{animation:rise .35s ease-out backwards}   /* only on a page change or tile click */
   @keyframes rise{from{opacity:0;transform:translateY(6px)}}
 }
 
@@ -204,8 +205,9 @@ tbody tr:last-child td{border-bottom:0}
 @media (max-width:700px){.m-body{grid-template-columns:1fr}.m-body #m-tree{border-right:0;border-bottom:1px solid var(--border)}}
 .col{min-height:0;overflow-y:auto;display:flex;flex-direction:column}
 #m-tree{border-right:1px solid var(--border);padding:16px 12px;gap:4px;background:var(--sidebar)}
-#m-view{padding:20px 24px;gap:18px}
-@media (max-width:600px){#m-view{padding:16px 14px}}
+/* --pad-y / --pad-x: the save bar (.savebar) reads them to reach the column's edges */
+#m-view{--pad-y:20px;--pad-x:24px;padding:var(--pad-y) var(--pad-x);gap:18px}
+@media (max-width:600px){#m-view{--pad-y:16px;--pad-x:14px}}
 #m-claude{border-left:1px solid var(--border);background:var(--sidebar)}
 
 .folder{font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;color:var(--text-label);padding:12px 8px 4px;display:flex;justify-content:space-between}
@@ -249,6 +251,41 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .btn.sm{padding:5px 10px;font-size:.78rem;border-radius:8px}
 .btn.danger{color:var(--critical);border-color:rgba(242,92,84,.35);background:var(--critical-bg)}
 .mono{font-family:var(--mono)}
+
+/* Two-way: Note / Blocker / Unblock from the dashboard to Claude */
+/* Dashboard: one list line = the row button + a "+" button after it. The header row leaves the same room. */
+.prow-wrap{display:grid;grid-template-columns:minmax(0,1fr) var(--add-w);transition:background .15s}
+.prow-wrap:hover{background:var(--hover)}
+.prow.head{padding-right:var(--add-w)}
+.padd{height:var(--row-h);padding:0;border:0;border-top:1px solid var(--hover);background:none;display:grid;place-items:center;color:var(--text-muted)}
+.padd span{width:26px;height:26px;border:1px solid var(--border-strong);border-radius:8px;display:grid;place-items:center;font-size:16px;line-height:1;transition:background .15s,border-color .15s,color .15s}
+button.padd:hover span{background:var(--raised);border-color:var(--border-focus);color:var(--text)}
+.padd:focus-visible{outline-offset:-2px}
+/* Who set a blocker: "you" or "log". Same look as the name tags in the History list. */
+.by{font-family:var(--mono);font-size:.66rem;padding:1px 6px;margin-right:6px;border-radius:6px;background:var(--hover);color:var(--text-muted)}
+/* Card: the message box at the top */
+.msg-btns{margin-top:8px}
+.msg-btns .hint{margin-left:4px}
+#msg-alert:empty,#msg-state:empty,#msg-blocked:empty{display:none}
+#msg-alert{margin-top:8px}
+#msg-state{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:10px}
+#msg-blocked{display:flex;flex-direction:column;gap:4px}
+.blocked{color:var(--pending);font-size:.84rem;overflow-wrap:anywhere}
+/* The last messages and whether Claude has seen them: small and quiet */
+.sent{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.sent li{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:10px;align-items:baseline;font-size:.8rem;color:var(--text-muted)}
+.sent .k,.sent .st{font-family:var(--mono);font-size:.68rem;color:var(--text-label);white-space:nowrap}
+/* Card: the four values Claude's files fill in, as plain text (label | value) */
+.facts{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px 14px;align-items:baseline}
+.facts h4{grid-column:1/-1;margin:0 0 2px}
+.facts .k{font-size:.74rem;color:var(--text-muted);font-weight:500}
+.facts .v{font-size:.88rem;overflow-wrap:anywhere;min-width:0}
+/* Save bar: sticks to the bottom of the card's middle column, so Save is always in view.
+   The negative margins take it to the column's edges; text scrolls away behind it. */
+.savebar{position:sticky;bottom:calc(-1 * var(--pad-y));z-index:2;margin:auto calc(-1 * var(--pad-x)) calc(-1 * var(--pad-y));padding:12px var(--pad-x) 14px;background:var(--panel);border-top:1px solid var(--border);display:flex;flex-direction:column;gap:10px}
+.savebar>div:empty{display:none}
+.savebar .foot{padding-top:0}
+/* end Two-way */
 
 /* Claude panel */
 .ask-box{flex:1;min-height:420px;max-height:calc(100vh - 220px);display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--border);border-radius:14px;overflow:hidden}

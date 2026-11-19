@@ -60,6 +60,14 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   no log line. Same for Ask Claude's "can't open / can't read" work folder files (`project_context` in
   claude_chat.py) and an unreadable ticket.md (`ticket_goal` in project_note.py). The project has no
   logging yet: add them in the logging lesson (decided 2026-11-06).
+- **Three tests can fail when run exactly across midnight.** Seen once, 2026-11-18 23:59: 3 unit tests
+  failed, then passed on every later run. Some tests compare with the real date (`datetime.now()` in
+  `tests/test_app.py`). The names were not caught; if it shows again, note them and give those tests a fixed clock.
+- **The dashboard's message files are never cleaned up.** Every Note / Blocker / Unblock stays as a small
+  file in the project folder's `.claude\dashboard-inbox`, and the hooks read all of them at every prompt.
+  Fine for hundreds; add a clean-up of old, finished messages if a folder ever gets thousands.
+- **"seen by Claude" is not live on an open card.** It changes when the card is opened again or after the
+  next send (the 30-second refresh does not touch an open card).
 
 ## To do page
 

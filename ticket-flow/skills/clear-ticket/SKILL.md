@@ -271,7 +271,8 @@ Step 6). Read it strictly.
 
 If it was not pasted, ask one short question before you accept a yes: "Did they add any 'but'
 or any extra wish?" A retold yes often drops the "but". Then wait. The file can say there was
-no "but" only when you asked and the engineer answered.
+no "but" only when you asked and the engineer answered. The engineer's own idea (see
+"No ticket"): skip this question. Nobody retold the yes: they say it themselves, in this chat.
 
 | The creator says | What it is | What to do |
 |---|---|---|

@@ -1,18 +1,27 @@
 // Dashboard paging maths: pure functions, no page or window in here, so tests/test_paging_js.py can
 // run this file in Node. The browser loads it before app.js, which uses these functions.
 
-const SEARCH_IN = ["title", "jira", "working_on", "next", "blocked_by"];
+const SEARCH_IN = ["title", "jira", "working_on", "next", "blocked_by", "my_blocker"];
 const MIN_ROWS = 3;     // a very short window shows 3 rows and scrolls a little, not 1 row per page
 
 const filtersOn = filters => Boolean(filters.q.trim() || filters.status || filters.prio);
 
 // The projects that pass the search box AND both dropdowns.
+// The Status dropdown looks at the status the row shows (shown_status: "pending" while someone blocks
+// the project), not at the one saved in the note.
 function filterProjects(projects, filters) {
   const q = filters.q.trim().toLowerCase();
   return projects.filter(p =>
     (!q || SEARCH_IN.some(field => String(p[field] ?? "").toLowerCase().includes(q)))
-    && (!filters.status || p.status === filters.status)
+    && (!filters.status || (p.shown_status ?? p.status) === filters.status)
     && (!filters.prio || p.priority === filters.prio));
+}
+
+// The card's Save: only the boxes whose text is not what the card drew go to Flask.
+// drawn = {field: text when the card was drawn}, now = {field: text in the box now}.
+// A box you did not touch is never sent, so Save can't write an old value over a newer one in the note.
+function changedFields(drawn, now) {
+  return Object.fromEntries(Object.entries(now).filter(([field, text]) => text !== drawn[field]));
 }
 
 // Rows that fit in `room` pixels. A row height that could not be read (empty or 0) also gives MIN_ROWS.
@@ -69,5 +78,5 @@ function oneLineAt(text, cursor) {
 // Node (the tests) reads the functions from here; the browser has no `module` and just uses them.
 if (typeof module !== "undefined") {
   module.exports = {filtersOn, filterProjects, rowsThatFit, pageHolding, pageList, footerText, emptyMessage, shortText,
-                    oneLineAt};
+                    oneLineAt, changedFields};
 }

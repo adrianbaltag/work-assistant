@@ -16,6 +16,11 @@ closed ticket: notes only.
 Milestone guard: one milestone per session. session-start writes a notepad in the ticket's .claude folder
 (which milestones in requirements.md were ticked at the start); a box ticked since then = this session's milestone.
 
+Dashboard messages: the user sends a Note, a Blocker or an Unblock from the dashboard (dashboard_inbox.py keeps
+each one as a small file in the ticket's .claude/dashboard-inbox). session-start and prompt hand them to Claude,
+who writes them into tracking_log.md. Still not written (the log's time and size did not change since)?
+stop reminds once, and the next session-start hands them over again.
+
 Claude Code sends the hook a small JSON on stdin (we use "cwd" = the folder Claude is in).
 We always answer with exit 0 and, when there is something to say, a small JSON on stdout:
     stop: the reminder goes in "additionalContext". Claude reads it and keeps going.
@@ -31,6 +36,7 @@ import sys
 from datetime import datetime
 from pathlib import Path, PurePath
 
+import dashboard_inbox as inbox
 import notes
 import project_note as pn
 
@@ -76,7 +82,7 @@ Never push.
 A code milestone is ticked only after a ticket-flow:code-reviewer review passed, or every "must fix" is fixed, \
 or is in review-notes.md with the user's reason. And only when the user has answered every finding: "No answer yet" \
 and "Open" in the milestone's block in review-notes.md both say none. \
-A "user check" milestone is ticked only after the user said in chat, in their own words, what they saw, and it \
+A milestone with a user check in its "Done when" is ticked only after the user said in chat, in their own words, what they saw, and it \
 matched. A "yes" to an answer you said first does not count. If either is missing, untick it and do that first.
 For the rest of this session only notes (.md files, not PLAN.md) can be written in this ticket folder."""
 
@@ -118,6 +124,42 @@ LOCKED = "{ids} ticked in this session, and it is one milestone per session."
 LOCKED_CAN = """Only notes (.md files, not PLAN.md) can be written now: finish the closing steps, then tell the \
 user to start a new session. If the tick was a mistake, untick it in requirements.md."""
 
+# Messages the user sent from the dashboard (dashboard_inbox.py). The text in quotes is always the user's own words.
+FROM_DASHBOARD = "From the dashboard, sent by the user. The words in quotes are the user's own:"
+KIND = {"note": "Note", "blocker": "Blocker", "unblock": "Unblock"}
+TOLD_BEFORE = " (told before: tracking_log.md has not changed since)"
+NOT_ON = " (no longer on)"
+CUT = " … (cut here: ask the user for the rest)"
+TEXT_CHARS = 500        # a longer message is cut: Claude Code cuts a hook's whole text at 10,000 characters
+AT_ONCE = 8             # ...and no more messages than this in one text, so the instructions after the list survive
+MORE = "{n} more are waiting: you get them later, a few at a time."
+# One dated line under ## Last update: the dashboard sync reads it like any other entry (a History line on the card).
+LOG_ENTRY = {"note": "{today} — Dashboard note: <text>", "blocker": "{today} — Dashboard blocker: <text>",
+             "unblock": "{today} — Dashboard unblock"}
+WRITE_NOW = ("In your next reply, write each one into tracking_log.md yourself: one line per message under "
+             "## Last update, like {lines}.")
+WRITE_LATER = ("This folder has no tracking_log.md yet. As soon as it exists, write each one into it yourself: "
+               "one line per message under ## Last update, like {lines}.")
+ANSWER_NOTE = ("For a Note: after writing it, answer the user with ONE line of this shape: "
+               "`Got your dashboard note: <text>. Written to the log.`")
+HOW = {
+    "note": ANSWER_NOTE + " If the note needs a new milestone, propose the milestone line and its place (for example "
+            "M2b or M4) and wait for the user's OK: the current milestone goes on, one milestone per session. "
+            "If the note conflicts with the current milestone, stop and ask.",
+    "closed": ANSWER_NOTE + " Then tell the user that this ticket is closed: a new wish is a new ticket with its own "
+              "folder, made with + New project on the dashboard.",
+    "blocker": 'For the Blocker: after writing it, tell the user, and ask ONCE: "stop, or work on what the blocker '
+               "does not touch?\" Write no PENDING for it: the dashboard card already shows the user's blocker. "
+               "You never clear it: only the user's Unblock on the dashboard does.",
+    "unblock": "For the Unblock: the user's blocker is lifted. After writing it, say so in one line.",
+}
+STANDING = ("Standing fact, not a new message: the user's dashboard blocker is still on{sent}: \"{text}\". "
+            'If you have not asked in this session yet, tell the user and ask once: "stop, or work on what the '
+            "blocker does not touch?\" Nothing to log. You never clear it: only the user's Unblock on the dashboard does.")
+NOT_LOGGED = """Not in tracking_log.md yet (the file has not changed since you got this from the dashboard):
+{messages}
+{more}Write each one under ## Last update now, like {lines}, then tell the user in one line."""
+
 NOTEPAD_DAYS = 2        # notepads left behind (crash, window closed hard) are deleted at a later session start
 
 
@@ -132,7 +174,8 @@ def stop(event, settings, now):
         return 0, ""
     if not (work / pn.TRACKING_LOG).is_file():
         return 0, ""                                 # still being set up: SessionStart already said what to do
-    said = [m for m in (card_check(projects, work, now), milestone_check(work, event, now)) if m]
+    said = [m for m in (card_check(projects, work, now), milestone_check(work, event, now),
+                        unwritten_check(work, event, now)) if m]
     if said and not event.get("stop_hook_active"):   # never block twice in a row (no loops)
         return 2, "\n\n".join(said)
     return 0, ""
@@ -221,12 +264,19 @@ def session_start(event, settings, now):
     if work is None:
         return "", for_user
     start_notepad(work, event, now)
+    said = [folder_context(work),                    # a dashboard message arrives even when PENDING
+            dashboard_messages(work, now, start=True, on_card=card_blocker(projects, work))]
+    return "\n\n".join(part for part in said if part), for_user
+
+
+def folder_context(work):
+    """What to do in this ticket folder: the next step of a set-up ticket, or how to set the folder up."""
     if (work / pn.TRACKING_LOG).is_file():
-        return ticket_context(work), for_user
+        return ticket_context(work)
     files = {f.name for f in work.iterdir() if not f.name.startswith(".")}
     if files <= {"ticket.md"}:
-        return NEW_FOLDER.format(name=work.name, ticket=READ_TICKET if files else ""), for_user
-    return OLD_FOLDER.format(name=work.name), for_user
+        return NEW_FOLDER.format(name=work.name, ticket=READ_TICKET if files else "")
+    return OLD_FOLDER.format(name=work.name)
 
 
 def ticket_context(work):
@@ -310,8 +360,17 @@ def find_notepad(cwd, session_id):
     return None
 
 
-def prompt(event):
-    """Every prompt you send: the one-step reminder, plus "start a new session" after a tick."""
+def prompt(event, now=None):
+    """Every prompt you send: the one-step reminder, "start a new session" after a tick, new dashboard messages."""
+    said = [one_step(event)]
+    work = find_inbox(event.get("cwd"))              # last: a message is marked seen only when nothing above failed
+    if work:
+        said.append(dashboard_messages(work, now or datetime.now(), start=False))
+    return "\n\n".join(part for part in said if part)
+
+
+def one_step(event):
+    """The one-step reminder, plus "start a new session" after a tick in this session."""
     file = find_notepad(event.get("cwd"), event.get("session_id"))
     data = read_notepad(file) if file else None
     if data is None:
@@ -344,6 +403,131 @@ def session_end(event):
     file = find_notepad(event.get("cwd"), event.get("session_id"))
     if file:
         file.unlink(missing_ok=True)
+
+
+# ---------- messages from the dashboard: Note, Blocker, Unblock ----------
+
+def find_inbox(cwd):
+    """The ticket folder whose dashboard messages these are: cwd or a folder above it, or None (no inbox).
+
+    The prompt hook has no settings.ini: like find_notepad, it walks up (Claude may have cd'd into tests\\).
+    """
+    here = Path(cwd or os.getcwd())
+    for folder in [here, *here.parents]:
+        if inbox.inbox_folder(folder).is_dir():
+            return folder
+    return None
+
+
+def card_blocker(projects, work):
+    """The user's blocker as the project's dashboard card has it ("" = off). None = there is no card to read.
+
+    The card (my_blocker in note.md) is what the user sees and can change, so it decides if the blocker is on.
+    """
+    try:
+        card = notes.find_project(projects, Path(work).name) if projects else None
+        if card is None:
+            return None
+        fields, _ = notes.parse_note((card / notes.NOTE_FILE).read_text(encoding="utf-8-sig"))
+        return fields.get(notes.MY_BLOCKER, "").strip()
+    except (OSError, ValueError):                    # locked, or not UTF-8: the message files say it then
+        return None
+
+
+def dashboard_messages(work, now, start, on_card=None):
+    """The user's dashboard messages as text for Claude ("" = nothing to say). What is handed over is marked seen.
+
+    Every time: the messages no hook handed over yet, at most AT_ONCE (the rest comes with a later prompt).
+    At a session start (start=True) also the ones Claude got but did not write down (tracking_log.md has not
+    changed since), and the user's blocker while it is on.
+    on_card = card_blocker() at a session start: the card decides if the blocker is on. None (the prompt hook
+    has no settings.ini, or there is no card) = the newest Blocker message with no Unblock after it decides.
+    A problem with a message file never fails the hook: it is skipped, and the message comes next time.
+    """
+    try:
+        messages = inbox.read_all(work)
+        again = inbox.not_written(messages, inbox.log_stamp(work)) if start else []
+        waiting = [m for m in messages if not m["seen"] or m in again]       # oldest first, as they were sent
+        handed = waiting[:AT_ONCE]
+        blocker = None if on_card == "" else inbox.active_blocker(messages)  # off on the card = off
+        said = []
+        if handed:
+            said.append(hand_over(work, handed, again, blocker, now, len(waiting) - len(handed)))
+            inbox.mark_seen(work, [m["id"] for m in handed], now)            # a file that can't be saved: told again
+        still_on = on_card if on_card is not None else (blocker["text"] if blocker else "")
+        if start and still_on and blocker not in handed:
+            sent = f" (sent {blocker['sent'][:16]})" if blocker and blocker["sent"] else ""
+            said.append(STANDING.format(sent=sent, text=one_line(still_on)))
+        return "\n\n".join(said)
+    except Exception as err:
+        skipped(err)
+        return ""
+
+
+def hand_over(work, handed, again, blocker, now, more=0):
+    """The text that hands these messages to Claude: the list, how to log them, then what each kind asks for.
+
+    more = how many messages still wait for a later hand-over."""
+    kinds = {m["kind"] for m in handed}
+    has_log = (Path(work) / pn.TRACKING_LOG).is_file()
+    how = [(WRITE_NOW if has_log else WRITE_LATER).format(lines=log_lines(handed, now))]
+    if "note" in kinds:
+        how.append(HOW["closed" if ticket_state(work) == "closed" else "note"])
+    if blocker in handed:                            # a blocker that was lifted since is logged, not asked about
+        how.append(HOW["blocker"])
+    if "unblock" in kinds:
+        how.append(HOW["unblock"])
+    listed = [listed_message(m, TOLD_BEFORE if m in again else "",
+                             NOT_ON if m["kind"] == "blocker" and m != blocker else "") for m in handed]
+    if more:
+        listed.append(MORE.format(n=more))
+    return "\n".join([FROM_DASHBOARD, *listed, " ".join(how)])
+
+
+def unwritten_check(work, event, now):
+    """After a reply: dashboard messages Claude got but did not write into tracking_log.md. A reminder, or "".
+
+    Asked once per hand-over (the message file remembers), so a later reply is never held up again.
+    """
+    if event.get("stop_hook_active"):                # stop() drops a reminder when Stop was already blocked once
+        return ""                                    # ...so it is not marked as reminded: the next reply asks
+    try:
+        unwritten = [m for m in inbox.not_written(inbox.read_all(work), inbox.log_stamp(work)) if not m["reminded"]]
+        waiting = unwritten[:AT_ONCE]                # the rest is asked after a later reply
+        if not waiting:
+            return ""
+        inbox.mark_reminded(work, [m["id"] for m in waiting])
+        more = len(unwritten) - len(waiting)
+        return NOT_LOGGED.format(messages="\n".join(listed_message(m) for m in waiting),
+                                 more=MORE.format(n=more) + "\n" if more else "", lines=log_lines(waiting, now))
+    except Exception as err:
+        skipped(err)
+        return ""
+
+
+def listed_message(message, *marks):
+    """One message on one line, e.g.: - Note, sent 2026-11-18 09:30: "the user's words"."""
+    sent = f", sent {message['sent'][:16]}" if message["sent"] else ""
+    text = one_line(message["text"])
+    return f"- {KIND[message['kind']]}{sent}" + (f': "{text}"' if text else "") + "".join(marks)
+
+
+def one_line(text):
+    """The user's words on one line, cut when very long."""
+    text = " ".join(text.split())
+    return text if len(text) <= TEXT_CHARS else text[:TEXT_CHARS].rstrip() + CUT
+
+
+def log_lines(messages, now):
+    """The log line to write for each kind in these messages, e.g. `2026-11-18 — Dashboard note: <text>`."""
+    today = now.strftime("%Y-%m-%d")
+    kinds = [kind for kind in KIND if any(m["kind"] == kind for m in messages)]
+    return ", ".join(f"`{LOG_ENTRY[kind].format(today=today)}`" for kind in kinds)
+
+
+def skipped(err):
+    """A problem with the dashboard messages: one line on stderr (as the milestone hooks do), and the hook goes on."""
+    print(f"work_jira hook: dashboard messages skipped ({err}). Claude can carry on.", file=sys.stderr)
 
 
 # ---------- the gate: no code before the creator's yes and an approved plan ----------
@@ -536,7 +720,7 @@ def milestone_main(which, event, now):
     try:
         if which == "prompt":
             event_name = "UserPromptSubmit"
-            context = prompt(event)
+            context = prompt(event, now)
         elif which == "after-edit":
             event_name = "PostToolUse"
             context = after_edit(event, now)
