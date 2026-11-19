@@ -413,7 +413,7 @@ def test_projects_folder_that_cannot_be_read(tmp_path, monkeypatch):
 
     def refuse(folder):
         raise PermissionError("Access is denied")
-    monkeypatch.setattr(notes, "list_projects", refuse)
+    monkeypatch.setattr(notes, "project_folders", refuse)      # the settings check lists the folder with this
     lines, _, _ = check_setup.check_settings(write_settings(tmp_path, f"projects_folder={tmp_path / 'p'}\n"))
     assert BAD in marks(lines) and "can't be read" in text(lines)
 

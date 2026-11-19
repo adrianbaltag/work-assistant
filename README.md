@@ -339,7 +339,7 @@ With this set up, the dashboard follows that work by itself:
 | You start Claude in a set-up project (it has `tracking_log.md`) that is not PENDING and has no `.git` folder | Before anything else, a hook tells Claude to offer you local git (see "Local git in each ticket folder" below). Yes = Claude writes the `.gitignore` if there is none and makes the first commit. No = it asks again next session. | a few |
 | A folder in `work_jira` has no card (an older folder, or one you made by hand) | The next time Claude Code starts, a hook makes a card, named after the folder. If the folder has a `tracking_log.md`, the card is filled from it at once; if not, it fills in once Claude works in that folder. Type a better name on the card any time: the sync never changes it. | none |
 | The folder has a `tracking_log.md` but still no card (rare: the start-up hook could not make it) | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
-| Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. If `requirements.md` has milestones, they win: first unticked → `working_on:` (e.g. `M8 of 12 · hourly job runs`), the one after it → `next:` (e.g. `M9 · email the report`; short name = text before "· Done when"). Last milestone or all done: `next:` from *Next up*. No milestones: `working_on:` = *Now working on* (when PENDING, only the text after the reason). The dashboard re-reads the cards every 30 seconds, fits the window width, and cuts long text with "…" (hover for all). | none |
+| Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card. The same copy also runs when Claude Code starts and every 30 seconds while the dashboard is open, so a session you ended with Esc, or a line you typed in the log by hand, still reaches the card. What is copied: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. If `requirements.md` has milestones, they win: first unticked → `working_on:` (e.g. `M8 of 12 · hourly job runs`), the one after it → `next:` (e.g. `M9 · email the report`; short name = text before "· Done when"). Last milestone or all done: `next:` from *Next up*. No milestones: `working_on:` = *Now working on* (when PENDING, only the text after the reason). The dashboard re-reads the cards every 30 seconds, fits the window width, and cuts long text with "…" (hover for all). | none |
 | You send any message to Claude, in any folder | A hook reminds Claude: when you must do something, give you ONE step, then wait for your result. | ~25 per message |
 | Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: update `tracking_log.md`, one local git commit of the reviewed files (if the folder has git; never pushed), tell you what's next, then stop. A code milestone is ticked only after the plugin's strict reviewer looked at it. Every later message in that session reminds Claude: one milestone per session, start a new session. Until then Claude can only write notes in that folder. | ~80 once, then ~40 per message |
 | Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
@@ -537,8 +537,13 @@ What comes next, one or more lines.
 2026-10-22 — what was done
 ```
 
-Under *Last update*, the line with the newest date becomes the History line, whether it is at the
-top or the bottom. Several lines with that same date each become a History line (never twice).
+Under *Last update*, the entry with the newest date becomes the History line, whether it is at the
+top or the bottom. An entry is a dated line plus the undated lines under it. Several entries with that
+same date each become a History line (never twice). If an entry gets more lines later, its History
+line is replaced by the longer text: one line, not two.
+
+Save `tracking_log.md` as UTF-8. The card keeps a `sync_stamp:` line (the time and size of the two
+files at the last copy): it is written by the app, leave it alone.
 
 If a heading is missing, the Stop hook asks Claude once to put it back. You can also update a card
 by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
@@ -604,6 +609,10 @@ Run `.venv\Scripts\python check_setup.py` first. The most common answers:
 | `Claude login failed` | The Claude token is wrong or expired. Get a fresh one and set it again. |
 | `No Claude login found` | You're in a new window: set the Claude variables again (Part 2, step 2). |
 | Ask Claude says "Claude is busy (rate limit)" | Either your gateway budget is used up (ask your team lead), or the app runs in a window with an old gateway address. Stop the app, close every PowerShell window, open a new one, check `echo $env:ANTHROPIC_BASE_URL` shows the right address, then start the app again. |
+| `Work Assistant did not start.` in the terminal | A line in `settings.ini` is wrong. The lines under the message say which one and how to fix it. Fix it and start the app again. |
+| The page says `Can't open the projects folder` | The folder in `projects_folder=` is not there right now. Network drive: connect the VPN, then reload the page (no restart needed). Wrong path: fix `settings.ini` and restart the app. |
+| A dashboard row says a note `isn't saved as UTF-8` | Open that `note.md` in Notepad, choose File > Save As, set Encoding to UTF-8, save, then reload the page. The other projects keep working. |
+| `Could not change note.md. Is it open in another program` | Close the note in the other program (Excel, Word) and save again. Nothing was lost: a save that fails leaves the note as it was. |
 | `Packages: ...` | Run `.venv\Scripts\python -m pip install -r requirements.txt` |
 | `missing permissions` | Your Slack app was made by hand and missed some. Easiest fix: make a new app from the manifest (Step 5). |
 | `the instant connection did not open` | The work network may block it. Put `slack_mode=backup` in `settings.ini`: the app then checks Slack every 30 seconds instead. |
@@ -682,4 +691,7 @@ Like on Windows, these last only for that Terminal window.
 
 - Tests: `.venv\Scripts\python -m pytest` (Mac: `.venv/bin/python3 -m pytest`). They use fake Claude and
   fake Slack clients, so they never need the network or a token.
+- Browser tests (`tests/e2e/test_page_e2e.py`) are skipped unless Playwright is installed. Only needed if you
+  change the page: `.venv\Scripts\python -m pip install -r requirements-dev.txt`, then once
+  `.venv\Scripts\python -m playwright install chromium`.
 - This repo is **public**: never commit tokens, real Slack IDs, or company URLs.

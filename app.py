@@ -7,9 +7,11 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import urlparse
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 import claude_chat
@@ -25,10 +27,87 @@ PORT = 5050         # not 5000: macOS AirPlay Receiver uses that port
 CHOICES = {"status": list(notes.STATUSES), "priority": ["critical", "high", "normal"]}
 FORM_FIELDS = ["title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder"]
 UPLOAD_LIMIT_MB = 50
-LOCKED = "Could not change {}. Is it open in another program (e.g. Excel)? Close it and try again."
+LOCKED = notes.LOCKED
 UNREADABLE = "Could not read {}. Is it open in another program (e.g. Excel)? Close it and reload this page (F5)."
+FILE_PROBLEM = ("Could not read or change {} ({}). Check that the disk or network drive is there and not full, "
+                "then try again.")
 TODO_ODD = "The page sent something odd. Reload the page (F5) and try again."
 TODO_ROW = {"row": int, "text": str}     # which todo a change is for: its place in todos.md + its words
+CRASHED = ("Something went wrong inside the app. Reload the page (F5) and try again. "
+           "If it happens again, look at the terminal where the app runs.")
+
+
+class PageSentOdd(Exception):
+    """The JSON the page sent is missing something or is not JSON at all. Answered with TODO_ODD."""
+
+
+class Finding(NamedTuple):
+    """One line of the settings check. level = "ok", "bad", "warn" or "skip"."""
+    level: str
+    text: str
+    stops_app: bool = True      # for a "bad" one: the app refuses to start. Not for a folder that is away
+                                # (projects_folder: the page says so; work_jira_folder: its box just greys)
+
+
+def validate_settings(path=None):
+    """The one settings check: the app start-up and check_setup.py both use it.
+
+    Returns (settings dict, slack settings, findings). settings is None when settings.ini is missing or
+    unreadable (then there is one "bad" finding and the slack settings are the defaults).
+    path=None = the real settings.ini. Nothing is raised: every mistake is a Finding in plain English.
+    """
+    slack = slack_inbox.slack_settings({})
+    try:
+        settings = load_settings() if path is None else load_settings(path)
+    except SystemExit as err:
+        return None, slack, [Finding("bad", str(err))]
+    found = [Finding("ok", f"settings.ini found ({path or SETTINGS_FILE})")]
+    folder = settings.get("projects_folder", "").strip()
+    if not folder:
+        found.append(Finding("bad", "projects_folder= is empty or missing in settings.ini. Type the path to your "
+                                    "notes folder after the =, like C:\\Users\\YOUR-NAME\\Desktop\\projects "
+                                    "(Mac: /Users/YOUR-NAME/Desktop/projects)."))
+    elif not Path(folder).is_dir():
+        found.append(Finding("bad", f"projects_folder= {folder} does not exist. Fix the path in settings.ini "
+                                    "(for a network drive: connect the VPN first)." + notes.path_hint(folder),
+                             stops_app=False))      # the page opens and says so: a drive that comes back needs no restart
+    else:
+        try:
+            count = len(notes.project_folders(folder))      # counts folders, opens no note: one bad note is not a settings mistake
+        except OSError as err:
+            found.append(Finding("bad", f"projects_folder= {folder} can't be read ({err.strerror or err}). "
+                                        "Check the path, the VPN (for a network drive) and that you may open it.",
+                                 stops_app=False))
+        else:
+            found.append(Finding("ok", f"projects_folder: {folder} ({count} projects)"))
+    found.append(check_work_jira_folder(settings.get("work_jira_folder", "").strip()))
+    try:
+        read_text_limit(settings.get("text_limit", ""))
+    except SystemExit as err:
+        found.append(Finding("bad", str(err)))
+    try:
+        slack = slack_inbox.slack_settings(settings)
+    except SystemExit as err:
+        found.append(Finding("bad", str(err)))
+    if settings.get("jira_url", "").strip() and not read_jira_url(settings["jira_url"]):
+        found.append(Finding("warn", "jira_url= must start with https:// (or http://). Until then, Open in Jira is off."))
+    return settings, slack, found
+
+
+def check_work_jira_folder(folder):
+    """One Finding for work_jira_folder=. Blank is fine: sync with work_jira is optional."""
+    if not folder:
+        return Finding("skip", "work_jira_folder= not set: sync with work_jira and the Work project box are off (optional).")
+    if not Path(folder).is_dir():
+        return Finding("bad", f"work_jira_folder= {folder} does not exist. Fix the path in settings.ini, "
+                              "or leave it blank to turn sync with work_jira off." + notes.path_hint(folder),
+                       stops_app=False)
+    try:
+        count = sum(1 for f in Path(folder).iterdir() if project_note.is_project_folder(f))
+    except OSError as err:
+        return Finding("bad", f"work_jira_folder= {folder} can't be read ({err.strerror or err}). "
+                              "Check the path and that you may open it.", stops_app=False)
+    return Finding("ok", f"work_jira_folder: {folder} ({count} project folders)")
 
 
 def read_text_limit(value):
@@ -79,13 +158,16 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     """
     slack_settings = None
     if projects_folder is None:
-        settings = load_settings()
+        settings, slack_settings, findings = validate_settings()
+        stops = [f.text for f in findings if f.level == "bad" and f.stops_app]
+        if stops:       # one short message with every mistake: SystemExit prints it, no traceback
+            raise SystemExit("Work Assistant did not start. Fix this in settings.ini, then start it again "
+                             "(python check_setup.py checks everything):\n- " + "\n- ".join(stops))
         projects_folder = read_projects_folder(settings.get("projects_folder", ""))
         jira_url = settings.get("jira_url", "")
         model = settings.get("model", "")
         text_limit = settings.get("text_limit", "")
         work_jira_folder = settings.get("work_jira_folder", "")
-        slack_settings = slack_inbox.slack_settings(settings)
     model = model.strip() or claude_chat.DEFAULT_MODEL
     work_jira_folder = work_jira_folder.strip()
     text_limit = read_text_limit(text_limit)
@@ -94,6 +176,9 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         slack = slack_live.start(slack_settings, slack_inbox.Inbox())
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = UPLOAD_LIMIT_MB * 1024 * 1024
+    # Only this page's own address. Without it a website can point its own name at 127.0.0.1 (DNS rebinding)
+    # and talk to the app: same_site_only below can't tell, because that name is then "the same site".
+    app.config["TRUSTED_HOSTS"] = ["127.0.0.1", "localhost"]
 
     @app.before_request
     def same_site_only():
@@ -105,6 +190,39 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     @app.errorhandler(413)
     def too_big(_):
         return jsonify(error=f"Upload too big ({UPLOAD_LIMIT_MB} MB max at once)."), 413
+
+    @app.errorhandler(PageSentOdd)
+    def page_sent_odd(_):
+        return jsonify(error=TODO_ODD), 400
+
+    @app.errorhandler(Exception)
+    def anything_else(err):
+        """Last net: every error the page gets is JSON in plain English, never an HTML traceback page."""
+        if isinstance(err, HTTPException):
+            return err                      # 404, 413 ... answer as they always did
+        if isinstance(err, (UnicodeDecodeError, OSError)):
+            app.logger.error("A file could not be read or changed", exc_info=err)     # what failed, for the terminal
+        if isinstance(err, UnicodeDecodeError):
+            return jsonify(error=notes.NOT_UTF8.format("A note or file in this project")), 400
+        if isinstance(err, notes.Locked):
+            return jsonify(error=str(err)), 400         # it already names the file
+        if isinstance(err, OSError):
+            name = Path(err.filename).name if err.filename else "a file"
+            if isinstance(err, PermissionError):
+                return jsonify(error=LOCKED.format(name)), 400
+            return jsonify(error=FILE_PROBLEM.format(name, err.strerror or err)), 400
+        app.logger.exception("Unexpected error")      # the details stay in the terminal, not on the page
+        return jsonify(error=CRASHED), 500
+
+    def page_json(**fields):
+        """The JSON body the page sent, as a dict. fields name=type: each must be there with that type.
+
+        Anything else raises PageSentOdd (a plain message) instead of a KeyError traceback.
+        """
+        data = request.get_json(silent=True)
+        if not (isinstance(data, dict) and all(isinstance(data.get(name), kind) for name, kind in fields.items())):
+            raise PageSentOdd()
+        return data
 
     def work_jira_problem():
         """Why the Work project box is off, or "" when work_jira_folder= is set and the folder is there."""
@@ -124,6 +242,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     @app.get("/api/projects")
     def api_projects():
         now = datetime.now()
+        project_note.sync_all(projects_folder, work_jira_folder, now)     # cards behind their work folder catch up
         try:
             projects = notes.list_projects(projects_folder)
         except OSError as err:
@@ -156,8 +275,9 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         if status not in CHOICES["status"]:
             return jsonify(error=f"Unknown status: {status}."), 400
         work = data.get("work") is True
-        if work and notes.TICKET_ID.fullmatch(project_id.upper()):
-            project_id = project_id.upper()     # work "vzwdac-123" = Jira key VZWDAC-123 (card, folders, jira:)
+        key = project_note.ticket_key(project_id)      # the same rule as the import of a work_jira folder
+        if work and key:
+            project_id = key                    # work "abc-123" = Jira key ABC-123 (card, folders, jira:)
         problem = work_jira_problem() if work else ""
         if problem:
             return jsonify(error=f"Work project is off. {problem} For a personal idea, untick Work project."), 400
@@ -194,9 +314,14 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     def api_project(project_id):
         """Everything the project card needs. stamp = note.md's version, sent back on save."""
         folder = folder_or_404(project_id)
-        stamp = notes.note_stamp(folder)     # before reading: a change in between = a warning, not a lost edit
-        project = notes.dashboard([notes.read_project(folder)], datetime.now())[0]
-        text = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
+        try:
+            stamp = notes.note_stamp(folder)     # before reading: a change in between = a warning, not a lost edit
+            project = notes.dashboard([notes.read_project(folder)], datetime.now())[0]
+            text = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            return jsonify(error=notes.NOT_UTF8.format(f"{project_id}\\{notes.NOTE_FILE}")), 400
+        except OSError:
+            return jsonify(error=UNREADABLE.format(notes.NOTE_FILE)), 400
         return jsonify(project=project, text=text, stamp=stamp, jira_url=jira_url,
                        history=notes.read_history(text), files=notes.list_files(folder))
 
@@ -270,16 +395,20 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         if proposal["history_line"]:
             text = notes.add_history(text, proposal["history_line"], f"{now:%Y-%m-%d}", who="Claude (you approved)")
         session = None
-        if proposal["session_note"]:      # written first; removed again if note.md can't be saved
-            (folder / "sessions").mkdir(exist_ok=True)
-            session = notes.free_name(folder / "sessions", f"{now:%Y-%m-%d}.md", now)
-            session.write_text(proposal["session_note"] + "\n", encoding="utf-8")
         try:
+            if proposal["session_note"]:      # written first; removed again if note.md can't be saved
+                (folder / "sessions").mkdir(exist_ok=True)
+                session = notes.free_name(folder / "sessions", f"{now:%Y-%m-%d}.md", now)
+                notes.safe_write(session, proposal["session_note"] + "\n")
             stamp = notes.write_note(folder, text, data["stamp"], now)
-        except (notes.StaleNote, OSError) as err:
+        except (notes.StaleNote, OSError, ValueError) as err:
             if session:
-                session.unlink()
-            return stale if isinstance(err, notes.StaleNote) else (jsonify(error=LOCKED.format("note.md")), 400)
+                session.unlink(missing_ok=True)
+            if isinstance(err, notes.StaleNote):
+                return stale
+            if isinstance(err, ValueError):
+                return jsonify(error=str(err)), 400
+            return jsonify(error=LOCKED.format("note.md")), 400
         return jsonify(stamp=stamp, session=session.name if session else None)
 
     @app.post("/api/projects/<project_id>/open-folder")
@@ -298,21 +427,26 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         409 = note.md changed since the card opened; the page then offers
         "Save mine anyway" (sends force=true) or "Load the new version".
         """
-        data = request.get_json()
-        current = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
+        data = page_json(stamp=str)
         try:
+            current = (folder / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
             stamp = notes.write_note(folder, make_text(current), data["stamp"],
                                      datetime.now(), force=data.get("force", False))
         except notes.StaleNote:
             return jsonify(error="This note changed since you opened it."), 409
+        except UnicodeDecodeError:
+            return jsonify(error=notes.NOT_UTF8.format(notes.NOTE_FILE)), 400
         except ValueError as err:
             return jsonify(error=str(err)), 400
+        except OSError:
+            return jsonify(error=LOCKED.format(notes.NOTE_FILE)), 400
         return jsonify(stamp=stamp)
 
     @app.post("/api/projects/<project_id>/fields")
     def api_save_fields(project_id):
         folder = folder_or_404(project_id)
-        fields = {k: str(request.get_json()["fields"].get(k, "")).strip() for k in FORM_FIELDS}
+        sent = page_json(fields=dict)["fields"]
+        fields = {k: str(sent.get(k, "")).strip() for k in FORM_FIELDS}
         if not fields["title"]:
             return jsonify(error="Give the project a name first."), 400
         for key, allowed in CHOICES.items():
@@ -323,12 +457,13 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     @app.post("/api/projects/<project_id>/note")
     def api_save_note(project_id):
         folder = folder_or_404(project_id)
-        return save(folder, lambda text: request.get_json()["text"])
+        new_text = page_json(text=str)["text"]
+        return save(folder, lambda text: new_text)
 
     @app.post("/api/projects/<project_id>/history")
     def api_add_history(project_id):
         folder = folder_or_404(project_id)
-        said = request.get_json()["text"].strip()
+        said = page_json(text=str)["text"].strip()
         if not said:
             return jsonify(error="Write something first."), 400
         today = datetime.now().strftime("%Y-%m-%d")
@@ -347,7 +482,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     def typed_name():
         """The name the user typed, made safe: "my notes?.md" -> "my_notes.md". None if nothing is left."""
-        return secure_filename(str(request.get_json().get("name", ""))) or None
+        return secure_filename(str(page_json().get("name", ""))) or None
 
     @app.get("/api/projects/<project_id>/files/<dir>/<name>")
     def api_open_file(project_id, dir, name):
@@ -375,6 +510,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
             notes.new_file(folder, dir, name)
         except FileExistsError:
             return jsonify(error=f"{dir}\\{name} already exists."), 400
+        except OSError:
+            return jsonify(error=LOCKED.format(f"{dir}\\{name}")), 400
         return jsonify(name=name)
 
     @app.post("/api/projects/<project_id>/files/<dir>/<name>")
@@ -383,12 +520,14 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         folder, path = file_or_404(project_id, dir, name)
         if notes.read_file(path)["kind"] != "text":
             return jsonify(error="This file is not text, so it can't be edited here."), 400
-        data = request.get_json()
+        data = page_json(text=str, stamp=str)
         try:
             stamp = notes.write_file(path, folder, data["text"], data["stamp"],
                                      datetime.now(), force=data.get("force", False))
         except notes.StaleNote:
             return jsonify(error="This file changed since you opened it."), 409
+        except ValueError as err:
+            return jsonify(error=str(err)), 400
         except OSError:
             return jsonify(error=LOCKED.format(name)), 400
         return jsonify(stamp=stamp)
@@ -421,8 +560,11 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         """Upload button, drag-and-drop and pasted screenshots. Always into raw\\, never overwrites."""
         folder = folder_or_404(project_id)
         now = datetime.now()
-        names = [notes.save_upload(folder, secure_filename(f.filename or "") or "upload", f.read(), now)
-                 for f in request.files.getlist("files")]
+        try:
+            names = [notes.save_upload(folder, secure_filename(f.filename or "") or "upload", f.read(), now)
+                     for f in request.files.getlist("files")]
+        except OSError:
+            return jsonify(error=LOCKED.format(f"the {notes.UPLOAD_DIR} folder")), 400
         return jsonify(names=names)
 
     # ---------- Archive page: Mark done & archive, Restore ----------
@@ -446,7 +588,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         if archived is None:
             abort(404)
         try:
-            new_id = notes.restore_project(projects_folder, archived, datetime.now())
+            new_id = notes.restore_project(projects_folder, archived, datetime.now(),
+                                           name=notes.archived_name(archived.name))
         except OSError:
             return jsonify(error=LOCKED.format("the project folder")), 400
         return jsonify(id=new_id)
@@ -454,7 +597,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     @app.post("/api/archive/files/restore")
     def api_restore_file():
         """JSON body {project, dir, name}: dir can be "" (old note.md copies), which a URL can't hold."""
-        data = request.get_json()
+        data = page_json()
         folder = folder_or_404(str(data.get("project", "")))
         dir, name = str(data.get("dir", "")), str(data.get("name", ""))
         path = notes.archived_file_path(folder, dir, name)

@@ -140,3 +140,59 @@ def test_filters_on(js):
 ])
 def test_empty_list_message(js, passed, in_tile, filters_on, message):
     assert js("emptyMessage", passed, in_tile, filters_on) == message
+
+
+# ---------- a long History line on the card: cut, with a "Read more" button ----------
+
+@pytest.mark.parametrize("text, limit, short", [
+    ("M2 ticked", 200, None),                         # it fits: nothing to cut, no button
+    ("abcde", 5, None),                               # exactly the limit still fits
+    ("aaa bbb ccc ddd", 9, "aaa bbb…"),               # cut at a word, never in the middle of one
+    ("aaa bbb   ccc ddd", 10, "aaa bbb…"),            # no spaces left before the "…"
+    ("abcdefghij", 5, "abcde…"),                      # one long word: cut where the limit is
+    ("a bcdefghijklmnop", 10, "a bcdefghi…"),         # a space only at the very start: not cut down to "a…"
+])
+def test_short_text_cuts_a_long_line_at_a_word(js, text, limit, short):
+    assert js("shortText", text, limit) == short
+
+
+def test_the_card_cuts_history_lines_and_offers_read_more():
+    card = (STATIC / "card.js").read_text(encoding="utf-8")
+    assert "shortText(" in card and "Read more" in card and "Show less" in card
+    assert 'aria-expanded="false"' in card            # a screen reader hears whether the line is open
+
+
+# ---------- the card's long text boxes grow with their text (no click needed to read them) ----------
+
+def test_the_three_long_card_fields_are_boxes_that_grow():
+    card = (STATIC / "card.js").read_text(encoding="utf-8")
+    assert 'const GROWS = ["working_on", "next", "blocked_by"];' in card
+    assert '<textarea class="grow"' in card           # a textarea wraps its text; an <input> shows one line only
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    assert "textarea.grow{" in css
+
+
+def test_the_growing_boxes_are_fitted_once_the_card_can_be_seen():
+    """A hidden box has no height to measure, so the fit must come after the card is shown."""
+    card = (STATIC / "card.js").read_text(encoding="utf-8")
+    shown = card.index('$("ov").hidden = false;')
+    assert "fitFields();" in card[shown:shown + 80]
+
+
+# ---------- pasted line breaks in a growing box: one line of text, and the cursor stays where you were ----------
+
+@pytest.mark.parametrize("text, cursor, answer", [
+    ("ab", 1, ["ab", 1]),                             # no line break: nothing changes
+    ("abXY\nZcd", 6, ["abXY Zcd", 6]),                # pasted "XY\nZ" into "abcd": the cursor stays right after the Z
+    ("abXY \n  Zcd", 9, ["abXY Zcd", 6]),             # the spaces around a line break go with it
+    ("a\r\nb", 3, ["a b", 2]),                        # a Windows line break
+    ("one\ntwo\nthree", 13, ["one two three", 13]),   # at the end: still at the end
+])
+def test_one_line_at_removes_line_breaks_and_keeps_the_cursor_in_place(js, text, cursor, answer):
+    assert js("oneLineAt", text, cursor) == answer
+
+
+def test_the_growing_boxes_keep_the_cursor_and_undo_when_line_breaks_are_pasted():
+    card = (STATIC / "card.js").read_text(encoding="utf-8")
+    assert "oneLineAt(" in card and "setSelectionRange(" in card     # the cursor is put back, not left at the end
+    assert 'execCommand("insertText"' in card                         # a paste goes in like typing: Ctrl+Z undoes it

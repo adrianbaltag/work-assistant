@@ -591,9 +591,9 @@ def test_new_project_refuses_unsafe_names(tmp_path, bad):
 def test_new_project_leaves_nothing_behind_when_writing_fails(tmp_path, monkeypatch):
     """A half-made folder (no note.md) would be invisible in the app and block the name for good."""
     def broken(*args, **kwargs):
-        raise PermissionError("disk full")
-    monkeypatch.setattr(notes.Path, "write_text", broken)
-    with pytest.raises(PermissionError):
+        raise OSError("disk full")
+    monkeypatch.setattr(notes.os, "replace", broken)        # notes are saved with a temp file + os.replace now
+    with pytest.raises(OSError):
         notes.new_project(tmp_path, "P")
     assert list(tmp_path.iterdir()) == []
 

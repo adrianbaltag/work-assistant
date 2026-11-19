@@ -6,7 +6,6 @@ It sends Claude one tiny message (well under a cent) and asks Slack who you are.
 It saves one small file in Claude Code's own folder: ticket-flow-home.txt, the path of this folder, so the
 ticket-flow plugin's hooks can find it. Nothing else is changed.
 """
-import configparser
 import json
 import os
 import sys
@@ -63,78 +62,17 @@ def check_packages(requirements=HERE / "requirements.txt", version=installed):
     return [(BAD, "Packages: " + ", ".join(wrong) + ". With the .venv on, run: pip install -r requirements.txt")]
 
 
-def unreadable(path, err):
-    """A configparser error in plain English, with the line as the person wrote it."""
-    rows = Path(path).read_text(encoding="utf-8-sig").splitlines()
-    line = lambda n: rows[n - 2] if 2 <= n <= len(rows) + 1 else ""     # n - 2: load_settings adds "[settings]" on top
-    if isinstance(err, configparser.DuplicateOptionError):
-        return f"settings.ini has {err.option}= twice (again on line {err.lineno - 1}). Keep one of them."
-    if isinstance(err, configparser.ParsingError) and err.errors:
-        n = err.errors[0][0]
-        return (f'settings.ini line {n - 1} is not "key=value": {line(n)}  Fix or delete that line '
-                "(a line starting with # is a note).")
-    return f"settings.ini can't be read: {err}".splitlines()[0]
-
-
 def check_settings(path):
     """Returns (lines, the settings dict or None when settings.ini can't be read, the slack_ settings).
 
-    A bad slack_ line is reported here; the Slack checks then run with the defaults.
+    The checks themselves are app.validate_settings (the app's start-up uses the same ones);
+    this only gives each finding its [ OK ] / [FAIL] mark. A bad slack_ line is reported there;
+    the Slack checks then run with the defaults.
     """
     import app             # here, not at the top: check_packages must run before Flask is imported
-    import notes
-    import slack_inbox
-    slack_cfg = slack_inbox.slack_settings({})
-    try:
-        settings = app.load_settings(path)
-    except SystemExit as err:
-        return [(BAD, str(err))], None, slack_cfg
-    except configparser.Error as err:
-        return [(BAD, unreadable(path, err))], None, slack_cfg
-    lines = [(OK, f"settings.ini found ({path})")]
-    folder = settings.get("projects_folder", "").strip()
-    if not folder:
-        lines.append((BAD, "projects_folder= is missing in settings.ini. Set it to your notes folder."))
-    elif not Path(folder).is_dir():
-        lines.append((BAD, f"projects_folder= {folder} does not exist. Fix the path in settings.ini."
-                           + notes.path_hint(folder)))
-    else:
-        try:
-            count = len(notes.list_projects(folder))
-        except OSError as err:
-            lines.append((BAD, f"projects_folder= {folder} can't be read ({err.strerror or err}). "
-                               "Check the path, the VPN (for a network drive) and that you may open it."))
-        else:
-            lines.append((OK, f"projects_folder: {folder} ({count} projects)"))
-    lines.append(check_work_jira(settings.get("work_jira_folder", "").strip()))
-    try:
-        app.read_text_limit(settings.get("text_limit", ""))
-    except SystemExit as err:
-        lines.append((BAD, str(err)))
-    try:
-        slack_cfg = slack_inbox.slack_settings(settings)
-    except SystemExit as err:
-        lines.append((BAD, str(err)))
-    if settings.get("jira_url", "").strip() and not app.read_jira_url(settings["jira_url"]):
-        lines.append((WARN, "jira_url= must start with https:// (or http://). Until then, Open in Jira is off."))
-    return lines, settings, slack_cfg
-
-
-def check_work_jira(folder):
-    """One line for work_jira_folder=. Blank is fine: sync with work_jira is optional."""
-    if not folder:
-        return SKIP, "work_jira_folder= not set: sync with work_jira and the Work project box are off (optional)."
-    if not Path(folder).is_dir():
-        import notes
-        return BAD, (f"work_jira_folder= {folder} does not exist. Fix the path in settings.ini, "
-                     "or leave it blank to turn sync with work_jira off." + notes.path_hint(folder))
-    import project_note
-    try:
-        count = sum(1 for f in Path(folder).iterdir() if project_note.is_project_folder(f))
-    except OSError as err:
-        return BAD, (f"work_jira_folder= {folder} can't be read ({err.strerror or err}). "
-                     "Check the path and that you may open it.")
-    return OK, f"work_jira_folder: {folder} ({count} project folders)"
+    settings, slack_cfg, findings = app.validate_settings(path)
+    marks = {"ok": OK, "bad": BAD, "warn": WARN, "skip": SKIP}
+    return [(marks[f.level], f.text) for f in findings], settings, slack_cfg
 
 
 def claude_folder(env):

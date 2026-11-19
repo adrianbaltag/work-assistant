@@ -337,25 +337,24 @@ def test_sync_without_a_card_or_with_a_bad_log_changes_nothing(tmp_path):
     assert (card / "note.md").read_text(encoding="utf-8") == before
 
 
-def test_needs_sync_when_the_log_is_newer_than_the_card(tmp_path):
+def test_needs_sync_when_the_log_changed_since_the_last_sync(tmp_path):
     work = work_project(tmp_path)
     card = notes.new_project(projects(tmp_path), "DEMO-42")
-    age(work / "tracking_log.md", 60)
+    assert pn.needs_sync(card, work)                # never synced: no stamp in the card yet
+    pn.sync(projects(tmp_path), work, NOW)
     assert not pn.needs_sync(card, work)
-    age(card / "note.md", 120)
+    (work / "tracking_log.md").write_text(LOG.replace("M3", "M4"), encoding="utf-8")
     assert pn.needs_sync(card, work)
     pn.sync(projects(tmp_path), work, NOW)
     assert not pn.needs_sync(card, work)
 
 
-def test_needs_sync_when_requirements_md_is_newer_than_the_card(tmp_path):
+def test_needs_sync_when_requirements_md_changed_since_the_last_sync(tmp_path):
     work = work_project(tmp_path)
     card = notes.new_project(projects(tmp_path), "DEMO-42")
-    age(work / "tracking_log.md", 300)
-    (work / "requirements.md").write_text(REQUIREMENTS, encoding="utf-8")
-    age(work / "requirements.md", 60)
+    pn.sync(projects(tmp_path), work, NOW)
     assert not pn.needs_sync(card, work)
-    age(card / "note.md", 120)              # a milestone was ticked after the card was written
+    (work / "requirements.md").write_text(REQUIREMENTS, encoding="utf-8")      # a milestone was ticked
     assert pn.needs_sync(card, work)
 
 

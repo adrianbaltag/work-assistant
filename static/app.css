@@ -227,6 +227,8 @@ label{display:flex;flex-direction:column;gap:6px;font-size:.74rem;color:var(--te
 input,select,textarea{font:inherit;font-size:.88rem;color:var(--text);background:var(--sidebar);border:1px solid var(--border-strong);border-radius:10px;padding:9px 12px;width:100%;min-width:0;transition:border-color .15s}
 input:focus,select:focus,textarea:focus{border-color:var(--border-focus);outline:none}
 textarea{resize:vertical;line-height:1.6}
+/* A card field that grows with its text (card.js fitFields): looks like the one-line boxes next to it, so no resize handle */
+textarea.grow{resize:none;overflow:hidden;line-height:normal}
 textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1;background:var(--bg)}
 .err{color:var(--critical);font-size:.8rem;font-weight:500}
 .hint{font-size:.7rem;color:var(--text-label);font-weight:400}

@@ -9,10 +9,12 @@ Each project is a folder (named after its ticket ID) holding a note.md:
     # Notes ...
 """
 import configparser
+import logging
 import os
 import re
 import shutil
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -23,12 +25,19 @@ FILE_ARCHIVE = "archive"        # archived files, inside one project folder
 DEFAULTS = {"status": "active", "priority": "normal"}
 STATUSES = ("active", "pending", "idea")     # "done" = archived, not a status
 QUIET_DAYS = 7               # untouched this long = "gone quiet"
+IGNORED_FILES = {"desktop.ini", "thumbs.db"}     # the system makes these: they are no change of yours (lower case)
+WORK_FOLDER_DEPTH = 2        # a work card's days-ago also looks this many folder levels into its work folder
 HISTORY_HEADING = "## History"
 HISTORY_LINE = re.compile(r"(\d{4}-\d{2}-\d{2}) · (.+?) · (.*)")    # 2026-10-14 · you · text
 FILE_DIRS = ("sessions", "raw")    # the only sub-folders the card shows and edits
 UPLOAD_DIR = "raw"
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 TEXT_LIMIT = 1_000_000          # bigger text files are not opened in the editor (the page would hang)
+LOCKED = "Could not change {}. Is it open in another program (e.g. Excel)? Close it and try again."
+NOT_UTF8 = ("{} isn't saved as UTF-8. Open it in Notepad, choose File > Save As, set Encoding to UTF-8, "
+            "save, then reload this page (F5).")
+BROKEN_CHAR = ("The text has a broken character (half an emoji, usually from a bad paste). "
+               "Delete it or retype that part, then save again.")
 
 
 def load_settings(path=SETTINGS_FILE):
@@ -41,9 +50,35 @@ def load_settings(path=SETTINGS_FILE):
     if not path.is_file():
         raise SystemExit(f"{path} not found. Copy settings.ini.example to "
                          "settings.ini and set projects_folder= to your notes folder.")
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        raise SystemExit(f"{path} is not plain text. Open it in Notepad and save it again with Encoding: UTF-8.") from None
+    except OSError as err:
+        raise SystemExit(f"{path} can't be opened ({err.strerror or err}). Close it if another program has it "
+                         "open, or check that you may read it.") from None
     parser = configparser.ConfigParser(interpolation=None)
-    parser.read_string("[settings]\n" + path.read_text(encoding="utf-8-sig"))
+    try:
+        parser.read_string("[settings]\n" + text)
+    except configparser.Error as err:
+        raise SystemExit(unreadable_line(path, text, err)) from None
     return dict(parser["settings"])
+
+
+def unreadable_line(path, text, err):
+    """A configparser error in plain English: which file, which line, the line as the person wrote it."""
+    rows = text.splitlines()
+
+    def line(n):        # n - 2: load_settings adds "[settings]" on top
+        return rows[n - 2] if 2 <= n <= len(rows) + 1 else ""
+
+    if isinstance(err, configparser.DuplicateOptionError):
+        return f"{path} has {err.option}= twice (again on line {err.lineno - 1}). Keep one of them."
+    if isinstance(err, configparser.ParsingError) and err.errors:
+        n = err.errors[0][0]
+        return (f'{path} line {n - 1} is not "key=value": {line(n)}  Fix or delete that line '
+                "(a line starting with # is a note).")
+    return f"{path} can't be read: {err}".splitlines()[0]
 
 
 def path_hint(folder, platform=sys.platform, home=None):
@@ -97,14 +132,29 @@ def has_fields_block(text):
     return block_end(text.splitlines()) is not None
 
 
-def newest_change(folder):
-    """Newest modified time of any file in the project, skipping its archive folder."""
+def newest_change(folder, max_depth=None):
+    """Newest modified time of any file in the project, skipping its archive folder.
+
+    Hidden files and folders (.DS_Store, .git), desktop.ini and Thumbs.db are not the user's work: skipped.
+    A file that can't be read (a dangling link, one deleted a moment ago) is skipped.
+    max_depth = how many folder levels below `folder` to look (None = all of them).
+    """
     newest = 0
+    folder = Path(folder)
     for root, dirs, files in os.walk(folder):
-        if Path(root) == Path(folder) and FILE_ARCHIVE in dirs:
+        depth = len(Path(root).relative_to(folder).parts)
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        if root == str(folder) and FILE_ARCHIVE in dirs:
             dirs.remove(FILE_ARCHIVE)
+        if max_depth is not None and depth >= max_depth:
+            dirs.clear()
         for name in files:
-            newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+            if name.startswith(".") or name.casefold() in IGNORED_FILES:
+                continue
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+            except OSError:
+                continue
     return newest
 
 
@@ -118,29 +168,69 @@ def read_project(folder):
     return project
 
 
-def list_projects(projects_folder):
-    """All projects in the projects folder, sorted by id.
+log = logging.getLogger(__name__)
+_logged = {}        # key -> the problem last written to the terminal for it
+
+
+def log_once(key, problem):
+    """Write a problem to the terminal (a warning) once, not on every 30-second refresh.
+
+    The same key with the same problem again says nothing. problem=None: it is gone (it may be said again later).
+    """
+    if problem is None:
+        _logged.pop(key, None)
+    elif _logged.get(key) != problem:
+        _logged[key] = problem
+        log.warning("%s: %s", key, problem)
+
+
+def read_or_problem(folder):
+    """read_project, but a note that isn't UTF-8 (e.g. saved as cp1252) gives a row with a plain "problem".
+
+    working_on carries the same text, so the dashboard row shows it with no change to the page.
+    One bad note must not blank the whole list.
+    """
+    try:
+        project = read_project(folder)
+        log_once(str(Path(folder) / NOTE_FILE), None)
+        return project
+    except UnicodeDecodeError:
+        log_once(str(Path(folder) / NOTE_FILE), "not saved as UTF-8, so the card shows a problem row")
+        problem = NOT_UTF8.format(f"{Path(folder).name}\\{NOTE_FILE}")
+        return {**DEFAULTS, "title": Path(folder).name, "id": Path(folder).name, "body": "",
+                "updated": newest_change(folder), "problem": problem, "working_on": problem}
+
+
+def project_folders(projects_folder):
+    """The project folders in the projects folder, sorted by name. Opens no note.
 
     A project is a sub-folder with a note.md. Skips _archive and hidden folders.
     """
-    projects = []
-    for folder in sorted(Path(projects_folder).iterdir()):
-        if (folder.is_dir()
+    return [folder for folder in sorted(Path(projects_folder).iterdir())
+            if (folder.is_dir()
                 and folder.name != ARCHIVE_FOLDER
                 and not folder.name.startswith(".")
-                and (folder / NOTE_FILE).is_file()):
-            projects.append(read_project(folder))
-    return projects
+                and (folder / NOTE_FILE).is_file())]
+
+
+def list_projects(projects_folder):
+    """All projects in the projects folder, sorted by id (see project_folders for what counts as one)."""
+    return [read_or_problem(folder) for folder in project_folders(projects_folder)]
 
 
 def dashboard(projects, now):
     """Add days_ago and quiet to each project, sorted for the dashboard.
 
     Critical projects first, then the longest-untouched. Ideas never go quiet.
+    A card that follows a work folder (source: work_jira) counts that folder's files too.
+    days_ago is never negative (a clock ahead on a network drive).
     """
     for p in projects:
-        last = datetime.fromtimestamp(p["updated"]).date()
-        p["days_ago"] = (now.date() - last).days
+        updated, work = p["updated"], p.get("folder", "")
+        if p.get("source") == "work_jira" and work and Path(work).is_dir():
+            updated = max(updated, newest_change(work, WORK_FOLDER_DEPTH))
+        last = datetime.fromtimestamp(updated).date()
+        p["days_ago"] = max(0, (now.date() - last).days)
         p["quiet"] = p["status"] != "idea" and p["days_ago"] >= QUIET_DAYS
     return sorted(projects, key=lambda p: (p["priority"] != "critical", -p["days_ago"]))
 
@@ -157,7 +247,7 @@ def set_fields(text, changes):
     Existing keys are changed in place. New keys go at the end of the block,
     but only if they have a value. A note without a block gets one.
     """
-    changes = {k: " ".join(str(v).split("\n")).strip() for k, v in changes.items()}
+    changes = {k: " ".join(str(v).split()) for k, v in changes.items()}     # split(): U+2028, \x0b ... end a line too
     lines = text.splitlines(keepends=True)
     end = block_end(lines)
     if end is None:
@@ -207,7 +297,10 @@ def add_history(text, said, date, who="you"):
     found = history_lines(lines)
     if not found:
         return text.rstrip("\n") + f"\n\n{HISTORY_HEADING}\n{entry}"
-    return "".join(lines[:found[0]] + [entry] + lines[found[0]:])
+    head = lines[:found[0]]
+    if not head[-1].endswith("\n"):        # a note that ends at "## History" with no final newline
+        head[-1] += "\n"
+    return "".join(head + [entry] + lines[found[0]:])
 
 
 # ---------- finding and saving a project safely ----------
@@ -267,6 +360,37 @@ def archive_copy(path, folder, now):
     return target
 
 
+class Locked(PermissionError):
+    """A file can't be saved because another program has it open. str(err) is the plain message."""
+
+
+def safe_write(path, text):
+    """Save text as UTF-8 so a failed save never leaves the file empty or half written.
+
+    The text is turned into bytes first, written to a temp file next to the target, then os.replace swaps it in.
+    LF line ends are kept (write_text would turn them into CRLF on Windows).
+    ValueError = the text has a character UTF-8 can't hold (half an emoji). Locked = another program has the file open.
+    """
+    path = Path(path)
+    try:
+        data = text.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError(BROKEN_CHAR) from None
+    temp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")      # a dot name: the card never lists it
+    try:
+        with open(temp, "wb") as out:
+            out.write(data)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temp, path)      # Windows: PermissionError when another program has the file open
+    except PermissionError:
+        temp.unlink(missing_ok=True)
+        raise Locked(LOCKED.format(path.name)) from None
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+
+
 def write_note(folder, text, stamp, now, force=False):
     """Save note.md and return its new stamp.
 
@@ -284,7 +408,7 @@ def write_file(path, folder, text, stamp, now, force=False):
         if not force:
             raise StaleNote()
         archive_copy(path, folder, now)
-    Path(path).write_text(text, encoding="utf-8")
+    safe_write(path, text)
     return file_stamp(path)
 
 
@@ -386,14 +510,15 @@ def new_project(projects_folder, project_id, title="", status="active"):
         raise ValueError(project_id)
     folder = Path(projects_folder) / project_id
     folder.mkdir()          # fails if taken: we never write into a folder we did not make
+    title = title.encode("utf-8", "replace").decode("utf-8")      # half an emoji from a bad paste becomes "?"
     values = {"title": " ".join(title.split()) or project_id, "status": status, "priority": "normal",
               "jira": project_id if TICKET_ID.fullmatch(project_id) else ""}
     fields = "".join(f"{k}: {values[k]}\n" if values.get(k) else f"{k}:\n" for k in NEW_FIELDS)
     try:
         for dir in FILE_DIRS:
             (folder / dir).mkdir()
-        (folder / NOTE_FILE).write_text(f"---\n{fields}---\n\n## Goal\n\n\n{HISTORY_HEADING}\n", encoding="utf-8")
-    except OSError:
+        safe_write(folder / NOTE_FILE, f"---\n{fields}---\n\n## Goal\n\n\n{HISTORY_HEADING}\n")
+    except (OSError, ValueError):
         shutil.rmtree(folder, ignore_errors=True)   # only the folder we just made: a half-made one would block the name
         raise
     return folder
@@ -405,7 +530,7 @@ def mark(folder, status, said, now):
     """Set the project's status and add a history line, e.g. when it is archived or restored."""
     note = Path(folder) / NOTE_FILE
     text = set_fields(note.read_text(encoding="utf-8-sig"), {"status": status})
-    note.write_text(add_history(text, said, now.strftime("%Y-%m-%d")), encoding="utf-8")
+    safe_write(note, add_history(text, said, now.strftime("%Y-%m-%d")))
 
 
 def archive_project(projects_folder, folder, now, said="Marked done and archived"):
@@ -417,7 +542,11 @@ def archive_project(projects_folder, folder, now, said="Marked done and archived
     archive.mkdir(exist_ok=True)
     target = free_name(archive, Path(folder).name, now, folder=True)
     os.rename(folder, target)
-    mark(target, "done", said, now)
+    try:
+        mark(target, "done", said, now)
+    except Exception:
+        os.rename(target, folder)       # not half done: the project stays open, as it was
+        raise
     return target
 
 
@@ -429,8 +558,17 @@ def restore_project(projects_folder, archived, now, name=None, said="Restored fr
     """
     target = free_name(projects_folder, name or Path(archived).name, now, folder=True)
     os.rename(archived, target)
-    mark(target, "active", said, now)
+    try:
+        mark(target, "active", said, now)
+    except Exception:
+        os.rename(target, archived)     # not half done: the project stays in the archive, as it was
+        raise
     return target.name
+
+
+def archived_name(name):
+    """An archived folder's own name without the time suffix free_name added: "ABC-1 (2026-10-15 10-42)" -> "ABC-1"."""
+    return re.sub(r" \(\d{4}-\d{2}-\d{2} \d{2}-\d{2}(?: \d+)?\)$", "", name)
 
 
 def find_archived(projects_folder, project_id):
@@ -467,7 +605,7 @@ def list_archive(projects_folder):
     archive = Path(projects_folder) / ARCHIVE_FOLDER
     for folder in sorted(archive.iterdir()) if archive.is_dir() else []:
         if folder.is_dir() and plain_name(folder.name) and (folder / NOTE_FILE).is_file():
-            project = read_project(folder)
+            project = read_or_problem(folder)
             del project["body"]
             project["finished"] = datetime.fromtimestamp(project["updated"]).strftime("%Y-%m-%d")
             project["files"] = sum(len(files) for _, _, files in os.walk(folder))

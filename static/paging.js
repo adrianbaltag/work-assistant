@@ -47,7 +47,27 @@ function emptyMessage(passed, inTile, filtered) {
   return filtered && !passed ? "nomatch" : "empty";
 }
 
+// A long line (a History line on the card) cut to about `limit` characters, ending in "…".
+// It is cut at a space so no word is split; one very long word is cut where the limit is.
+// null = the text fits, so there is nothing to cut and no "Read more" button to show.
+function shortText(text, limit) {
+  if (text.length <= limit) return null;
+  const cut = text.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  // A space in the first half would throw away too much text: then cut at the limit instead.
+  return (space > limit / 2 ? cut.slice(0, space) : cut).trimEnd() + "…";
+}
+
+// Text for a one-line field: every line break, with the spaces around it, becomes one space.
+// Returns [the new text, where the text cursor belongs in it]: the cursor stays right after the same
+// character as before, so typing goes on where you were (cursor = its place in the old text).
+function oneLineAt(text, cursor) {
+  const clean = part => part.replace(/\s*\n\s*/g, " ");
+  return [clean(text), clean(text.slice(0, cursor)).length];
+}
+
 // Node (the tests) reads the functions from here; the browser has no `module` and just uses them.
 if (typeof module !== "undefined") {
-  module.exports = {filtersOn, filterProjects, rowsThatFit, pageHolding, pageList, footerText, emptyMessage};
+  module.exports = {filtersOn, filterProjects, rowsThatFit, pageHolding, pageList, footerText, emptyMessage, shortText,
+                    oneLineAt};
 }

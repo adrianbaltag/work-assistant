@@ -132,8 +132,9 @@ def test_an_unexpected_error_is_not_shown_as_a_todo_message(folder, client, monk
     def broken(*args):
         raise ValueError("'utf-8' codec can't encode character")     # technical words, not for the page
     monkeypatch.setattr(todos, "add", broken)
-    with pytest.raises(ValueError):          # TESTING=True: Flask hands it to us instead of a plain 500 page
-        client.post("/api/todos", json={"text": "new one"})
+    response = client.post("/api/todos", json={"text": "new one"})     # the catch-all answers in plain English
+    assert response.status_code == 500
+    assert "utf-8" not in response.json["error"] and "Reload" in response.json["error"]
 
 
 def test_no_projects_folder_says_how_to_fix_it(tmp_path):

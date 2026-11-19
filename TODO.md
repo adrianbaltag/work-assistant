@@ -25,10 +25,6 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
 
 ## Setup check (check_setup.py)
 
-- **One shared settings check.** check_setup.py re-runs create_app's checks piece by piece, so a new
-  setting must be added in both places. Also app.py itself still shows a raw traceback when
-  projects_folder= is missing (KeyError) or settings.ini has an unreadable line. Fix: one
-  `validate_settings()` in app.py that both use.
 - **Unverified Slack button labels in README.** "Generate Token and Scopes" and "Request to Install"
   were written from memory: check them the next time an app is made (office).
 
@@ -38,9 +34,10 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   TEST-1 correctly, but "Dashboard: moved ... to the Archive page" never showed in the VS Code
   Claude chat. Confirmed 2026-10-23: the terminal CLI (`claude` in PowerShell) DOES show the line,
   so the hook works and only the VS Code extension hides hook `systemMessage`. Nothing to fix in our code.
-- **Lowercase ticket folders import as lowercase cards.** A folder `work_jira\abc-123` gets card
-  `abc-123` with an empty `jira:` (no Jira button), unlike + New project, which uppercases.
-  Fix idea: rename the folder to capitals, or fill `jira:` with the uppercased name on import.
+- **Lowercase ticket cards imported before the fix still have an empty `jira:`.** New imports now fill it
+  (`project_note.fill_jira`); an old card gets it the next time `project_note.py create` runs for its
+  folder. Sync and Import never touch `jira:` on an existing card: add `fill_jira` to `sync_all` if
+  that matters.
 - **Import and Stop each hold a copy of the "archived by you vs moved to prod" rule**
   (`import_missing`, `stop`). If one changes, change both, or move it into one helper.
 - **The gate's stop still shows in red, with "Error:".** Tried 2026-11-16: Claude Code shows every
@@ -51,6 +48,9 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
 
 ## Dashboard
 
+- **A bad note's message sits in the "working on" column.** A note that is not UTF-8 shows as its own row
+  and the fix-it text is carried in `working_on` (and in a `problem` field the page does not draw yet).
+  Fix if needed: draw `problem` on the row and on the card in its own style.
 - **Hand-typed `priority: High` (capital) or `low` is missed by the Priority filter.** The filter,
   the tiles and the pills all match the exact lowercase words the card writes. Not reachable when
   notes are changed from the card (found in review 2026-10-31). Fix if needed: lowercase status

@@ -172,9 +172,9 @@ def milestone_check(work, event, now):
     if not new:
         return ""
     try:
-        log = pn.read_tracking_log((work / pn.TRACKING_LOG).read_text(encoding="utf-8-sig"))
+        log = pn.read_log_file(work / pn.TRACKING_LOG)
     except pn.SyncError:
-        return ""                                    # card_check already asks to fix the headings
+        return ""                                    # card_check already asks to fix the headings (or the UTF-8)
     today = now.strftime("%Y-%m-%d")
     todays = [entry[1] for entry in map(lambda line: pn.last_update(line, now), log["last"])
               if entry and entry[0] == today]
@@ -186,7 +186,9 @@ def milestone_check(work, event, now):
         if names(log["now"], m):
             todo.append(f"## Now working on still names {m}: put {after[0] if after else 'what comes next'} there "
                         "and the one after it under ## Next up")
-    data["log_asked"] += new
+    if todo and event.get("stop_hook_active"):       # stop() drops a reminder when Stop was already blocked once
+        return ""                                    # ...so it is not marked as asked: the next reply asks
+    data["log_asked"] += new                         # asked, or the log was already fine: checked once, never again
     write_notepad(file, data)
     return LOG_NOT_UPDATED.format(ids=", ".join(new), todo="; ".join(todo)) if todo else ""
 
@@ -197,14 +199,8 @@ def names(text, milestone):
 
 
 def sync_all(projects, work_jira, now):
-    """Sync every card whose work_jira folder has a newer tracking_log.md. Problems are skipped silently."""
-    for folder in Path(work_jira).iterdir():
-        card = notes.find_project(projects, folder.name)
-        if card and pn.is_project_folder(folder) and pn.needs_sync(card, folder):
-            try:
-                pn.sync(projects, folder, now)
-            except (pn.SyncError, OSError):
-                pass
+    """Sync every card whose work_jira folder changed since its last sync. Problems are skipped silently."""
+    pn.sync_all(projects, work_jira, now)
 
 
 def session_start(event, settings, now):
@@ -212,6 +208,7 @@ def session_start(event, settings, now):
     projects, work_jira = settings_paths(settings)
     gone = pn.archive_gone(projects, work_jira, now)
     added = pn.import_missing(projects, work_jira, now)
+    sync_all(projects, work_jira, now)               # Stop does not run on Esc or a killed session: catch up here
     said = []
     if gone:
         said.append(f"Dashboard: moved {', '.join(gone)} to the Archive page (folder no longer in work_jira).")
@@ -247,7 +244,7 @@ def ticket_context(work):
 def paused(work):
     """True when tracking_log.md says PENDING, or its headings are broken (the Stop hook asks to fix them first)."""
     try:
-        log = pn.read_tracking_log((work / pn.TRACKING_LOG).read_text(encoding="utf-8-sig"))
+        log = pn.read_log_file(work / pn.TRACKING_LOG)
     except pn.SyncError:
         return True
     return pn.status_from(log["now"])[0] == "pending"

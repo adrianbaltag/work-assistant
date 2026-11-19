@@ -29,6 +29,7 @@ GOAL_HEADING = "## Goal"
 GOAL_CHARS = 300                     # an empty Goal gets at most this much of the description
 SOURCE = "work_jira"        # source: work_jira = this card follows a work_jira folder (and may be auto-archived)
 WHO = "Claude"
+STAMP_FIELD = "sync_stamp"  # card field: mtime_ns-size of tracking_log.md and requirements.md at the last sync
 MOVED_TO_PROD = "Folder left work_jira (moved to prod): archived automatically"
 BACK_FROM_PROD = "Folder back in work_jira: restored automatically"
 RESTORED_BY_HAND = "Restored from archive"          # the app's Restore button (notes.restore_project)
@@ -51,8 +52,9 @@ def read_tracking_log(text):
     """The sections of tracking_log.md: {"now": one line, "next": one line, "last": [lines]}.
 
     Only "# " and "## " lines are headings: "### Phase 2" or "#42 needs review" are part of the section.
-    "last" = the line(s) with the newest "YYYY-MM-DD — " date, wherever they are in the section
-    (Claude may add new entries at the top or the bottom). No dated line = the first line. Empty = [].
+    "last" = the entry(ies) with the newest "YYYY-MM-DD — " date, wherever they are in the section
+    (Claude may add new entries at the top or the bottom). An entry = a dated line plus the undated lines
+    after it (see last_entries). No dated line = the first line. Empty = [].
     """
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)       # the rules comment at the top is not content
     found, key = {}, None
@@ -68,22 +70,60 @@ def read_tracking_log(text):
         raise SyncError(f"tracking_log.md has no {', '.join(missing)} heading. "
                         "Put the headings back (as in _templates), then run project_note.py sync again.")
     log = {k: " ".join(part for part in lines if part) for k, lines in found.items()}
-    lines = [part for part in found["last"] if part]
-    dates = [last_update(part, None)[0] for part in lines]
-    newest = max((d for d in dates if d), default=None)          # "YYYY-MM-DD" sorts like a date
-    log["last"] = [part for part, d in zip(lines, dates) if d == newest] if newest else lines[:1]
+    lines = [part for part in found["last"] if plain(part)]      # "**" or "- **" alone: nothing once cleaned
+    entries = last_entries(lines)
+    newest = max((last_update(e, None)[0] for e in entries), default=None)     # "YYYY-MM-DD" sorts like a date
+    log["last"] = [e for e in entries if last_update(e, None)[0] == newest] if newest else lines[:1]
     return log
 
 
+def last_entries(lines):
+    """The dated entries of "## Last update": a dated line starts one, the undated lines after it belong to it.
+
+    Undated lines before the first dated line belong to no entry. An entry with no text at all is skipped.
+    """
+    entries = []
+    for line in lines:
+        if last_update(line, None)[0]:
+            entries.append(line)
+        elif entries:
+            entries[-1] += " " + line
+    return [e for e in entries if last_update(e, None)[1]]
+
+
+def read_log_file(log_file):
+    """read_tracking_log of a tracking_log.md file. A file that is not UTF-8 (Notepad's ANSI) is a SyncError."""
+    try:
+        return read_tracking_log(Path(log_file).read_text(encoding="utf-8-sig"))
+    except UnicodeDecodeError:
+        raise SyncError(f"{TRACKING_LOG} is not saved as UTF-8, so it can't be read. Open it in Notepad, choose "
+                        "File > Save As, set Encoding to UTF-8, save it over the same file, then try again.") from None
+
+
+PENDING = re.compile(r"pending\s*(?:[(:]|$)", re.I)
+ABBREVIATIONS = {"dr", "mr", "mrs", "ms", "prof", "st", "vs", "etc", "e.g", "i.e", "approx", "no", "fig", "inc", "ltd"}
+
+
 def pending_parts(now_working_on):
-    """(reason, the rest) of "PENDING (who, date): reason. More.", or None when it is not pending."""
+    """(reason, the rest) of "PENDING (who, date): reason. More.", or None when it is not pending.
+
+    Pending = "PENDING" followed by "(" or ":" or nothing (after a list bullet and **bold** marks):
+    "pending review of M3" is not.
+    The reason ends at the first full stop that ends a sentence: not after "Dr." or an initial ("J. Smith"),
+    and not before a lower-case word.
+    """
     text = plain(now_working_on)
-    if not re.match(r"pending\b", text, re.I):
+    if not PENDING.match(text):
         return None
-    rest = re.sub(r"^\s*\([^)]*\)", "", text[len("pending"):])    # drop "(user, 2026-10-22)"
+    rest = re.sub(r"^\s*\([^)]*\)", "", text[len("pending"):].lstrip())    # drop "(user, 2026-10-22)"
     rest = rest.lstrip(" :—–-")
-    sentence = re.match(r"(.+?[.!?])(\s|$)", rest)              # the first sentence is the reason
-    return (sentence.group(1), rest[sentence.end():].strip()) if sentence else (rest, "")
+    for sentence in re.finditer(r"[.!?](?=\s|$)", rest):
+        word = re.search(r"(\S*)$", rest[:sentence.start()]).group(1).strip("(`*_\"'").lower()
+        after = rest[sentence.end():].lstrip()
+        if (rest[sentence.start()] == "." and (word in ABBREVIATIONS or len(word) == 1)) or after[:1].islower():
+            continue
+        return rest[:sentence.end()], after
+    return rest, ""
 
 
 def status_from(now_working_on):
@@ -99,16 +139,19 @@ def working_on_from(now_working_on):
 
 
 def plain(text):
-    """Without Markdown **bold** marks: the dashboard shows text as it is."""
-    return text.replace("**", "").strip()
+    """Without a list bullet and Markdown **bold** marks: the dashboard shows text as it is."""
+    return re.sub(r"^[-*]\s+", "", text.strip()).replace("**", "").strip()
 
 
 def last_update(text, now):
-    """(date, text) from "## Last update", e.g. "2026-10-21 — M1 ticked". No date = (None, text). Empty = None."""
-    text = re.sub(r"^[-*]\s+", "", text.strip())             # "- 2026-10-21 — x" written as a bullet
+    """(date, text) from "## Last update", e.g. "2026-10-21 — M1 ticked". No date = (None, text). Empty = None.
+
+    Also read: a bullet, a **bold** date ("**2026-10-21** — x"), and the "Date: 2026-10-21 — x" form.
+    """
+    text = plain(text)
     if not text:
         return None
-    match = re.match(r"(\d{4}-\d{2}-\d{2})\s*[—–-]+\s*(.*)", text)
+    match = re.match(r"(?:date\s*:\s*)?(\d{4}-\d{2}-\d{2})(?:\s*[—–:-]+\s*|\s+|$)(.*)", text, re.I)
     return match.groups() if match else (None, text)
 
 
@@ -197,7 +240,8 @@ def sync(projects_folder, work_folder, now):
     log_file = Path(work_folder) / TRACKING_LOG
     if not log_file.is_file():
         raise SyncError(f"No {TRACKING_LOG} in {work_folder}. Create it from _templates first.")
-    log = read_tracking_log(log_file.read_text(encoding="utf-8-sig"))
+    stamp = work_stamp(work_folder)         # before reading: a file saved while we read is synced again next time
+    log = read_log_file(log_file)
     card = notes.find_project(projects_folder, Path(work_folder).name)
     if card is None:
         raise NoCard(Path(work_folder).name)
@@ -205,14 +249,18 @@ def sync(projects_folder, work_folder, now):
     note = card / notes.NOTE_FILE
     text = note.read_text(encoding="utf-8-sig")
     status, blocked_by = status_from(log["now"])
+    before = text
     text = notes.set_fields(text, {**steps(work_folder, log), "status": status, "blocked_by": blocked_by,
-                                   "source": SOURCE, "folder": str(work_folder)})
+                                   "source": SOURCE, "folder": str(work_folder), STAMP_FIELD: stamp})
     text = fill_goal(text, ticket_goal(work_folder))
-    for line in reversed(log["last"]):        # each goes on top, so reversed keeps tracking_log's order
-        entry = last_update(line, now)
-        if not already_in_history(text, *entry):
-            text = notes.add_history(text, entry[1], entry[0] or now.strftime("%Y-%m-%d"), who=WHO)
-    note.write_text(text, encoding="utf-8")     # always written, so the card is now newer than the log
+    entries = [last_update(line, now) for line in log["last"]]
+    in_log = {" ".join(said.split()) for _, said in entries}      # their own History lines: never replaced
+    for date, said in reversed(entries):      # each goes on top, so reversed keeps tracking_log's order
+        if not already_in_history(text, date, said):
+            day = date or now.strftime("%Y-%m-%d")                 # an entry without a date is today's
+            text = grown_entry(text, day, said, in_log) or notes.add_history(text, said, day, who=WHO)
+    if text != before:                          # nothing new = no write (the card's "days ago" stays true)
+        notes.safe_write(note, text)
     return card
 
 
@@ -245,14 +293,78 @@ def already_in_history(text, date, said):
                for h in notes.read_history(text))
 
 
+def grown_entry(text, date, said, in_log=()):
+    """The note text with Claude's History line for this log entry replaced by its longer text, or None.
+
+    An entry that got more lines under it in tracking_log.md starts with the words the card already has:
+    the card keeps one line for it, not two. Only Claude's own line of the same day (date) is ever replaced,
+    never the line of another entry that is in the log now (in_log), and of several the longest one.
+    """
+    said = " ".join(said.split())
+    lines = text.splitlines(keepends=True)
+    found = notes.history_lines(lines)
+    best, best_text = None, ""
+    for i in range(*found) if found else ():
+        match = notes.HISTORY_LINE.fullmatch(lines[i][2:].strip()) if lines[i].startswith("- ") else None
+        if (match and match[2] == WHO and match[1] == date and match[3] not in in_log
+                and said.startswith(match[3] + " ") and len(match[3]) > len(best_text)):
+            best, best_text = i, match[3]
+    if best is None:
+        return None
+    lines[best] = f"- {date} · {WHO} · {said}\n"
+    return "".join(lines)
+
+
+def work_stamp(work_folder):
+    """The changed time and size of tracking_log.md and requirements.md, as text ("none" = no such file).
+
+    The card keeps it (STAMP_FIELD) from the last sync: a different stamp now = the files changed since.
+    """
+    parts = []
+    for name in (TRACKING_LOG, REQUIREMENTS):
+        try:
+            parts.append(notes.file_stamp(Path(work_folder) / name))
+        except OSError:
+            parts.append("none")
+    return " ".join(parts)
+
+
 def needs_sync(card, work_folder):
-    """True when tracking_log.md (or requirements.md: a milestone ticked) changed after the card was last written."""
-    log_file = Path(work_folder) / TRACKING_LOG
-    note = Path(card) / notes.NOTE_FILE
-    if not log_file.is_file():
+    """True when tracking_log.md or requirements.md is not as it was at the card's last sync (see work_stamp).
+
+    A card that was never synced has no stamp: it needs one sync.
+    """
+    if not (Path(work_folder) / TRACKING_LOG).is_file():
         return False
-    changed = [f.stat().st_mtime_ns for f in (log_file, Path(work_folder) / REQUIREMENTS) if f.is_file()]
-    return max(changed) > note.stat().st_mtime_ns
+    text = (Path(card) / notes.NOTE_FILE).read_text(encoding="utf-8-sig")
+    return notes.parse_note(text)[0].get(STAMP_FIELD, "") != work_stamp(work_folder)
+
+
+def sync_all(projects_folder, work_jira_folder, now):
+    """Sync every card whose work_jira folder changed since the card's last sync. Returns the IDs synced.
+
+    Never raises for one folder: a bad log, a missing card, a file in use or an error nobody thought of
+    is skipped (tried again next time) and written to the terminal once.
+    Cheap when nothing changed: it compares stamps and reads a work folder's files only when they differ.
+    """
+    if not str(work_jira_folder).strip():
+        return []
+    try:
+        folders = sorted(f for f in Path(work_jira_folder).iterdir() if is_project_folder(f))
+    except OSError:
+        return []
+    synced = []
+    for folder in folders:
+        try:
+            card = notes.find_project(projects_folder, folder.name)
+            if card and needs_sync(card, folder):
+                sync(projects_folder, folder, now)
+                synced.append(folder.name)
+            notes.log_once(f"Dashboard sync of {folder}", None)
+        except Exception as err:      # anything: this runs on every dashboard refresh, one card must not blank it
+            notes.log_once(f"Dashboard sync of {folder}", f"skipped ({type(err).__name__}: {err})")
+            continue
+    return synced
 
 
 # ---------- create: a new card (or bring an archived one back) ----------
@@ -279,8 +391,9 @@ def create(projects_folder, work_folder, title, goal, now):
         if goal.strip():
             note = card / notes.NOTE_FILE
             text = note.read_text(encoding="utf-8")
-            note.write_text(text.replace("## Goal\n", f"## Goal\n{goal.strip()}\n", 1), encoding="utf-8")
+            notes.safe_write(note, text.replace("## Goal\n", f"## Goal\n{goal.strip()}\n", 1))
 
+    fill_jira(card, name)
     if (Path(work_folder) / TRACKING_LOG).is_file():
         sync(projects_folder, work_folder, now)
     else:                                   # created before the md set exists: just link the card
@@ -288,11 +401,28 @@ def create(projects_folder, work_folder, title, goal, now):
     return card, what
 
 
+def ticket_key(name):
+    """The Jira key a folder name stands for, in capitals ("abc-123" -> "ABC-123"), or "" when it isn't a ticket.
+
+    The same rule as + New project (notes.TICKET_ID), but for any letter case.
+    """
+    return name.upper() if notes.TICKET_ID.fullmatch(name.upper()) else ""
+
+
+def fill_jira(card, name):
+    """Put the ticket's key in an empty jira: of the card (the Jira button). A jira: with text is never changed."""
+    key = ticket_key(name)
+    note = Path(card) / notes.NOTE_FILE
+    text = note.read_text(encoding="utf-8-sig")
+    if key and not notes.parse_note(text)[0].get("jira"):
+        notes.safe_write(note, notes.set_fields(text, {"jira": key}))
+
+
 def link_card(card, work_folder):
     """Mark the card as following this work_jira folder (source: + folder:), and fill an empty Goal."""
     note = Path(card) / notes.NOTE_FILE
     text = notes.set_fields(note.read_text(encoding="utf-8-sig"), {"source": SOURCE, "folder": str(work_folder)})
-    note.write_text(fill_goal(text, ticket_goal(work_folder)), encoding="utf-8")
+    notes.safe_write(note, fill_goal(text, ticket_goal(work_folder)))
 
 
 def ticket_goal(work_folder):
@@ -396,8 +526,11 @@ def archive_gone(projects_folder, work_jira_folder, now):
             if last_event(note) == RESTORED_BY_HAND:
                 continue
             notes.archive_project(projects_folder, card, now, said=MOVED_TO_PROD)
-        except OSError:
-            continue            # a file is open (e.g. in Excel): try again next session
+        except (OSError, UnicodeDecodeError) as err:       # a file is open (e.g. in Excel), or a note saved as cp1252
+            why = "not saved as UTF-8" if isinstance(err, UnicodeDecodeError) else f"{type(err).__name__}: {err}"
+            notes.log_once(f"Archive check of {note}", f"card not moved to the Archive ({why})")
+            continue            # try again next session
+        notes.log_once(f"Archive check of {note}", None)
         archived.append(card.name)
     return archived
 
@@ -431,20 +564,12 @@ def import_missing(projects_folder, work_jira_folder, now):
             try:
                 card = notes.find_project(projects_folder, folder.name)
                 link_card(card, folder)
-                mark_older_than_log(card, folder)
             except OSError:
                 continue
         except (OSError, ValueError):
             continue
         added.append(folder.name)
     return added
-
-
-def mark_older_than_log(card, work_folder):
-    """Make note.md look older than tracking_log.md, so the Stop hook tries to sync and says what to fix."""
-    log_time = (Path(work_folder) / TRACKING_LOG).stat().st_mtime_ns
-    one_second = 1_000_000_000
-    os.utime(Path(card) / notes.NOTE_FILE, ns=(log_time - one_second, log_time - one_second))
 
 
 # ---------- command line ----------

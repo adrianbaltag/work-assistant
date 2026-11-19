@@ -5,6 +5,7 @@
 // Uses $, esc, ago and load from app.js.
 
 const FIELDS = ["title", "status", "priority", "working_on", "next", "blocked_by", "jira", "folder"];
+const GROWS = ["working_on", "next", "blocked_by"];      // these boxes grow with their text: a long value wraps, nothing is cut
 const UPLOAD_LIMIT_MB = 50;     // same as app.py
 let card = null;    // what Flask sent (project, text, stamp, history, files) + id + sel (which view is shown)
                     // + file (the open sessions\ or raw\ file) + renaming / confirmDel / newOpen (small UI states)
@@ -52,6 +53,7 @@ async function openCard(id) {
   drawCard();
   startChat();        // once per opening: saves and reloads redraw the card but keep the chat
   $("ov").hidden = false;
+  fitFields();        // only now: a hidden box has no height to measure
   document.body.style.overflow = "hidden";
   $("m-close").focus();
 }
@@ -173,6 +175,9 @@ function drawOverview() {
   const p = card.project;
   const input = (key, label, cls = "", hint = "") =>
     `<label class="${cls}">${label}<input id="f-${key}" value="${esc(p[key])}">${hint}</label>`;
+  // Like input, but a box that grows: a long value wraps onto more lines instead of being cut (see fitFields).
+  const grow = (key, label, cls = "") =>
+    `<label class="${cls}">${label}<textarea class="grow" id="f-${key}" rows="1">${esc(p[key])}</textarea></label>`;
   // A value the note has but the list doesn't (e.g. "Active") stays shown, so saving never changes it silently.
   const select = (key, label, options, hint = "") => {
     const all = options.includes(p[key]) ? options : [p[key], ...options];
@@ -183,9 +188,9 @@ function drawOverview() {
       ${input("title", "Project name", "wide")}
       ${select("status", "Status", ["active", "pending", "idea"])}
       ${select("priority", "Priority", ["critical", "high", "normal"], '<span class="hint">Only you set this. Claude never changes it.</span>')}
-      ${input("working_on", "Working on", "wide")}
-      ${input("next", "Next step", "wide")}
-      ${input("blocked_by", "Blocked by")}
+      ${grow("working_on", "Working on", "wide")}
+      ${grow("next", "Next step", "wide")}
+      ${grow("blocked_by", "Blocked by")}
       ${input("jira", "Jira")}
       ${input("folder", "Code folder", "wide", '<span class="hint">Info only, e.g. work_jira\\DEMO-1111</span>')}
     </div>
@@ -198,6 +203,7 @@ function drawOverview() {
     <div class="foot"><button class="btn primary" id="v-save">Save changes</button><span class="sp"></span><button class="btn danger" id="v-arch">Mark done & archive</button></div>`;
   drawLog();
   drawJiraButton();
+  fitFields();
 }
 
 // Open in Jira uses what is in the Jira box right now (saved or not) + jira_url from settings.ini.
@@ -213,10 +219,40 @@ function drawJiraButton() {
 const openJira = () => window.open(jiraLink(), "_blank", "noopener");
 const openFolder = () => act("open-folder", {}, async () => toast("Opened the notes folder."));
 
+// Make each growing box (GROWS) as tall as its text. fitBox is the To do page's helper (todo.js).
+// A box that is not on screen (the card is closed, or another view is shown) is skipped.
+function fitFields() {
+  for (const key of GROWS) {
+    const box = $("f-" + key);
+    if (box && box.offsetParent) fitBox(box);
+  }
+}
+
+const HISTORY_CHARS = 200;      // a History line longer than this is cut, with a "Read more" button
+
+// One History line. A long one shows its start (shortText, in paging.js) and a "Read more" button.
+// data-more = the line's place in card.history, so the click below can find its full text again.
+function logLine(h, i) {
+  const short = shortText(h.text, HISTORY_CHARS);
+  const more = short === null ? ""
+    : ` <button class="linkbtn" type="button" data-more="${i}" aria-expanded="false">Read more</button>`;
+  return `<li><span class="who ${h.who.startsWith("Claude") ? "c" : ""}">${esc(h.who || "note")}</span>`
+    + `<span><span>${esc(short === null ? h.text : short)}</span>${more}<span class="d">${esc(h.date)}</span></span></li>`;
+}
+
 function drawLog() {
   $("v-log").innerHTML = card.history.length
-    ? `<ul class="log">${card.history.map(h => `<li><span class="who ${h.who.startsWith("Claude") ? "c" : ""}">${esc(h.who || "note")}</span><span>${esc(h.text)}<span class="d">${esc(h.date)}</span></span></li>`).join("")}</ul>`
+    ? `<ul class="log">${card.history.map(logLine).join("")}</ul>`
     : `<p class="none" style="margin-top:10px">No history yet.</p>`;
+}
+
+// "Read more" on a long History line: show all of it, and turn the button into "Show less" (and back).
+function toggleMore(button) {
+  const text = card.history[Number(button.dataset.more)].text;
+  const open = button.getAttribute("aria-expanded") !== "true";
+  button.previousElementSibling.textContent = open ? text : shortText(text, HISTORY_CHARS);
+  button.setAttribute("aria-expanded", String(open));
+  button.textContent = open ? "Show less" : "Read more";
 }
 
 function drawFile() {
@@ -473,12 +509,37 @@ const ACTIONS = {
   "v-openfolder": openFolder, "v-jira": openJira,
 };
 
-$("ov").addEventListener("input", e => { if (e.target.id === "f-jira") drawJiraButton(); });
+$("ov").addEventListener("input", e => {
+  if (e.target.id === "f-jira") drawJiraButton();
+  if (e.target.classList.contains("grow")) {          // a growing box: one line of text, as tall as it needs
+    if (e.target.value.includes("\n")) {              // a line break got in (e.g. text dragged into the box)
+      const [text, at] = oneLineAt(e.target.value, e.target.selectionEnd);
+      e.target.value = text;
+      e.target.setSelectionRange(at, at);             // setting .value throws the cursor to the end: put it back
+    }
+    fitBox(e.target);
+  }
+});
+// Pasting text with line breaks into a growing box: put it in as one line, the way typing would.
+// insertText keeps the cursor right after the pasted text and lets Ctrl+Z undo the paste.
+$("ov").addEventListener("paste", e => {
+  const text = e.clipboardData ? e.clipboardData.getData("text") : "";
+  if (!e.target.classList || !e.target.classList.contains("grow") || !text.includes("\n")) return;   // the usual paste is fine
+  e.preventDefault();
+  const clean = oneLineAt(text, 0)[0];
+  if (!document.execCommand("insertText", false, clean)) {          // a browser without insertText: no undo, same text
+    e.target.setRangeText(clean, e.target.selectionStart, e.target.selectionEnd, "end");
+  }
+  fitBox(e.target);
+});
+window.addEventListener("resize", () => { if (card) fitFields(); });      // a narrower window wraps the text sooner
 
 $("ov").addEventListener("click", e => {
   if (e.target === $("ov")) return closeCard();        // click outside the card
   const item = e.target.closest("[data-sel]");
   if (item) return pick(item.dataset.sel);
+  const more = e.target.closest("[data-more]");        // "Read more" / "Show less" on a History line
+  if (more) return toggleMore(more);
   const button = e.target.closest("button[id]");
   if (button && ACTIONS[button.id]) ACTIONS[button.id]();
 });
@@ -487,6 +548,7 @@ document.addEventListener("keydown", e => {
   if (!card) return;
   if (e.key === "Enter" && e.target.id === "v-rename") doRename();
   else if (e.key === "Enter" && e.target.id === "nf-name") createFile();
+  else if (e.key === "Enter" && e.target.classList.contains("grow")) e.preventDefault();   // a field is one line: no line break
   else if (e.key !== "Escape") return;
   else if (card.renaming) cancelRename();          // Esc closes the small thing first, then the card
   else if (card.confirmDel) cancelDelete();

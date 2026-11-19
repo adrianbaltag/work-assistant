@@ -217,6 +217,9 @@ def all_projects_context(projects_folder, now, cap=TEXT_CAP):
         except OSError:      # archived or renamed (another tab, Claude Code) since the list was made
             skipped.append(f"{label} (moved or deleted while reading)")
             continue
+        except UnicodeDecodeError:      # e.g. saved as ANSI in Notepad: leave this one out, send the others
+            skipped.append(f"{label} (not saved as UTF-8: open it in Notepad and save it with Encoding UTF-8)")
+            continue
         if used + len(note) > cap:
             skipped.append(f"{label} ({over(cap)})")
             continue

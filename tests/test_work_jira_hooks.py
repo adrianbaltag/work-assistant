@@ -93,6 +93,7 @@ def test_stop_leaves_an_up_to_date_card_alone(tmp_path):
     settings, projects = setup(tmp_path)
     work = work_project(tmp_path)
     card = notes.new_project(projects, "DEMO-42")
+    pn.sync(projects, work, NOW)                    # up to date = synced since the files last changed
     before = (card / "note.md").read_text(encoding="utf-8")
     assert stop(settings, work) == (0, "")
     assert (card / "note.md").read_text(encoding="utf-8") == before

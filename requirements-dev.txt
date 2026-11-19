@@ -1,0 +1,5 @@
+# Only needed to run the browser tests in tests/e2e (the app and the other tests do not need it).
+# Without it those tests are skipped. After installing, run once: python -m playwright install chromium
+-r requirements.txt
+playwright==1.64.1
+pytest-playwright==0.10.0
