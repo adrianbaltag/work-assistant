@@ -44,7 +44,7 @@ Read `requirements.md`, `PLAN.md` and `tracking_log.md`. Take the first row that
 | Status is not `CONFIRMED BY CREATOR` | Stop. The next step is the `ticket-flow:clear-ticket` skill. |
 | No milestone lines, or no `Plan approved by` line | Stop. The next step is the `ticket-flow:plan-milestones` skill. |
 | `requirements.md` has a `## Closed` section | The ticket is closed, and stays closed. Say so, and stop. A new wish is a new ticket with its own folder: it starts there, with `ticket-flow:clear-ticket`. |
-| A milestone was already ticked in this session | Stop. Tell the engineer to start a new session for the next one. |
+| A milestone was already ticked in this session | Stop. Tell the engineer to start a new session (or `/clear`) for the next one. |
 | Every milestone is ticked, and `## Now working on` in `tracking_log.md` says `waiting for <name> to confirm the result` | The result is already with the creator. Go to "Closing the ticket", Part 2, and ask the engineer for the reply. |
 | Every milestone is ticked | Nothing was sent yet. Go to "Closing the ticket", Part 1. |
 | The first open milestone is already built: the newest line under `## Last update` in `tracking_log.md` says `M<n> built, tests pass, waiting for review`, or `review-notes.md` has a block for it | Do not build it again. Go to Step 3 and get the whole proof again: run the suite, and ask for a user check again if "Done when" has one. An earlier session's proof does not count. Then: if `review-notes.md` has a block for this milestone, the full review is done, so go to "Picked up from an earlier session" in Step 5. No block: the full review never ran, so go to Step 4. The files to review: with `.git`, the changed files in the folder; without it, the files listed in `.claude/review-files.txt`. |
@@ -394,7 +394,7 @@ In this order:
    starts its own list.
 5. If that was the last milestone, do part 1 of "Closing the ticket" now.
 6. Tell the engineer what was done and what comes next. Then STOP. The next milestone starts
-   in a new session.
+   in a new session (or `/clear`).
 
 ## Closing the ticket
 
@@ -425,7 +425,7 @@ there is no creator, so skip this question.
 |---|---|---|
 | "Yes", "Works, thanks" | A real yes | Close the ticket (below). |
 | "Yes, but can it also ..." | Version 1 is fine, and there is a new wish | Close the ticket. The wish is new work: a new ticket with its own folder, which starts there with `ticket-flow:clear-ticket`. Say so to the engineer. |
-| "It does not do X", and X is in the contract | Not done | Add a milestone for X by the rules in `ticket-flow:plan-milestones`. In `tracking_log.md`, take out the PENDING line and put the new milestone under `## Now working on`. If the folder has `.git`, commit the files you changed, by name, with `git commit -m "M<n> added"`. Build the milestone in a new session. |
+| "It does not do X", and X is in the contract | Not done | Add a milestone for X by the rules in `ticket-flow:plan-milestones`. In `tracking_log.md`, take out the PENDING line and put the new milestone under `## Now working on`. If the folder has `.git`, commit the files you changed, by name, with `git commit -m "M<n> added"`. Build the milestone in a new session (or `/clear`). |
 | "It does not do X", and X is not in the contract | A new wish, not a fault | The same as "yes, but". Ask the creator if version 1 does what was agreed. |
 | The engineer says "the ticket is done" | The engineer closes it | Close the ticket, and write that the engineer said so. |
 

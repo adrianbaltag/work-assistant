@@ -246,7 +246,7 @@ const boxValues = () => Object.fromEntries(FIELDS.filter(k => $("f-" + k)).map(k
 // Note = one History line by you. Blocker = that, and the project is blocked by you until Unblock.
 // Unblock needs no words; its button shows only while your blocker is on (drawMessageState).
 function messageBox() {
-  const where = card.project.linked ? "Goes into the History, and Claude gets it in its next session."
+  const where = card.project.linked ? "Goes into the History, and Claude gets it the next time you write to it."
     : "Goes into the History.";
   return `<div class="box" id="msg"><h4>Note or blocker</h4>
       <textarea class="grow" id="msg-text" rows="1" aria-label="Note or blocker" placeholder="e.g. Dana said: Northeast markets only"></textarea>

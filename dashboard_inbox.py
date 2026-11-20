@@ -29,12 +29,30 @@ KINDS = ("note", "blocker", "unblock")
 NEEDS_TEXT = ("note", "blocker")        # an Unblock may be sent with no words
 HIDE_FILE = ".gitignore"                # inside the inbox: git then ignores the whole inbox, this file too
 HIDE_TEXT = "# Dashboard messages for Claude: never part of the ticket's git history.\n*\n"
+# How Claude's line in tracking_log.md starts for each kind (the hooks tell Claude to write it). The one place
+# for these words: the hooks build their example line from them, and the dashboard sync knows such a line by them.
+LOG_WORDS = {"note": "Dashboard note:", "blocker": "Dashboard blocker:", "unblock": "Dashboard unblock"}
 WAITING = "waiting for Claude"
 SEEN = "seen by Claude {}"
 
 
 def inbox_folder(work):
     return Path(work) / INBOX_DIR
+
+
+def is_echo(said):
+    """True when a log entry (its text after the date) is Claude's copy of a dashboard message.
+
+    It starts with one of LOG_WORDS, capitals or not. The card's History already has the user's own line
+    for that message, so the sync leaves the copy out. "Dashboard unblocked the page" is not one:
+    the word goes on.
+    """
+    said = said.strip().casefold()
+    for words in LOG_WORDS.values():
+        words = words.casefold()
+        if said.startswith(words) and (words.endswith(":") or not said[len(words):][:1].isalnum()):
+            return True
+    return False
 
 
 def add(work, kind, text, now):

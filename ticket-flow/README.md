@@ -17,11 +17,13 @@ and `settings.ini` live there, not in the plugin.
 ## The flow
 
 1. **clear-ticket.** You answer four questions (the pain, the fog words, the stakes, the smallest
-   first version). "I don't know" is fine: every guess and unknown becomes a question for the
-   ticket's creator. No plan until the creator says a clear yes.
+   first version). "I don't know" is fine: every guess and unknown goes to the ticket's
+   creator, as a real question where a wrong guess does harm or changes what is built, and the
+   rest as one list "I will assume these unless you say no". No plan until the creator says a
+   clear yes.
 2. **plan-milestones.** The confirmed ticket is cut into milestones. You approve the plan.
 3. **build-milestone.** One milestone per session: test first, code, proof, an independent strict
-   review, the tick. Then a new session for the next one. After the last one, the creator's yes
+   review, the tick. Then a new session (or `/clear`) for the next one. After the last one, the creator's yes
    closes the ticket.
 
 ## The gate
@@ -34,7 +36,7 @@ file Claude is about to write:
 | The creator has not said yes | notes only |
 | The creator said yes, no approved plan yet | notes and `PLAN.md` |
 | Approved plan with an open milestone | everything |
-| A milestone was ticked in this session | notes only, until a new session |
+| A milestone was ticked in this session | notes only, until a new session (or `/clear`) |
 | Every milestone is ticked | notes and `PLAN.md` (new code needs a new milestone first) |
 | The ticket is closed | notes only (a new wish is a new ticket, with its own folder) |
 

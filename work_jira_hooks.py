@@ -69,7 +69,7 @@ in the work-assistant README. If they say no, carry on; you will ask again next 
 
 ONE_STEP = "When the user must act: give ONE step, then wait for their result."
 
-FINISHED = "{ids} ticked this session. One milestone per session: do not start the next one; tell the user to start a new session."
+FINISHED = "{ids} ticked this session. One milestone per session: do not start the next one; tell the user to start a new session (or `/clear`)."
 
 TICKED = """{ids} ticked in requirements.md. Finish this milestone now, as Step 6 of the \
 ticket-flow:build-milestone skill says, in this order:
@@ -122,7 +122,7 @@ MILESTONE_FIRST = ('Code needs an open milestone: to change code now, first add 
 CLOSED_NOTES = "Only notes (.md files, not PLAN.md) can be written in a closed ticket."
 LOCKED = "{ids} ticked in this session, and it is one milestone per session."
 LOCKED_CAN = """Only notes (.md files, not PLAN.md) can be written now: finish the closing steps, then tell the \
-user to start a new session. If the tick was a mistake, untick it in requirements.md."""
+user to start a new session (or `/clear`). If the tick was a mistake, untick it in requirements.md."""
 
 # Messages the user sent from the dashboard (dashboard_inbox.py). The text in quotes is always the user's own words.
 FROM_DASHBOARD = "From the dashboard, sent by the user. The words in quotes are the user's own:"
@@ -133,13 +133,18 @@ CUT = " … (cut here: ask the user for the rest)"
 TEXT_CHARS = 500        # a longer message is cut: Claude Code cuts a hook's whole text at 10,000 characters
 AT_ONCE = 8             # ...and no more messages than this in one text, so the instructions after the list survive
 MORE = "{n} more are waiting: you get them later, a few at a time."
-# One dated line under ## Last update: the dashboard sync reads it like any other entry (a History line on the card).
-LOG_ENTRY = {"note": "{today} — Dashboard note: <text>", "blocker": "{today} — Dashboard blocker: <text>",
-             "unblock": "{today} — Dashboard unblock"}
+# One dated line under ## Last update, starting with the words in dashboard_inbox.LOG_WORDS. The dashboard sync
+# leaves such a line off the card: the History already has the user's own line for the message.
+LOG_ENTRY = {kind: "{today} — " + words + (" <text>" if kind in inbox.NEEDS_TEXT else "")
+             for kind, words in inbox.LOG_WORDS.items()}
+ONLY_THEIR_WORDS = ("These lines stay off the dashboard card (it already has the user's own line), so each one "
+                    "holds only the user's words: anything you want to add goes on its own dated line.")
 WRITE_NOW = ("In your next reply, write each one into tracking_log.md yourself: one line per message under "
-             "## Last update, like {lines}.")
+             "## Last update, like {lines}. " + ONLY_THEIR_WORDS)
 WRITE_LATER = ("This folder has no tracking_log.md yet. As soon as it exists, write each one into it yourself: "
-               "one line per message under ## Last update, like {lines}.")
+               "one line per message under ## Last update, like {lines}. " + ONLY_THEIR_WORDS)
+# The user's answer to "stop, or work around it?": Claude's own dated line (it shows on the card, as Claude's).
+BLOCKER_ANSWER = "`{today} — Blocker answer: stop` or `{today} — Blocker answer: work on <what>`"
 ANSWER_NOTE = ("For a Note: after writing it, answer the user with ONE line of this shape: "
                "`Got your dashboard note: <text>. Written to the log.`")
 HOW = {
@@ -149,16 +154,24 @@ HOW = {
     "closed": ANSWER_NOTE + " Then tell the user that this ticket is closed: a new wish is a new ticket with its own "
               "folder, made with + New project on the dashboard.",
     "blocker": 'For the Blocker: after writing it, tell the user, and ask ONCE: "stop, or work on what the blocker '
-               "does not touch?\" Write no PENDING for it: the dashboard card already shows the user's blocker. "
+               "does not touch?\" Write their answer on its own line under ## Last update, like " + BLOCKER_ANSWER +
+               ": the next session follows it and does not ask again. "
+               "Write no PENDING for it: the dashboard card already shows the user's blocker. "
                "You never clear it: only the user's Unblock on the dashboard does.",
     "unblock": "For the Unblock: the user's blocker is lifted. After writing it, say so in one line.",
 }
 STANDING = ("Standing fact, not a new message: the user's dashboard blocker is still on{sent}: \"{text}\". "
-            'If you have not asked in this session yet, tell the user and ask once: "stop, or work on what the '
-            "blocker does not touch?\" Nothing to log. You never clear it: only the user's Unblock on the dashboard does.")
+            "If tracking_log.md already holds the user's answer to it (a `Blocker answer:` line written after this "
+            "blocker's line), follow that answer and do not ask again: say it in ONE line, for example "
+            '"Your blocker is still on. You said: work on the tests. I go on with the tests of M3." '
+            "The answer counts until the user says otherwise or sends an Unblock. "
+            'No answer there yet? If you have not asked in this session yet, tell the user and ask once: "stop, or '
+            "work on what the blocker does not touch?\" Then write their answer under ## Last update, like "
+            + BLOCKER_ANSWER + ". Nothing to log for the blocker itself. "
+            "You never clear it: only the user's Unblock on the dashboard does.")
 NOT_LOGGED = """Not in tracking_log.md yet (the file has not changed since you got this from the dashboard):
 {messages}
-{more}Write each one under ## Last update now, like {lines}, then tell the user in one line."""
+{more}Write each one under ## Last update now, like {lines}, then tell the user in one line. """ + ONLY_THEIR_WORDS
 
 NOTEPAD_DAYS = 2        # notepads left behind (crash, window closed hard) are deleted at a later session start
 
@@ -457,7 +470,7 @@ def dashboard_messages(work, now, start, on_card=None):
         still_on = on_card if on_card is not None else (blocker["text"] if blocker else "")
         if start and still_on and blocker not in handed:
             sent = f" (sent {blocker['sent'][:16]})" if blocker and blocker["sent"] else ""
-            said.append(STANDING.format(sent=sent, text=one_line(still_on)))
+            said.append(STANDING.format(sent=sent, text=one_line(still_on), today=now.strftime("%Y-%m-%d")))
         return "\n\n".join(said)
     except Exception as err:
         skipped(err)
@@ -474,7 +487,7 @@ def hand_over(work, handed, again, blocker, now, more=0):
     if "note" in kinds:
         how.append(HOW["closed" if ticket_state(work) == "closed" else "note"])
     if blocker in handed:                            # a blocker that was lifted since is logged, not asked about
-        how.append(HOW["blocker"])
+        how.append(HOW["blocker"].format(today=now.strftime("%Y-%m-%d")))
     if "unblock" in kinds:
         how.append(HOW["unblock"])
     listed = [listed_message(m, TOLD_BEFORE if m in again else "",

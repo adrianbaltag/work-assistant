@@ -9,6 +9,7 @@ Each work_jira project folder has a tracking_log.md with three sections:
     ## Now working on   -> status (PENDING ... = pending + blocked_by); working_on: when there is no checklist
     ## Next up          -> next: when the checklist has no milestone after the current one
     ## Last update      -> "date · Claude · text" history line(s) from the newest-dated line(s)
+                           (not Claude's copy of a dashboard message: the card has the user's own line)
 An empty ## Goal on the card is filled once from ticket.md's description.
 Paths come from settings.ini: projects_folder= and work_jira_folder=.
 """
@@ -19,6 +20,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import dashboard_inbox
 import notes
 
 TRACKING_LOG = "tracking_log.md"
@@ -254,6 +256,7 @@ def sync(projects_folder, work_folder, now):
                                    "source": SOURCE, "folder": str(work_folder), STAMP_FIELD: stamp})
     text = fill_goal(text, ticket_goal(work_folder))
     entries = [last_update(line, now) for line in log["last"]]
+    entries = [e for e in entries if not dashboard_inbox.is_echo(e[1])]      # the user's own line is there already
     in_log = {" ".join(said.split()) for _, said in entries}      # their own History lines: never replaced
     for date, said in reversed(entries):      # each goes on top, so reversed keeps tracking_log's order
         if not already_in_history(text, date, said):
@@ -294,25 +297,38 @@ def already_in_history(text, date, said):
 
 
 def grown_entry(text, date, said, in_log=()):
-    """The note text with Claude's History line for this log entry replaced by its longer text, or None.
+    """The note text with Claude's History line for this log entry replaced by its text of now, or None.
 
-    An entry that got more lines under it in tracking_log.md starts with the words the card already has:
-    the card keeps one line for it, not two. Only Claude's own line of the same day (date) is ever replaced,
-    never the line of another entry that is in the log now (in_log), and of several the longest one.
+    Grown: an entry that got more words in tracking_log.md starts with the words the card already has.
+    Shrunk: the card's line starts with the words the entry has now (the card follows the log).
+    Either way the card keeps one line for it, not two (see starts_entry for "starts with").
+    Only Claude's own line of the same day (date) is ever replaced, never the line of another entry that
+    is in the log now (in_log), and of several the one closest in length.
     """
     said = " ".join(said.split())
     lines = text.splitlines(keepends=True)
     found = notes.history_lines(lines)
-    best, best_text = None, ""
+    best, best_gap = None, 0
     for i in range(*found) if found else ():
         match = notes.HISTORY_LINE.fullmatch(lines[i][2:].strip()) if lines[i].startswith("- ") else None
-        if (match and match[2] == WHO and match[1] == date and match[3] not in in_log
-                and said.startswith(match[3] + " ") and len(match[3]) > len(best_text)):
-            best, best_text = i, match[3]
+        if not (match and match[2] == WHO and match[1] == date and match[3] not in in_log):
+            continue
+        gap = abs(len(said) - len(match[3]))
+        if (starts_entry(match[3], said) or starts_entry(said, match[3])) and (best is None or gap < best_gap):
+            best, best_gap = i, gap
     if best is None:
         return None
     lines[best] = f"- {date} · {WHO} · {said}\n"
     return "".join(lines)
+
+
+def starts_entry(start, whole):
+    """True when whole is start plus more text, and start ends at a word.
+
+    The character after start is a space or a mark like , ; : . and never a letter or a digit:
+    "M2 ticked" starts "M2 ticked, 4 tests green", but "M2" does not start "M20 ticked".
+    """
+    return bool(start) and len(whole) > len(start) and whole.startswith(start) and not whole[len(start)].isalnum()
 
 
 def work_stamp(work_folder):

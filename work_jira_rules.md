@@ -12,7 +12,8 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
   approve the plan), build-milestone (one milestone per session).
 - The gate: in a ticket folder only notes (.md files) can be written
   before the creator's yes; then also PLAN.md; code only with an approved
-  plan and an open milestone; after a tick, notes only until a new session.
+  plan and an open milestone; after a tick, notes only until a new
+  session (or `/clear`).
 - Milestone line: `- [ ] M1 — <what it delivers> · Done when: <proof>`.
   Proof = named pytest tests that pass (code milestone),
   `user check — <what the user looks at>` (review, Spyder, prod), or
@@ -47,6 +48,9 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
   `YYYY-MM-DD — Dashboard note: <text>`,
   `YYYY-MM-DD — Dashboard blocker: <text>` or
   `YYYY-MM-DD — Dashboard unblock`.
+  These lines stay off the dashboard card (it already has the user's
+  own line), so each one holds only the user's words: anything you want
+  to add goes on its own dated line.
 - Note: after writing it, answer with ONE line of this shape:
   `Got your dashboard note: <text>. Written to the log.`
   It needs a new milestone: propose the milestone line and its place
@@ -56,6 +60,11 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
   a new ticket with its own folder.
 - Blocker: after writing it, tell the user and ask ONCE:
   "stop, or work on what the blocker does not touch?"
+  Write their answer on its own line under ## Last update:
+  `YYYY-MM-DD — Blocker answer: stop` or
+  `YYYY-MM-DD — Blocker answer: work on <what>`.
+  A later session follows that answer and does not ask again, until
+  the user says otherwise or sends an Unblock.
   No PENDING for it: the card already shows the user's blocker. You
   never clear it: only the user's Unblock on the dashboard does.
 - Unblock: the user's blocker is lifted. Write it down and say so in

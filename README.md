@@ -352,7 +352,7 @@ With this set up, the dashboard follows that work by itself:
 | The folder has a `tracking_log.md` but still no card (rare: the start-up hook could not make it) | After Claude's reply, a hook asks Claude to run one `project_note.py create` command. | a few |
 | Claude updates `tracking_log.md` | After Claude's reply, a hook copies it to the card. The same copy also runs when Claude Code starts and every 30 seconds while the dashboard is open, so a session you ended with Esc, or a line you typed in the log by hand, still reaches the card. What is copied: *Next up* → `next:`, *Last update* → a History line, *Now working on* starting with `PENDING (who, date): reason` → status pending + `blocked_by:`. If `requirements.md` has milestones, they win: first unticked → `working_on:` (e.g. `M8 of 12 · hourly job runs`), the one after it → `next:` (e.g. `M9 · email the report`; short name = text before "· Done when"). Last milestone or all done: `next:` from *Next up*. No milestones: `working_on:` = *Now working on* (when PENDING, only the text after the reason). The dashboard re-reads the cards every 30 seconds, fits the window width, and cuts long text with "…" (hover for all). | none |
 | You send any message to Claude, in any folder | A hook reminds Claude: when you must do something, give you ONE step, then wait for your result. | ~25 per message |
-| Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: update `tracking_log.md`, one local git commit of the reviewed files (if the folder has git; never pushed), tell you what's next, then stop. A code milestone is ticked only after the plugin's strict reviewer looked at it. Every later message in that session reminds Claude: one milestone per session, start a new session. Until then Claude can only write notes in that folder. | ~80 once, then ~40 per message |
+| Claude ticks a milestone (`- [x] M2 …`) in the project's `requirements.md` | Right after that edit, a hook gives Claude the end-of-milestone checklist: update `tracking_log.md`, one local git commit of the reviewed files (if the folder has git; never pushed), tell you what's next, then stop. A code milestone is ticked only after the plugin's strict reviewer looked at it. Every later message in that session reminds Claude: one milestone per session, start a new session (or `/clear`). Until then Claude can only write notes in that folder. | ~80 once, then ~40 per message |
 | Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
 | You send a **Note**, a **Blocker** or an **Unblock** from a project's card | A hook hands it to Claude when a session starts in that project, or with your next message in a running session. Claude writes it into `tracking_log.md`. See [Messages from the dashboard to Claude](#messages-from-the-dashboard-to-claude) below. | ~200 once per message |
 | You close the session | A hook deletes the session's small notepad file in the project's `.claude` folder (it remembers which milestones were ticked when the session started). Left-over notepads older than 2 days are deleted at a later start. | none |
@@ -382,7 +382,7 @@ that from `requirements.md`:
 | The creator has not said yes (no `**Status:** CONFIRMED BY CREATOR` line; also a folder with no `requirements.md`) | notes only |
 | The creator said yes, but you did not approve a plan yet (no `Plan approved by` line) | notes and `PLAN.md` |
 | Approved plan with an open milestone | everything |
-| A milestone was ticked in this session | notes only, until you start a new session |
+| A milestone was ticked in this session | notes only, until you start a new session (or `/clear`) |
 | Every milestone is ticked | notes and `PLAN.md` (new code needs a new milestone first) |
 | The ticket is closed | notes only (a new wish is a new ticket, with its own folder) |
 
@@ -416,7 +416,7 @@ a **Note**, a **Blocker** and an **Unblock**.
 |---|---|
 | You send it | The app saves it as a small file in the project folder, in `.claude\dashboard-inbox`. The card shows **waiting for Claude**. |
 | Claude gets it | A hook hands it to Claude when a session starts in that folder, or with your next message in a running session. The card then shows **seen by Claude** and the date. |
-| Claude writes it down | Claude adds one line to `tracking_log.md`, for example `2026-11-18 — Dashboard note: <your text>`. The sync copies that line to the card's History. |
+| Claude writes it down | Claude adds one line to `tracking_log.md`, for example `2026-11-18 — Dashboard note: <your text>`. That line stays in the log: the card's History already has your own line for the message, so you see it once. |
 
 What Claude does with each kind:
 
@@ -427,8 +427,9 @@ What Claude does with each kind:
   milestone, Claude stops and asks. On a closed ticket Claude still writes the note down, and
   tells you that a new wish is a new ticket.
 - **Blocker.** Claude writes it down, tells you, and asks once: stop, or work on what the blocker
-  does not touch? Nothing is locked. Only your **Unblock** lifts the blocker: Claude cannot. While
-  it is on, Claude is told about it again at every session start.
+  does not touch? Claude writes your answer in `tracking_log.md` (`Blocker answer: ...`), so a
+  later session follows it and does not ask again. Nothing is locked. Only your **Unblock** lifts
+  the blocker: Claude cannot. While it is on, Claude is told about it again at every session start.
 - **Unblock.** The blocker is lifted. Claude writes it down and says so.
 
 Three checks make sure a message is not lost:
@@ -614,7 +615,7 @@ by hand at any time: `.venv\Scripts\python project_note.py sync ABC-123`.
 
 | Part | What it does |
 |---|---|
-| `clear-ticket` (skill) | From a vague ticket to a real issue the creator said yes to. You answer four questions first; "I don't know" is fine. Every guess becomes a question for the creator. |
+| `clear-ticket` (skill) | From a vague ticket to a real issue the creator said yes to. You answer four questions first; "I don't know" is fine. Every guess goes to the creator: a real question where a wrong guess does harm or changes what is built, the rest as one list "I will assume these unless you say no". |
 | `plan-milestones` (skill) | Cuts the confirmed ticket into as few milestones as the work needs, each with a proof. Says the price (sessions and reviews) before you approve. Lines in `requirements.md`, short steps in `PLAN.md`. You approve the plan. |
 | `build-milestone` (skill) | One milestone per session: test first, code, proof, independent review, tick, stop. After the last one it closes the ticket with the creator. |
 | `code-reviewer` (agent) | Strict and read-only. Reviews each code milestone before it is ticked. It cannot be skipped. Sorts what it finds into "must fix" (holds the tick) and "good to know" (you pick). What is not fixed goes in `review-notes.md`. |

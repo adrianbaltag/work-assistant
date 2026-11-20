@@ -367,3 +367,12 @@ def test_work_folder_away_the_card_says_not_sent_and_keeps_your_words(dash, fold
     expect(dash.locator("#msg-alert")).to_contain_text("Nothing was changed")
     expect(dash.locator("#msg-text")).to_have_value("Dana wants the csv by Friday")
     assert "Dana wants the csv" not in (folders[0] / "DEMO-42" / notes.NOTE_FILE).read_text(encoding="utf-8")
+
+
+def test_the_hint_under_the_box_says_when_claude_gets_the_message(dash):
+    open_card(dash, "DEMO-42")                                   # follows a Claude folder
+    expect(dash.locator("#msg .hint")).to_have_text(
+        "Goes into the History, and Claude gets it the next time you write to it.")
+    close_card(dash)
+    open_card(dash, "DEMO-1")                                    # a personal card: nobody to hand it to
+    expect(dash.locator("#msg .hint")).to_have_text("Goes into the History.")

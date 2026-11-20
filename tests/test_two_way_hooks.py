@@ -307,13 +307,17 @@ def test_the_log_line_claude_is_told_to_write_is_one_the_sync_reads(tmp_path):
         assert log["now"].startswith("M2") and pn.status_from(log["now"]) == ("active", "")
 
 
-def test_a_logged_note_reaches_the_card(tmp_path):
+def test_a_logged_note_is_not_copied_to_the_card_a_second_time(tmp_path):
+    """One dashboard message = one History line, the user's (decided 2026-11-19). Claude's log line stays in the log."""
     settings, work = ticket(tmp_path)
+    card = notes.find_project(settings["projects_folder"], "DEMO-42")
+    note = card / "note.md"
+    note.write_text(notes.add_history(note.read_text(encoding="utf-8"), NOTE, TODAY, who="you"), encoding="utf-8")
     write_in_log(work)
     assert stop(settings, work) == (0, "")
-    card = notes.find_project(settings["projects_folder"], "DEMO-42")
-    history = notes.read_history((card / "note.md").read_text(encoding="utf-8"))
-    assert history[0] == {"date": TODAY, "who": "Claude", "text": f"Dashboard note: {NOTE}"}
+    history = notes.read_history(note.read_text(encoding="utf-8"))
+    assert history[0] == {"date": TODAY, "who": "you", "text": NOTE}           # the line the app wrote
+    assert not any("Dashboard note" in h["text"] for h in history)
 
 
 # ---------- B. the user's blocker is a standing fact until the Unblock ----------

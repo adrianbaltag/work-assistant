@@ -16,7 +16,7 @@ Python developer would do anyway.
 ## Rules for the whole skill
 
 - Talk in plain, simple words. Ask ONE question per message, then wait.
-- Only plan. No code and no tests in this session. Building starts in a new session.
+- Only plan. No code and no tests in this session. Building starts in a new session (or `/clear`).
   A hook holds this line: until the plan is approved, only notes (`.md` files) and `PLAN.md`
   can be written in the ticket folder.
 - Plan version 1 only: what is inside the fence in `requirements.md`. "Later" is not planned.
@@ -51,9 +51,9 @@ Then look for milestone lines in `requirements.md`:
 | What you find | Go to |
 |---|---|
 | No milestone lines | Step 1 |
-| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. If the folder has `.git`, commit it by name, as in Step 7, item 3: `git add requirements.md`, the same `git status` check, then `git commit -m "Plan approved"`. Never push. Then say that building the first open milestone starts in a new session. No: it is a draft, the next row. |
+| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. If the folder has `.git`, commit it by name, as in Step 7, item 3: `git add requirements.md`, the same `git status` check, then `git commit -m "Plan approved"`. Never push. Then say that building the first open milestone starts in a new session (or `/clear`). No: it is a draft, the next row. |
 | Milestone lines, but no `Plan approved by` line | The plan is a draft. Read it and `PLAN.md`, then go to Step 6. |
-| Milestone lines and a `Plan approved by` line | The plan is done. Say so, and say that building the first open milestone starts in a new session. If the engineer wants to change the plan, see "Changing the plan later". |
+| Milestone lines and a `Plan approved by` line | The plan is done. Say so, and say that building the first open milestone starts in a new session (or `/clear`). If the engineer wants to change the plan, see "Changing the plan later". |
 
 **The branch.** Whichever row you took, unless it told you to stop: if the folder has `.git`,
 run `git status` before anything else. Its first line names the branch. `main` or `master`: go
@@ -212,15 +212,21 @@ Go through these yourself and fix what you find before you show the plan.
 
 ## Step 7: the engineer approves
 
-Show the milestone lines in chat and say that the steps are in `PLAN.md`. Then say the price,
-in one line, before you ask for the yes:
+Show the plan in chat as a short summary, one bullet per milestone: one plain sentence for
+what it delivers, then its proof as a count. No test names in chat: say they are in `PLAN.md`.
+
+`- M2: build the tidy script. Proof: 19 tests (names in PLAN.md).`
+`- M3: you run it on last month's file. Proof: your check.`
+
+`PLAN.md` and the milestone lines in `requirements.md` stay full: the summary is only what the
+engineer reads before the yes. Then say the price, in one line, before you ask for the yes:
 
 `<N> milestones = <N> sessions, <R> reviews`
 
 Every milestone is one session. Every milestone with code gets an independent review, and a
 check-only milestone gets none. For the example in Step 4: "3 milestones = 3 sessions, 1 review".
 
-Then ask: "Do you approve this plan?" If they want changes, make them, and show the lines and
+Then ask: "Do you approve this plan?" If they want changes, make them, and show the summary and
 the price again.
 
 On their yes, in this order:
@@ -239,7 +245,7 @@ On their yes, in this order:
 
    Never add everything at once: a data file or a file with logins could be lying in the
    folder. No `.git`: skip this step.
-4. Tell the engineer: the plan is done, and building M1 starts in a new session. Then stop. Do
+4. Tell the engineer: the plan is done, and building M1 starts in a new session (or `/clear`). Then stop. Do
    not start building here.
 
 ## Changing the plan later
@@ -269,7 +275,7 @@ Never push.
 | Mistake | Do this instead |
 |---|---|
 | Planning before the creator's yes | Stop and point to clear-ticket |
-| Writing code or tests "to get ahead" | Only the plan. Building is a new session. |
+| Writing code or tests "to get ahead" | Only the plan. Building is a new session (or `/clear`). |
 | A milestone for each function of a short script | ONE build milestone. A milestone must earn its place. |
 | Splitting a milestone "to be safe" | Only when the code truly does not fit one session |
 | Asking for the yes without the price | Milestones, sessions and reviews in one line, then the question |

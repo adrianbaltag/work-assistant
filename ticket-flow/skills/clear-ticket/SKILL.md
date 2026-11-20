@@ -10,7 +10,7 @@ Tickets are usually vague. A plan built on a guess gets built twice. This skill 
 "I am not sure what this ticket wants" to "the creator read the real issue and said yes".
 
 The engineer does not need to understand the ticket to start. Their gaps are useful: every gap
-becomes a question for the person who can close it.
+goes to the person who can close it.
 
 ## Rules for the whole skill
 
@@ -39,7 +39,8 @@ Every fact about the ticket carries one label. Use the same three words everywhe
 | **Guess** | Someone thinks so, but nobody confirmed it. |
 | **Unknown** | Nobody here knows. |
 
-A Guess is as open as an Unknown. Both must turn into a question.
+A Guess is as open as an Unknown. Neither is settled until someone who knows has seen it: as
+a real question, or on a list of things we assume out loud (Step 4).
 
 ## Step 0: where are we?
 
@@ -52,7 +53,7 @@ Status line:
 | `requirements.md` has a `## Closed` section | Check this first. The ticket is closed, and stays closed. Say so, and stop. A new wish is a new ticket with its own folder: the engineer makes it (the dashboard's **+ New project** does it), and this skill starts there. |
 | No `requirements.md`, or it holds only empty template text | Step 1 |
 | `**Status:** WAITING FOR CREATOR` | Step 6 (ask for the creator's reply) |
-| `**Status:** CONFIRMED BY CREATOR` | This skill is done. Say so, and say the next step is planning the milestones, in a new session. |
+| `**Status:** CONFIRMED BY CREATOR` | This skill is done. Say so, and say the next step is planning the milestones, in a new session (or `/clear`). |
 | Real content but no Status line (a ticket started before this skill) | Ask once: "Did the creator already confirm what this ticket is about?" Yes: add the CONFIRMED Status line and the proof (Step 8), and change nothing else in the file. No: go to Step 1. What the file says counts as the engineer's notes: keep it, and add the new sections around it. |
 
 Then check the starter files. Every ticket folder needs these three. The dashboard card is
@@ -139,14 +140,26 @@ only reads does not need a dry run.
 
 Give each new point a label, the same way as the engineer's answers.
 
-## Step 4: every Guess and Unknown becomes a question
+## Step 4: every Guess and Unknown goes to someone who knows
 
-Sort the questions by who can answer:
+Sort them by who can answer:
 
 - **The creator**: what they want, why, what counts as done, what is in and out.
 - **A senior colleague**: how things work here. Where it runs, which login, who gets told when
   it fails.
 - **The engineer**: what they can decide or look up themselves.
+
+For the creator and the senior colleague there are two kinds. People answer three questions
+and skim fifteen, so ask only what must be asked:
+
+- **A real question**: a wrong guess here does harm or changes what is built. Wrong data
+  changed, sent or deleted, the wrong person told, a different script built. Anything a risky
+  job would change is always a real question.
+- **An assumption**: a wrong guess is cheap to put right later (a column name, a file name,
+  the wording of a mail). These go in one list under the line
+  "I will assume these unless you say no:".
+
+An Unknown with no sensible guess has nothing to assume: it is a real question.
 
 Team defaults come first, if you used any. Show them all in ONE message, not one by one:
 "I'm assuming these, as usual: 1. ... 2. ... Anything different for this ticket?" The ones the
@@ -156,17 +169,19 @@ this ticket becomes a normal question.
 Then ask the engineer's questions, one at a time, each with your suggested answer and a
 one-line reason.
 
-Write the creator's questions as a message ready to paste:
+Write the creator's message, ready to paste:
 
-- numbered, the most blocking first
+- the real questions first: numbered, the most blocking first
 - plain words, and each one answerable in one line
 - a Guess is asked as a check: "Is it right that ...?"
-- more than about seven questions: suggest a 15-minute call instead and give the list as the agenda
+- then the assumptions, under "I will assume these unless you say no:", with letters
+  (a, b, c), so the creator can answer "b is wrong"
+- more than about seven real questions: suggest a 15-minute call instead and give the list as the agenda
 
 Do the same, shorter, for the senior colleague.
 
-Check before you go on: every Guess and every Unknown is in one of the lists. Nothing is left
-out because it seemed small.
+Check before you go on: every Guess and every Unknown is a real question or on an assume list.
+Nothing is left out because it seemed small.
 
 ## Step 5: write it down, then wait
 
@@ -195,6 +210,9 @@ in this form: other tools read it.
 ## Questions for a senior colleague
 1. <question>
 
+## Assumed unless someone says no
+- <what we assume> (for <name>)
+
 ## Answers so far
 <empty until a reply is pasted>
 ```
@@ -204,6 +222,7 @@ dashboard card shows the ticket as waiting, and for what:
 
 `PENDING (creator, YYYY-MM-DD): waiting for <name> to answer <N> questions.`
 
+<N> counts the real questions only: an assumption needs no answer.
 Keep that line true as things move, so the card always says where the ticket stands:
 `... to answer <N> more questions.` after a partial reply, and `... to confirm the real issue.`
 in Step 7.
@@ -228,9 +247,12 @@ With the answer:
    two labels say how: `(Maria, pasted from Slack, 2026-11-15)` for pasted words,
    `(Maria, told by Sam, 2026-11-15)` when the engineer retold it. Copy the answer into
    "Answers so far". Use quote marks only for pasted words.
-3. Look for anything new: a new rule, a new wish, a "you missed X". New things open new
+3. An assumption they left alone in their reply becomes
+   `[Known] <fact> (assumed, <name> did not object, <date>)`. One they correct is an answer
+   like any other. No reply yet means nothing was left alone: it stays a Guess.
+4. Look for anything new: a new rule, a new wish, a "you missed X". New things open new
    questions. Add them and go back to Step 4.
-4. An answer you cannot read clearly stays open. Ask again, do not guess what they meant.
+5. An answer you cannot read clearly stays open. Ask again, do not guess what they meant.
 
 Replies from a senior colleague are handled the same way.
 
@@ -259,6 +281,8 @@ When nothing for the creator is open, write three things and add them to `requir
 ```
 
 Use more than one Given / When / Then block if version 1 does more than one thing.
+Whatever was assumed and shapes version 1 must show in these three parts, in plain words: the
+creator's yes then covers it too.
 
 Give the engineer a message to paste that holds these three parts and ends with:
 "Is this right? Reply yes, or tell me what is wrong." The Status stays WAITING FOR CREATOR,
@@ -313,7 +337,7 @@ On a real yes:
 2. In `tracking_log.md`: remove the PENDING line, write
    `Plan the milestones` under `## Now working on`, and add under `## Last update`:
    `YYYY-MM-DD — real issue confirmed by <name>`.
-3. Tell the engineer: this part is done, and planning the milestones starts in a new session.
+3. Tell the engineer: this part is done, and planning the milestones starts in a new session (or `/clear`).
    Then stop. Do not start the plan here.
 
 ## No ticket (the engineer's own idea)
@@ -387,7 +411,8 @@ __pycache__/
 |---|---|
 | Asking all four questions in one message | One per message |
 | Answering a question for the engineer "to save time" | Wait for their answer. "I don't know" is fine. |
-| Treating a Guess as settled because it sounds right | It becomes a question |
+| Treating a Guess as settled because it sounds right | It goes to someone who knows: a real question, or the assume list |
+| Sending the creator a long list of small questions | Real questions only where a wrong guess does harm or changes what is built. The rest: one assume list. |
 | Asking the creator about servers, logins or how to undo a change | Those go to a senior colleague |
 | Running every check when one does not fit | Skip it and say which and why |
 | Writing a plan, milestones or pseudo-code "while we wait" | Nothing until the creator's yes |
