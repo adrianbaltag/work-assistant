@@ -129,6 +129,11 @@ every user check, whatever it checks (a count, a value, a file, a screen, a list
    own output say: a pass. It does not: say what was expected, and take it as a failed proof
    (below).
 
+Output that lands in the chat, from a `!` command the engineer ran or pasted by them, is
+shown, not checked. You can read it, but nobody has said yet what they see in it. So still
+ask the open question, and wait for their own words. `!` is a fine way to run the step: it
+is only not the answer.
+
 These are not proof:
 
 - an earlier run, or "should pass now", "looks right", "probably"
@@ -136,6 +141,8 @@ These are not proof:
 - another agent saying it worked: run the tests yourself
 - green tests, when "Done when" asks for a user check
 - the engineer's "yes" to an answer you said first: ask again, with an open question
+- output in the chat, from a `!` command or a paste: it is shown, not checked. Ask what
+  they see in it
 
 If the proof fails, say what really happened, with the output. Then fix it or ask. Do not go on.
 

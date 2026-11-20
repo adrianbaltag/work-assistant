@@ -345,7 +345,7 @@ With this set up, the dashboard follows that work by itself:
 |---|---|---|
 | You click **+ New project** with the box **Work project** ticked | The app makes the card and `work_jira\<ID>\`, with your Jira description and "Created by" in `ticket.md`. If that folder already exists, the app leaves it as it was and tells you for 5 seconds that the description was not saved. | none |
 | You open a new project folder in VS Code and start Claude | A hook tells Claude to start with the **clear-ticket** skill. It reads `ticket.md`, makes the starter files (`CLAUDE.md`, `tracking_log.md`, `.gitignore`) and gets the ticket clear with you. | Claude's normal work |
-| You start Claude in a set-up project that is not PENDING | A hook reads `requirements.md` and names the next step: **clear-ticket** (no creator's yes yet), **plan-milestones** (yes, but no approved plan), **build-milestone** (an open milestone; or all ticked: close the ticket). A ticket from before the plugin (no `Status` line): Claude asks you two things once, in one message. Did the creator confirm it, and do you approve the milestones? | a few |
+| You start Claude in a set-up project that is not PENDING | A hook reads `requirements.md` and names the next step: **clear-ticket** (no creator's yes yet), **plan-milestones** (yes, but no approved plan), **build-milestone** (an open milestone; or all ticked: close the ticket). A ticket from before the plugin (no `Status` line): Claude asks you everything once, in one message: did the creator confirm it, was there a "but", who is the creator, and do you approve the milestones? | a few |
 | Claude is about to write a file inside a project folder | A hook (the gate) checks where the ticket stands, and stops code that comes too early. See [The gate](#the-gate-no-code-before-the-yes) below. | none, unless a write is stopped |
 | You start Claude in a set-up project (it has `tracking_log.md`) that is not PENDING and has no `.git` folder | Before anything else, a hook tells Claude to offer you local git (see "Local git in each ticket folder" below). Yes = Claude writes the `.gitignore` if there is none and makes the first commit. No = it asks again next session. | a few |
 | A folder in `work_jira` has no card (an older folder, or one you made by hand) | The next time Claude Code starts, a hook makes a card, named after the folder. If the folder has a `tracking_log.md`, the card is filled from it at once; if not, it fills in once Claude works in that folder. Type a better name on the card any time: the sync never changes it. | none |
@@ -394,10 +394,12 @@ Good to know:
 - **Ticked a box by mistake?** Untick it. The gate opens again.
 - **A closed ticket stays closed.** A new wish from the creator is a new ticket: make it with
   **+ New project**, so it gets its own folder. Claude can read the old folder's code from there.
-- **An older ticket** (no `Status` line) is closed too. Claude asks you two things, once: did the
-  creator confirm it, and do you approve the milestones. Your two answers open it.
+- **An older ticket** (no `Status` line) is closed too. Claude asks you everything in one message:
+  did the creator confirm it, was there a "but", who is the creator, and do you approve the
+  milestones. Your one answer opens it.
 - **The gate only sees Claude's file tools.** A file Claude writes with a shell command is not
-  stopped. The code review reads the git changes, so it still shows up there.
+  stopped. Claude is told never to do that to get round a stop, and never to offer you a
+  "write it anyway". The code review reads the git changes, so it still shows up there.
 - **Code kept outside the project folder is not checked.** The gate looks at files inside
   `work_jira\<project>\` only.
 - **The gate is a guard rail, not a lock.** It reads the creator's yes and your plan approval from

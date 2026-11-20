@@ -83,7 +83,8 @@ A code milestone is ticked only after a ticket-flow:code-reviewer review passed,
 or is in review-notes.md with the user's reason. And only when the user has answered every finding: "No answer yet" \
 and "Open" in the milestone's block in review-notes.md both say none. \
 A milestone with a user check in its "Done when" is ticked only after the user said in chat, in their own words, what they saw, and it \
-matched. A "yes" to an answer you said first does not count. If either is missing, untick it and do that first.
+matched. A "yes" to an answer you said first does not count. Output in the chat (from a `!` command, or pasted) is \
+shown, not checked: it does not count either. If either is missing, untick it and do that first.
 For the rest of this session only notes (.md files, not PLAN.md) can be written in this ticket folder."""
 
 LOG_NOT_UPDATED = "{ids} ticked this session, but tracking_log.md is not updated yet: {todo}. Then tell the user what's next and stop."
@@ -104,17 +105,40 @@ STEPS = {
 }
 
 OLD_TICKET_BOTH = """{name} was started before ticket-flow: its requirements.md has no Status line and no \
-"Plan approved by" line. Before other work, ask the user both questions in ONE message: \
-1. Did the creator confirm what this ticket is about? 2. Do you approve the milestones as they stand? \
-A yes on 1: add the Status line and the proof, as Step 0 of the ticket-flow:clear-ticket skill says. \
-A yes on 2: add the "Plan approved by" line, as Step 0 of the ticket-flow:plan-milestones skill says. \
-Change nothing else in the file. A no: that skill takes it from there."""
+"Plan approved by" line. Before other work, ask the user these four questions in ONE message, and wait for \
+one answer: 1. Did the creator confirm what this ticket is about? 2. Did they add any "but" or extra wish? \
+3. What is the creator's name? 4. Do you approve these milestones as the plan? (Before question 4 say the price, \
+as Step 0 of the ticket-flow:plan-milestones skill says.) \
+Do not ask an answered question a second time for this answer. A question the user left out is asked again, \
+once, before anything is written in the file. Still not answered: write nothing, and tell the user what is \
+missing. A reply the creator sends later is a new reply: \
+it still gets its own "but" question (Step 8 of the ticket-flow:clear-ticket skill). \
+A yes on 1 with no "but": add the Status line and the proof, as Step 0 of the ticket-flow:clear-ticket skill says. \
+Only then does a yes on 4 count: add the "Plan approved by" line, as Step 0 of the ticket-flow:plan-milestones \
+skill says; boxes already ticked stay ticked. Change nothing else in the file. \
+A no, or a "but", on 1: the answer to 4 does not count, and the milestones stay a draft until the creator's yes; \
+the ticket-flow:clear-ticket skill takes it from there. \
+A no on 4 only: the ticket-flow:plan-milestones skill takes it from there."""
 
 OLD_TICKET_ONE = """{name} was started before ticket-flow: its requirements.md has no Status line. \
-Before other work, use the ticket-flow:clear-ticket skill: it asks once whether the creator already confirmed \
-this ticket."""
+Before other work, ask the user these three questions in ONE message, and wait for one answer: \
+1. Did the creator confirm what this ticket is about? 2. Did they add any "but" or extra wish? \
+3. What is the creator's name? \
+Do not ask an answered question a second time for this answer. A question the user left out is asked again, \
+once, before anything is written in the file. Still not answered: write nothing, and tell the user what is \
+missing. A reply the creator sends later is a new reply: \
+it still gets its own "but" question (Step 8 of the ticket-flow:clear-ticket skill). \
+A yes on 1 with no "but": add the Status line and the proof, as Step 0 of the ticket-flow:clear-ticket skill says, \
+and change nothing else in the file. A no, or a "but": that skill takes it from there."""
 
-NOT_WRITTEN = "Not written: {file}. {why} {can} Tell the user this in one plain sentence."
+# Said with every stop, and at session start: on Windows (2026-11-20) Claude offered "write it anyway" in a menu,
+# then wrote the stopped file with a shell command. The gate cannot see a shell command, so words must hold here.
+NO_WAY_ROUND = """A hook (the gate) stops a write that comes too early in this folder. That stop is final: never \
+offer the user a way round it (no "write it anyway", no override), and never write the file another way, such as \
+a shell command. If the user asks for it anyway, say no once and name the next step."""
+STOP_IS_FINAL = """This stop is final: do not offer to "write it anyway", and do not write the file another way, \
+such as a shell command. If the user asks for it anyway, say no once and name the next step."""
+NOT_WRITTEN = "Not written: {file}. {why} {can} " + STOP_IS_FINAL + " Tell the user this in one plain sentence."
 NOTES_ONLY = "Until the creator's yes, only notes (.md files, not PLAN.md) can be written in this ticket folder."
 PLAN_ONLY = "Until the plan is approved, only notes (.md files) and PLAN.md can be written in this ticket folder."
 MILESTONE_FIRST = ('Code needs an open milestone: to change code now, first add a milestone with the '
@@ -283,13 +307,17 @@ def session_start(event, settings, now):
 
 
 def folder_context(work):
-    """What to do in this ticket folder: the next step of a set-up ticket, or how to set the folder up."""
+    """What to do in this ticket folder: the next step of a set-up ticket, or how to set the folder up.
+    Whatever is said ends with the rule that the gate has no way round. Nothing to say stays nothing."""
     if (work / pn.TRACKING_LOG).is_file():
-        return ticket_context(work)
-    files = {f.name for f in work.iterdir() if not f.name.startswith(".")}
-    if files <= {"ticket.md"}:
-        return NEW_FOLDER.format(name=work.name, ticket=READ_TICKET if files else "")
-    return OLD_FOLDER.format(name=work.name)
+        said = ticket_context(work)
+    else:
+        files = {f.name for f in work.iterdir() if not f.name.startswith(".")}
+        if files <= {"ticket.md"}:
+            said = NEW_FOLDER.format(name=work.name, ticket=READ_TICKET if files else "")
+        else:
+            said = OLD_FOLDER.format(name=work.name)
+    return f"{said} {NO_WAY_ROUND}" if said else ""
 
 
 def ticket_context(work):
@@ -550,7 +578,8 @@ def gate(event, settings):
 
     Only files inside a ticket folder under work_jira are judged, by the FILE's own path (not by where Claude is).
     Notes can always be written. The rest depends on where the ticket stands (ticket_state) and on the notepad.
-    A file written by a shell command is not seen here: the review's git diff is the backstop for that.
+    A file written by a shell command is not seen here: the stop message forbids it (STOP_IS_FINAL), and the
+    review's git diff is the backstop.
     """
     tool_input = event.get("tool_input")
     if not isinstance(tool_input, dict):

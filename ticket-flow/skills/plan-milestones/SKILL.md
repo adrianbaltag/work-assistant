@@ -15,7 +15,8 @@ Python developer would do anyway.
 
 ## Rules for the whole skill
 
-- Talk in plain, simple words. Ask ONE question per message, then wait.
+- Talk in plain, simple words. Ask ONE question per message, then wait, unless a step says
+  ONE message.
 - Only plan. No code and no tests in this session. Building starts in a new session (or `/clear`).
   A hook holds this line: until the plan is approved, only notes (`.md` files) and `PLAN.md`
   can be written in the ticket folder.
@@ -51,7 +52,7 @@ Then look for milestone lines in `requirements.md`:
 | What you find | Go to |
 |---|---|
 | No milestone lines | Step 1 |
-| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file. If the folder has `.git`, commit it by name, as in Step 7, item 3: `git add requirements.md`, the same `git status` check, then `git commit -m "Plan approved"`. Never push. Then say that building the first open milestone starts in a new session (or `/clear`). No: it is a draft, the next row. |
+| Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" If the folder had no Status line either, this question, with its price, was part of the ONE message that `ticket-flow:clear-ticket` asked (its Step 0). Take that answer, if the engineer gave one, only in the same session, and only when the creator's yes in that message was clear (a yes, and no "but"): then do not ask it a second time. Otherwise ask it here, as usual. Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file: boxes already ticked stay ticked. If the folder has `.git`, commit it by name, as in Step 7, item 3: `git add requirements.md`, the same `git status` check, then `git commit -m "Plan approved"`. Never push. Then say that building the first open milestone starts in a new session (or `/clear`). No: it is a draft, the next row. |
 | Milestone lines, but no `Plan approved by` line | The plan is a draft. Read it and `PLAN.md`, then go to Step 6. |
 | Milestone lines and a `Plan approved by` line | The plan is done. Say so, and say that building the first open milestone starts in a new session (or `/clear`). If the engineer wants to change the plan, see "Changing the plan later". |
 

@@ -15,8 +15,9 @@ goes to the person who can close it.
 ## Rules for the whole skill
 
 - Talk in plain, simple words. No jargon. If a technical word is needed, explain it once.
-- Ask ONE question per message, then wait. A wall of questions gets skimmed, and skimmed answers
-  are guesses.
+- Ask ONE question per message, then wait, unless a step says ONE message (Step 0 for an
+  older ticket, Step 4 for team defaults). A wall of questions gets skimmed, and skimmed
+  answers are guesses.
 - No plan, no milestones, no code, no pseudo-code here. Those come after the creator's yes, in
   the next skill. Planning early hides the open questions behind work that looks like progress.
   A hook holds this line: until the yes, only notes (`.md` files) can be written in the ticket
@@ -54,7 +55,7 @@ Status line:
 | No `requirements.md`, or it holds only empty template text | Step 1 |
 | `**Status:** WAITING FOR CREATOR` | Step 6 (ask for the creator's reply) |
 | `**Status:** CONFIRMED BY CREATOR` | This skill is done. Say so, and say the next step is planning the milestones, in a new session (or `/clear`). |
-| Real content but no Status line (a ticket started before this skill) | Ask once: "Did the creator already confirm what this ticket is about?" Yes: add the CONFIRMED Status line and the proof (Step 8), and change nothing else in the file. No: go to Step 1. What the file says counts as the engineer's notes: keep it, and add the new sections around it. |
+| Real content but no Status line (a ticket started before this skill) | Ask once, in ONE message, and wait for one answer: 1. "Did the creator confirm what this ticket is about?" 2. "Did they add any "but" or extra wish?" 3. "What is the creator's name?" If the file also has milestone lines and no `Plan approved by` line, the same message asks 4. "Do you approve these milestones as the plan?", with the price said before it (the price, and what to do with that answer: `ticket-flow:plan-milestones`, Step 0). If the answer leaves a question out (often the "but", or the name), ask that one again, once, before anything is written in the file: the proof says only what the engineer answered. Still not answered after that: write nothing in the file, say which answer is missing, and stop there. Yes and no "but": every question is answered by now, so do not ask any of them a second time (Step 8's "but" question is asked), add the CONFIRMED Status line and the proof (Step 8: `Told by <engineer>:`, the creator's name, and the `Asked about a "but":` line with their answer), and change nothing else in the file. A "but": not a yes, see the table in Step 8. No: go to Step 1. With a "but" or a no, the answer to question 4 does not count: no `Plan approved by` line is written, and the milestones stay a draft until the creator's yes. A reply the creator sends later is a new reply: Step 8 asks its "but" question again, for that reply. What the file says counts as the engineer's notes: keep it, and add the new sections around it. |
 
 Then check the starter files. Every ticket folder needs these three. The dashboard card is
 filled from `tracking_log.md`, so without it the card stays empty.
@@ -409,7 +410,7 @@ __pycache__/
 
 | Mistake | Do this instead |
 |---|---|
-| Asking all four questions in one message | One per message |
+| Asking the four questions of Step 2 in one message | One per message |
 | Answering a question for the engineer "to save time" | Wait for their answer. "I don't know" is fine. |
 | Treating a Guess as settled because it sounds right | It goes to someone who knows: a real question, or the assume list |
 | Sending the creator a long list of small questions | Real questions only where a wrong guess does harm or changes what is built. The rest: one assume list. |
