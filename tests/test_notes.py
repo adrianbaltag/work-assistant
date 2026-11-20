@@ -80,10 +80,10 @@ def test_read_project_updated_is_newest_file_ignoring_archive(tmp_path):
     folder = make_project(tmp_path, "DEMO-1111")
     (folder / "sessions").mkdir()
     session = folder / "sessions" / "2026-10-14.md"
-    session.write_text("x")
+    session.write_text("x", encoding="utf-8")
     (folder / "archive").mkdir()
     archived = folder / "archive" / "old.md"
-    archived.write_text("x")
+    archived.write_text("x", encoding="utf-8")
     os.utime(folder / "note.md", (1000, 1000))
     os.utime(session, (2000, 2000))
     os.utime(archived, (9000, 9000))   # newest, but archive\ doesn't count
@@ -105,7 +105,7 @@ def test_list_projects_skips_archive_hidden_loose_files_and_no_note(tmp_path):
     (tmp_path / "_archive").mkdir()
     make_project(tmp_path / "_archive", "DEMO-0001")
     (tmp_path / ".obsidian").mkdir()
-    (tmp_path / "readme.txt").write_text("x")
+    (tmp_path / "readme.txt").write_text("x", encoding="utf-8")
     (tmp_path / "empty-folder").mkdir()          # no note.md = not a project
     ids = [p["id"] for p in notes.list_projects(tmp_path)]
     assert ids == ["DEMO-1111"]
@@ -387,7 +387,7 @@ def test_rename_file_refuses_a_taken_name_but_allows_a_case_change(tmp_path):
     c = notes.rename_file(a, "c.txt")
     assert c.read_bytes() == b"A" and not a.exists()
     assert notes.rename_file(c, "C.txt").name == "C.txt"
-    assert [f["name"] for f in notes.list_files(folder)["raw"]] == ["b.txt", "C.txt"]
+    assert [f["name"] for f in notes.list_files(folder)["raw"]] == ["C.txt", "b.txt"]   # Z to A, capitals don't count
 
 
 def test_archive_file_moves_it_and_never_overwrites(tmp_path):

@@ -366,7 +366,7 @@ def sync_all(projects_folder, work_jira_folder, now):
     if not str(work_jira_folder).strip():
         return []
     try:
-        folders = sorted(f for f in Path(work_jira_folder).iterdir() if is_project_folder(f))
+        folders = sorted((f for f in Path(work_jira_folder).iterdir() if is_project_folder(f)), key=notes.by_name)
     except OSError:
         return []
     synced = []
@@ -532,7 +532,7 @@ def archive_gone(projects_folder, work_jira_folder, now):
     if not here:
         return []
     archived = []
-    for card in sorted(Path(projects_folder).iterdir()):
+    for card in sorted(Path(projects_folder).iterdir(), key=notes.by_name):
         note = card / notes.NOTE_FILE
         if card.name == notes.ARCHIVE_FOLDER or card.name.startswith(".") or card.name.casefold() in here:
             continue
@@ -564,7 +564,7 @@ def import_missing(projects_folder, work_jira_folder, now):
     if not str(work_jira_folder).strip():
         return []
     try:
-        folders = sorted(f for f in Path(work_jira_folder).iterdir() if is_project_folder(f))
+        folders = sorted((f for f in Path(work_jira_folder).iterdir() if is_project_folder(f)), key=notes.by_name)
     except OSError:
         return []
     added = []

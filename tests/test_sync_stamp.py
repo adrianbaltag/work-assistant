@@ -323,10 +323,10 @@ def make_card(tmp_path, name, stamp, extra=()):
 def test_newest_change_skips_dot_files_and_system_files(tmp_path):
     folder = make_card(tmp_path, "DEMO-1", 1000)
     for name in (".DS_Store", "desktop.ini", "Thumbs.db", "THUMBS.DB"):
-        (folder / name).write_text("x")
+        (folder / name).write_text("x", encoding="utf-8")
         os.utime(folder / name, (9000, 9000))
     (folder / ".hidden").mkdir()
-    (folder / ".hidden" / "a.md").write_text("x")
+    (folder / ".hidden" / "a.md").write_text("x", encoding="utf-8")
     os.utime(folder / ".hidden" / "a.md", (9000, 9000))
     assert notes.newest_change(folder) == 1000
 
@@ -359,7 +359,7 @@ def test_a_work_card_counts_the_work_folders_files_too(tmp_path):
 def test_a_card_that_is_not_a_work_card_ignores_its_folder_field(tmp_path):
     other = tmp_path / "somewhere"
     other.mkdir()
-    (other / "a.md").write_text("x")
+    (other / "a.md").write_text("x", encoding="utf-8")
     old = (NOW - timedelta(days=20)).timestamp()
     os.utime(other / "a.md", (NOW.timestamp(), NOW.timestamp()))
     card = make_card(tmp_path, "DEMO-1", old, extra=[("folder", other)])
@@ -375,7 +375,7 @@ def test_a_missing_work_folder_is_ignored(tmp_path):
 def test_the_work_folders_hidden_files_do_not_count(tmp_path):
     work = work_project(tmp_path, "DEMO-1")
     (work / ".claude").mkdir()
-    (work / ".claude" / "milestone-x.json").write_text("{}")
+    (work / ".claude" / "milestone-x.json").write_text("{}", encoding="utf-8")
     old = (NOW - timedelta(days=20)).timestamp()
     for f in (work / "tracking_log.md", work / ".claude" / "milestone-x.json"):
         os.utime(f, (old if f.name == "tracking_log.md" else NOW.timestamp(),) * 2)

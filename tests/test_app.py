@@ -706,11 +706,11 @@ def apply(client, tmp_path, proposal=PROPOSAL, stamp=None):
 def test_apply_saves_fields_history_line_and_session_note(tmp_path, claude_client):
     response = apply(claude_client, tmp_path)
     assert response.status_code == 200
-    note = (tmp_path / "DEMO-1" / "note.md").read_text()
+    note = (tmp_path / "DEMO-1" / "note.md").read_text(encoding="utf-8")
     assert "next: send the report\n" in note and "status: pending\n" in note
     assert "· Claude (you approved) · Vendor replied" in note
     session = tmp_path / "DEMO-1" / "sessions" / response.json["session"]
-    assert session.read_text() == "## Today\nRead the vendor reply.\n"
+    assert session.read_text(encoding="utf-8") == "## Today\nRead the vendor reply.\n"
     assert response.json["session"].endswith(".md") and response.json["session"][:4].isdigit()
 
 
@@ -729,19 +729,19 @@ def test_apply_never_overwrites_a_session_file_from_the_same_day(tmp_path, claud
 
 def test_apply_refuses_when_the_note_changed_since_claude_read_it(tmp_path, claude_client):
     note = tmp_path / "DEMO-1" / "note.md"
-    before = note.read_text()
+    before = note.read_text(encoding="utf-8")
     response = apply(claude_client, tmp_path, stamp="old-stamp")
     assert response.status_code == 409 and "ask" in response.json["error"].lower()
-    assert note.read_text() == before
+    assert note.read_text(encoding="utf-8") == before
     assert not (tmp_path / "DEMO-1" / "sessions").exists()
 
 
 def test_apply_refuses_priority_and_changes_nothing(tmp_path, claude_client):
     note = tmp_path / "DEMO-1" / "note.md"
-    before = note.read_text()
+    before = note.read_text(encoding="utf-8")
     response = apply(claude_client, tmp_path, {**PROPOSAL, "fields": [{"field": "priority", "value": "critical"}]})
     assert response.status_code == 400 and "priority" in response.json["error"]
-    assert note.read_text() == before
+    assert note.read_text(encoding="utf-8") == before
 
 
 def test_apply_with_nothing_to_apply_is_400(tmp_path, claude_client):

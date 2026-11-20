@@ -9,7 +9,7 @@ from contextlib import redirect_stderr
 from datetime import datetime
 
 import pytest
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 
 import notes
 import project_note as pn
@@ -75,8 +75,9 @@ def test_create_card_command_with_a_space_in_the_path_says_how_to_run_it_in_powe
     monkeypatch.setattr(hooks.sys, "executable", str(tmp_path / "Demo Person" / "python.exe"))
     _, message = stop(settings, work)
     assert "PowerShell" in message and "&" in message
-    monkeypatch.setattr(hooks, "HELPER", tmp_path / "project_note.py")
-    monkeypatch.setattr(hooks.sys, "executable", str(tmp_path / "python.exe"))
+    # A fixed path: the temp folder itself has a space when the Windows user name has one ("Demo Person").
+    monkeypatch.setattr(hooks, "HELPER", Path("/demo/project_note.py"))
+    monkeypatch.setattr(hooks.sys, "executable", "/demo/python.exe")
     _, message = stop(settings, work)
     assert "PowerShell" not in message
 
@@ -173,7 +174,7 @@ def test_session_start_adds_cards_for_folders_without_one(tmp_path):
     work_project(tmp_path, "DEMO-1")
     work_project(tmp_path, "boss_rpa", log=None, files=["note.md"])
     context, for_user = start(settings, tmp_path)
-    assert for_user == "Dashboard: added cards for DEMO-1, boss_rpa (folders in work_jira)."
+    assert for_user == "Dashboard: added cards for boss_rpa, DEMO-1 (folders in work_jira)."   # A-Z, capitals don't count
     assert notes.find_project(projects, "DEMO-1") and notes.find_project(projects, "boss_rpa")
     assert start(settings, tmp_path) == ("", "")                     # next time: nothing new to say
 

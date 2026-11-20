@@ -205,12 +205,21 @@ def read_or_problem(folder):
                 "updated": newest_change(folder), "problem": problem, "working_on": problem}
 
 
+def by_name(path):
+    """Sort key for folders and files: A-Z by name, capitals don't count.
+
+    Without it Python sorts paths with capitals first on the Mac and ignores capitals on Windows,
+    so the two laptops would show a different order.
+    """
+    return (path.name.casefold(), path.name)
+
+
 def project_folders(projects_folder):
     """The project folders in the projects folder, sorted by name. Opens no note.
 
     A project is a sub-folder with a note.md. Skips _archive and hidden folders.
     """
-    return [folder for folder in sorted(Path(projects_folder).iterdir())
+    return [folder for folder in sorted(Path(projects_folder).iterdir(), key=by_name)
             if (folder.is_dir()
                 and folder.name != ARCHIVE_FOLDER
                 and not folder.name.startswith(".")
@@ -456,7 +465,7 @@ def list_files(folder):
         path = Path(folder) / dir
         found = path.iterdir() if path.is_dir() else []
         files[dir] = [{"name": f.name, "size": f.stat().st_size}
-                      for f in sorted(found, key=lambda f: f.name, reverse=True)
+                      for f in sorted(found, key=by_name, reverse=True)
                       if f.is_file() and not f.name.startswith(".")]
     return files
 
@@ -638,7 +647,7 @@ def list_archive(projects_folder):
     """What the Archive page shows: archived projects (last finished first) and the deleted files of open projects."""
     projects = []
     archive = Path(projects_folder) / ARCHIVE_FOLDER
-    for folder in sorted(archive.iterdir()) if archive.is_dir() else []:
+    for folder in sorted(archive.iterdir(), key=by_name) if archive.is_dir() else []:
         if folder.is_dir() and plain_name(folder.name) and (folder / NOTE_FILE).is_file():
             project = read_or_problem(folder)
             del project["body"]
@@ -650,7 +659,7 @@ def list_archive(projects_folder):
     for project in list_projects(projects_folder):
         for dir in ("",) + FILE_DIRS:
             path = Path(projects_folder) / project["id"] / FILE_ARCHIVE / dir
-            found = sorted(path.iterdir(), reverse=True) if path.is_dir() else []
+            found = sorted(path.iterdir(), key=by_name, reverse=True) if path.is_dir() else []
             files += [{"project": project["id"], "title": project["title"], "dir": dir,
                        "name": f.name, "size": f.stat().st_size}
                       for f in found if f.is_file() and plain_name(f.name)]
