@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 
 import claude_chat
 import dashboard_inbox
+import ideas
 import notes
 import prod_folder
 import project_note
@@ -36,6 +37,7 @@ FILE_PROBLEM = ("Could not read or change {} ({}). Check that the disk or networ
                 "then try again.")
 TODO_ODD = "The page sent something odd. Reload the page (F5) and try again."
 TODO_ROW = {"row": int, "text": str}     # which todo a change is for: its place in todos.md + its words
+IDEA_ROW = {"row": int, "name": str}     # which idea: its place in ideas.md + its name
 CRASHED = ("Something went wrong inside the app. Reload the page (F5) and try again. "
            "If it happens again, look at the terminal where the app runs.")
 
@@ -354,7 +356,8 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     def home():
         problem = work_jira_problem()
         return render_template("index.html", work_jira=not problem, work_jira_problem=problem,
-                               todo_empty=todos.EMPTY, todo_max=todos.MAX_LENGTH)
+                               todo_empty=todos.EMPTY, todo_max=todos.MAX_LENGTH,
+                               idea_max=ideas.MAX_LENGTH)
 
     @app.get("/api/projects")
     def api_projects():
@@ -400,14 +403,33 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         problem = work_jira_problem() if work else ""
         if problem:
             return jsonify(error=f"Work project is off. {problem} For a personal idea, untick Work project."), 400
+        idea = None
+        if "idea" in data:          # "Start as project" on the Ideas page: {row, name} of that idea
+            which = data["idea"]
+            if not (isinstance(which, dict) and all(type(which.get(k)) is kind for k, kind in IDEA_ROW.items())):
+                return jsonify(error=TODO_ODD), 400
+            try:
+                idea = ideas.get(projects_folder, which["row"], which["name"])
+            except ideas.ListChanged:
+                return jsonify(error=ideas.STALE_IDEA), 409
+            except ideas.Unreadable as err:
+                app.logger.warning("%s can't be read for Start as project (%s)", ideas.IDEA_FILE, err)
+                return jsonify(error=str(err)), 400
         try:
-            notes.new_project(projects_folder, project_id, str(data.get("title") or ""), status)
+            folder = notes.new_project(projects_folder, project_id, str(data.get("title") or ""), status)
         except FileExistsError:
             return jsonify(error=f'A folder named "{project_id}" already exists. Pick another name.'), 400
         except ValueError:
             return jsonify(error=f'"{project_id}" can\'t be used as a folder name. Pick another name.'), 400
         except OSError as err:
             return jsonify(error=f"Could not create the folder: {err}. Is the projects folder reachable?"), 400
+        said = []           # extra lines for the page to show after the card opens
+        if idea:
+            # Work project: the Ticket description as you left it in the form (you may have edited the
+            # idea's details there). Personal project: that box is hidden, so the idea's details as saved.
+            # Filled now, before the work folder is linked: the sync then leaves a filled Goal alone.
+            goal = str(data.get("description") or "") if work else idea["details"]
+            said += idea_goal(folder, goal)
         if work:
             try:
                 folder, made = project_note.start_work_folder(work_jira_folder, project_id,
@@ -419,9 +441,40 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
                                      f"({err.strerror or err}). Is {work_jira_folder} reachable? "
                                      "Make the folder there by hand."), 400
             if not made:
-                return jsonify(id=project_id, note=f"work_jira\\{project_id}\\ already existed: kept as it was, "
-                                                   "so Created by and the description were not saved.")
-        return jsonify(id=project_id)
+                said.append(f"work_jira\\{project_id}\\ already existed: kept as it was, "
+                            "so Created by and the description were not saved.")
+        if idea:
+            said += idea_remove(which)      # only now: a failure above (e.g. the work folder) keeps the idea
+        return jsonify(id=project_id, note=" ".join(said)) if said else jsonify(id=project_id)
+
+    def idea_goal(folder, goal):
+        """Put goal under the new card's empty ## Goal. Returns lines for the page, [] when it worked.
+
+        A line starting with "#" gets a "\\" in front, so it can't become a heading of the note
+        (a "## History" line would break the card's History). The card is already made, so a failure is told.
+        """
+        lines = [("\\" + line.lstrip()) if line.lstrip().startswith("#") else line.rstrip()
+                 for line in goal.strip().splitlines()]
+        if not lines:
+            return []
+        note = folder / notes.NOTE_FILE
+        try:
+            text = note.read_text(encoding="utf-8")
+            notes.safe_write(note, project_note.fill_goal(text, "\n".join(lines)))
+        except (OSError, ValueError) as err:
+            app.logger.warning("The idea's details could not be put in %s (%s)", note, err)
+            return ["The idea's details could not be put in the card's Goal: copy them in by hand."]
+        return []
+
+    def idea_remove(which):
+        """Take the idea off the list once its project is made. Returns lines for the page, [] when it worked."""
+        try:
+            ideas.delete(projects_folder, which["row"], which["name"])
+        except (ideas.ListChanged, ideas.Unreadable, OSError) as err:
+            app.logger.warning("The idea %r could not be removed from %s (%s)", which["name"], ideas.IDEA_FILE, err)
+            return [f'The project was made, but the idea "{which["name"]}" is still in the list. '
+                    "Delete it on the Ideas page."]
+        return []
 
     def folder_or_404(project_id):
         folder = notes.find_project(projects_folder, project_id)
@@ -1005,6 +1058,47 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
     def api_clear_done():
         # texts = the done todos the page showed in "Delete N done todos for good?"
         return todo_change(lambda d: todos.clear_done(projects_folder, d["texts"]), texts=list)
+
+    # ----- Ideas page -----
+
+    @app.get("/api/ideas")
+    def api_ideas():
+        try:
+            return jsonify(ideas.listing(ideas.read_ideas(projects_folder)))
+        except ideas.Unreadable as err:
+            app.logger.warning("%s can't be read (%s)", ideas.IDEA_FILE, err)
+            return jsonify(error=str(err)), 400
+        except OSError as err:
+            app.logger.warning("%s could not be read (%s)", ideas.IDEA_FILE, err)
+            return jsonify(error=UNREADABLE.format(ideas.IDEA_FILE)), 400
+
+    def idea_change(change, **fields):
+        """Shared by every Ideas change, like todo_change: checks the body, runs change(body), answers with the list."""
+        data = request.get_json(silent=True)
+        if not (isinstance(data, dict) and all(type(data.get(name)) is kind for name, kind in fields.items())):
+            return jsonify(error=TODO_ODD), 400
+        try:
+            saved = change(data)
+        except ideas.ListChanged:
+            return jsonify(error=ideas.CHANGED), 409
+        except ideas.Unreadable as err:
+            app.logger.warning("%s can't be read (%s)", ideas.IDEA_FILE, err)
+            return jsonify(error=str(err)), 400
+        except ideas.BadText as err:
+            return jsonify(error=str(err)), 400
+        except OSError as err:
+            app.logger.warning("%s could not be saved (%s)", ideas.IDEA_FILE, err)
+            return jsonify(error=LOCKED.format(ideas.IDEA_FILE)), 400
+        return jsonify(ideas.listing(saved))
+
+    @app.post("/api/ideas")
+    def api_add_idea():
+        return idea_change(lambda d: ideas.add(projects_folder, d["text"], datetime.now().strftime("%Y-%m-%d")),
+                           text=str)
+
+    @app.post("/api/ideas/delete")
+    def api_delete_idea():
+        return idea_change(lambda d: ideas.delete(projects_folder, d["row"], d["name"]), **IDEA_ROW)
 
     # ----- Slack button -----
 

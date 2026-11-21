@@ -219,7 +219,7 @@ function drawOverview() {
     ${synced}
     <div class="grid">
       ${input("title", "Project name", "wide")}
-      ${p.linked ? "" : select("status", "Status", ["active", "pending", "idea"])}
+      ${p.linked ? "" : select("status", "Status", ["active", "pending"])}
       ${select("priority", "Priority", ["critical", "high", "normal"], '<span class="hint">Only you set this. Claude never changes it.</span>')}${yours}
       ${input("jira", "Jira")}
       ${input("folder", "Code folder", "wide", '<span class="hint">Info only, e.g. work_jira\\DEMO-1111</span>')}

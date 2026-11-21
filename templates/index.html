@@ -16,6 +16,8 @@
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>Dashboard</button>
       <button class="nav" data-page="todo">
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.6 8.2l1.7 1.7 3.2-3.5"/></svg>To do<span class="nbadge" id="todo-n" hidden></span></button>
+      <button class="nav" data-page="ideas">
+        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.8 11.5h4.4M6.4 14h3.2M8 1.8a4.4 4.4 0 0 0-2.6 8c.4.3.6.8.6 1.2v.5h4V11c0-.4.2-.9.6-1.2A4.4 4.4 0 0 0 8 1.8z"/></svg>Ideas</button>
       <button class="nav claude" data-page="ask">
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6"/></svg>Ask Claude</button>
       <div class="slack-wrap"><button class="nav slack" id="nav-slack" aria-haspopup="true" aria-expanded="false" aria-controls="slack-dd">
@@ -78,6 +80,31 @@
         </form>
         <div id="todo-alert"></div>
         <div class="todo-col" id="todo-list" data-empty-msg="{{ todo_empty }}" data-max-length="{{ todo_max }}"></div>
+      </div>
+    </section>
+
+    <!-- Ideas page (ideas.js): quick box on top, the ideas below, newest first. Kept in ideas.md. -->
+    <section class="content" id="page-ideas" hidden>
+      <div class="dash-head">
+        <div>
+          <div class="date" id="ideas-date"></div>
+          <h2>Ideas</h2>
+          <p class="summary" id="ideas-summary"></p>
+        </div>
+      </div>
+      <div class="todo-col">
+        <form class="todo-add" id="idea-add" autocomplete="off">
+          <textarea id="idea-new" rows="1" maxlength="{{ idea_max }}" aria-label="New idea"
+            placeholder="Type an idea… First line = its name. Shift+Enter = new line, Enter = save"></textarea>
+          <button class="btn primary" type="submit">Add</button>
+          <!-- (i) button: shows or hides the line below it -->
+          <button class="ticon info" type="button" id="idea-info" aria-expanded="false" aria-controls="idea-help"
+            aria-label="How to change an idea" title="How to change an idea">
+            <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle class="dot" cx="8" cy="4.9" r=".4"/></svg></button>
+        </form>
+        <p class="idea-help" id="idea-help" hidden>To change an idea, delete it and add it again.</p>
+        <div id="idea-alert"></div>
+        <div id="idea-list"></div>
       </div>
     </section>
 
@@ -154,6 +181,7 @@
   <script src="{{ url_for('static', filename='chat.js') }}"></script>
   <script src="{{ url_for('static', filename='card.js') }}"></script>
   <script src="{{ url_for('static', filename='todo.js') }}"></script>
+  <script src="{{ url_for('static', filename='ideas.js') }}"></script>
   <script src="{{ url_for('static', filename='completed.js') }}"></script>
   <script src="{{ url_for('static', filename='newproject.js') }}"></script>
   <script src="{{ url_for('static', filename='slack.js') }}"></script>

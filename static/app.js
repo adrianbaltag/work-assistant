@@ -271,7 +271,7 @@ window.addEventListener("resize", () => {
 // changes height, so count the rows again.
 document.fonts.addEventListener("loadingdone", redraw);
 
-// Sidebar: Dashboard / To do / Ask Claude (and the dashboard's Ask Claude button). Each switch re-reads from disk.
+// Sidebar: Dashboard / To do / Ideas / Ask Claude (and the dashboard's Ask Claude button). Each switch re-reads from disk.
 document.querySelector(".app").addEventListener("click", e => {
   const button = e.target.closest("[data-page]");
   if (button) showPage(button.dataset.page);
@@ -283,9 +283,11 @@ function showPage(page) {
     n.dataset.page === page ? n.setAttribute("aria-current", "page") : n.removeAttribute("aria-current"));
   $("page-dash").hidden = page !== "dash";
   $("page-todo").hidden = page !== "todo";
+  $("page-ideas").hidden = page !== "ideas";
   $("page-ask").hidden = page !== "ask";
   if (page === "dash") load();
   else if (page === "todo") loadTodos();      // todo.js
+  else if (page === "ideas") loadIdeas();     // ideas.js
   else if (page === "ask") askAll();
 }
 

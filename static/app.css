@@ -460,3 +460,23 @@ button.pend:hover .go{background:var(--complete-hover)}
 .tempty p{font-size:13px;color:var(--text-muted)}
 #todo-alert:empty{display:none}   /* no empty gap when there is no error */
 .thead .ico{color:var(--critical);fill:currentColor}   /* red flag in the High card head */
+
+/* Ideas page (ideas.js): same add bar and card as To do. Each idea = name + date, details, Start as project, ×. */
+.todo-add .info{align-self:center;color:var(--text-label)}
+.todo-add .info:hover,.todo-add .info[aria-expanded="true"]{color:var(--text);background:var(--raised-hover)}
+.todo-add .info .ico{width:20px;height:20px}
+.todo-add .info .dot{fill:currentColor}
+.idea-help{font-size:13px;color:var(--text-muted);padding:0 8px}
+#idea-alert:empty{display:none}
+.irow{display:flex;align-items:flex-start;gap:12px;padding:12px 10px 12px 18px;border-top:1px solid var(--border);transition:background .15s}
+.tlist .irow:first-child{border-top:0}
+.irow:hover{background:var(--raised)}
+.irow .btn,.irow .ticon{flex:none}
+.irow.asking{flex-direction:column;align-items:stretch;gap:10px;background:var(--critical-faint)}
+.irow.asking .tconfirm{background:none;height:auto;padding:0}
+.itext{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
+.ihead{display:flex;align-items:baseline;gap:10px}
+.iname{font-weight:600;font-size:14.5px}
+.idate{font-family:var(--mono);font-size:11.5px;color:var(--text-label);flex:none}
+.idetails{white-space:pre-line;font-size:13.5px;color:var(--text-muted);line-height:1.5}   /* pre-line = keeps your line breaks */
+.istart{height:32px;padding:0 14px;border-radius:var(--pill);font-size:12.5px}
