@@ -1,6 +1,6 @@
 ---
 name: plan-milestones
-description: Turns a ticket the creator has confirmed into milestones, each small enough for one session and each with a proof. Use after clear-ticket is done (requirements.md says CONFIRMED BY CREATOR), whenever the user says "plan the milestones", "plan this ticket", "what do we build first", or asks to split, add or change a milestone. Use it before any code. Writes the milestone lines into requirements.md and short steps into PLAN.md. No code and no tests come out of this skill. Adapted from obra/superpowers (MIT, © 2025 Jesse Vincent).
+description: Turns a ticket the creator has confirmed into milestones, each small enough for one session and each with a proof. Use after clear-ticket is done (requirements.md says CONFIRMED BY CREATOR), whenever the user says "plan the milestones", "plan this ticket", "what do we build first", or asks to split, add or change a milestone. Also use it when the engineer says "reopen" or that something in a closed ticket broke. Use it before any code. Writes the milestone lines into requirements.md and short steps into PLAN.md. No code and no tests come out of this skill. Adapted from obra/superpowers (MIT, © 2025 Jesse Vincent).
 argument-hint: <nothing, or the change you want in the plan>
 ---
 
@@ -40,7 +40,8 @@ Read `requirements.md` and look at its Status line.
 
 | What you find | Do this |
 |---|---|
-| `requirements.md` has a `## Closed` section | Check this first. The ticket is closed, and stays closed. Say so, and stop. No milestone is added to a closed ticket, and no plan is changed: a new wish is a new ticket with its own folder, and it starts there with `ticket-flow:clear-ticket`. |
+| The engineer says the ticket is done (dropped, or done another way) | Stop. It can close at any stage: the next step is `ticket-flow:build-milestone`, "Closing the ticket". |
+| `requirements.md` has a `## Closed` section | Check this first, and look at the newest of `## Closed` and `## Reopened`: if `## Reopened` is lower in the file, the ticket is open again, so take the next row that fits. Else the ticket is closed. Say so. If the engineer says something broke or needs a small change ("reopen: <what broke>"), go to "Reopening the ticket" below. No milestone is added to a closed ticket, and no plan is changed until it is reopened: a new wish is a new ticket with its own folder, and it starts there with `ticket-flow:clear-ticket`. Else stop. |
 | `**Status:** CONFIRMED BY CREATOR` | Go on. |
 | `WAITING FOR CREATOR`, no Status line, or no file | Stop. Say that the plan waits for the creator's yes, and that the next step is the `ticket-flow:clear-ticket` skill. |
 
@@ -54,6 +55,7 @@ Then look for milestone lines in `requirements.md`:
 | No milestone lines | Step 1 |
 | Milestone lines from before this skill: there is no `Plan approved by` line, and at least one milestone is ticked or the file has no `## The contract for version 1` section | The plan was made, and used, before this skill. Say the price, as in Step 7, and how many milestones are already ticked. Ask once: "Do you approve these milestones as the plan?" If the folder had no Status line either, this question, with its price, was part of the ONE message that `ticket-flow:clear-ticket` asked (its Step 0). Take that answer, if the engineer gave one, only in the same session, and only when the creator's yes in that message was clear (a yes, and no "but"): then do not ask it a second time. Otherwise ask it here, as usual. Yes: add the `Plan approved by` line (Step 7, item 1) right above the first milestone line, and change nothing else in the file: boxes already ticked stay ticked. If the folder has `.git`, commit it by name, as in Step 7, item 3: `git add requirements.md`, the same `git status` check, then `git commit -m "Plan approved"`. Never push. Then say that building the first open milestone starts in a new session (or `/clear`). No: it is a draft, the next row. |
 | Milestone lines, but no `Plan approved by` line | The plan is a draft. Read it and `PLAN.md`, then go to Step 6. |
+| Milestone lines, a `Plan approved by` line, every milestone ticked, the newest of `## Closed` and `## Reopened` is `## Reopened`, and no milestone line under it | The ticket was reopened in an earlier session (already written, logged and committed) and its fix milestone is missing. Go to "Reopening the ticket", step 5. |
 | Milestone lines and a `Plan approved by` line | The plan is done. Say so, and say that building the first open milestone starts in a new session (or `/clear`). If the engineer wants to change the plan, see "Changing the plan later". |
 
 **The branch.** Whichever row you took, unless it told you to stop: if the folder has `.git`,
@@ -270,6 +272,47 @@ leftover changes. In the middle of building a milestone: the changed files go in
 milestone's commit. At any other time: add the files you changed, by name
 (`git add requirements.md PLAN.md tracking_log.md`), then `git commit -m "Plan changed"`.
 Never push.
+
+## Reopening the ticket
+
+The engineer says something in a closed ticket broke, or needs a small change:
+"reopen: <what broke>", or the same in other words. No reason given: ask what broke.
+
+1. **The folder.** If the folder above this one holds the hidden file
+   `.work-assistant-completed`, or this folder is not inside the work_jira folder, stop: the
+   dashboard's ✓ Complete moved it to the folder for completed projects. Tell the engineer to
+   Restore it on the dashboard's Completed tab first, then open Claude in the folder under
+   work_jira. Why: only Restore brings a folder back, and the hooks watch only work_jira.
+2. **Ask first, once:** "Is this a fault or a small change in what was agreed (reopen), or a
+   new wish (a new ticket)?" A new wish: say it is a new ticket with its own folder, made with
+   **+ New project** on the dashboard, and it starts there with `ticket-flow:clear-ticket`.
+   Stop.
+3. A fault or a small change: add at the end of `requirements.md`. Everything above stays as
+   it is, the old `## Closed` too.
+
+   ```markdown
+   ## Reopened (<date>): <what broke>
+   ```
+
+   `<what broke>` is in the engineer's own words. This heading opens the ticket again: the
+   hooks and the dashboard read the newest of `## Closed` and `## Reopened`.
+4. **Log and commit the reopen now**, before anything else: in `tracking_log.md` add under
+   `## Last update` `YYYY-MM-DD — ticket reopened: <what broke>`, and put
+   `Reopened: <what broke>` under `## Now working on` in place of `Ticket closed`. If the folder has `.git`:
+   `git add requirements.md tracking_log.md`, then `git commit -m "Ticket reopened"`. Never
+   push. Why first: a later session comes back at step 5 and must find the reopen done.
+5. **The fix milestone.** A ticket closed before it had a plan, or with milestones still
+   open, gets no new milestone: Step 0 names its next step. Every milestone ticked: code
+   waits for a new one. Propose it by "Changing the plan later" above: the next free number,
+   its "Done when", and the price. After the engineer's yes: add it as a milestone line under
+   the `## Reopened` heading (the hooks look for it there: until then a session is sent back
+   to this step, never to closing), put it under `## Now working on` in `tracking_log.md`, and
+   finish as "Changing the plan later" says (`git commit -m "Plan changed"`). The reopen line
+   is never written again here. A no, or no answer yet: stop; a later session comes back here.
+6. Tell the engineer the fix milestone is built in a new session (or `/clear`). Stop.
+
+When the fix is ticked, the ticket closes again by "Closing the ticket" in
+`ticket-flow:build-milestone`: Part 1 shows the creator the fix.
 
 ## Common mistakes
 

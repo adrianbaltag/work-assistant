@@ -1,6 +1,6 @@
 ---
 name: build-milestone
-description: Builds ONE milestone of a planned ticket in one session - test first, then the code, then the proof, then an independent strict code review, then the tick. Use when the user says "build M1", "next milestone", "continue the ticket" or "start building", or opens a ticket that has an approved plan and an open milestone. Also use when review findings come back, before ticking a milestone or saying anything is done or fixed, and when the last milestone is ticked and the ticket must be closed with the creator. Adapted from obra/superpowers (MIT, © 2025 Jesse Vincent).
+description: Builds ONE milestone of a planned ticket in one session - test first, then the code, then the proof, then an independent strict code review, then the tick. Use when the user says "build M1", "next milestone", "continue the ticket" or "start building", or opens a ticket that has an approved plan and an open milestone. Also use when review findings come back, before ticking a milestone or saying anything is done or fixed, when the last milestone is ticked and the ticket must be closed with the creator, when the engineer says the ticket is done (at any stage). Adapted from obra/superpowers (MIT, © 2025 Jesse Vincent).
 argument-hint: <milestone ID, or the creator's reply to the result>
 ---
 
@@ -41,9 +41,10 @@ Read `requirements.md`, `PLAN.md` and `tracking_log.md`. Take the first row that
 
 | What you find | Do this |
 |---|---|
+| The engineer says the ticket is done (dropped, or done another way) | Close it, at any stage: before the creator's yes, before a plan, or with milestones still open. Go to "Close the ticket" in "Closing the ticket", and write that the engineer said so. |
+| `requirements.md` has a `## Closed` section | Look at the newest of `## Closed` and `## Reopened`: if `## Reopened` is lower in the file, the ticket is open again: if every milestone is ticked and no milestone line under it yet, the fix milestone is missing, so stop, the next step is `ticket-flow:plan-milestones`, "Reopening the ticket", step 5; else take the next row that fits. Else the ticket is closed. Say so. If the engineer says something broke or needs a small change ("reopen: <what broke>"), the next step is `ticket-flow:plan-milestones`, "Reopening the ticket". A new wish is a new ticket with its own folder: it starts there, with `ticket-flow:clear-ticket`. Else stop. |
 | Status is not `CONFIRMED BY CREATOR` | Stop. The next step is the `ticket-flow:clear-ticket` skill. |
 | No milestone lines, or no `Plan approved by` line | Stop. The next step is the `ticket-flow:plan-milestones` skill. |
-| `requirements.md` has a `## Closed` section | The ticket is closed, and stays closed. Say so, and stop. A new wish is a new ticket with its own folder: it starts there, with `ticket-flow:clear-ticket`. |
 | A milestone was already ticked in this session | Stop. Tell the engineer to start a new session (or `/clear`) for the next one. |
 | Every milestone is ticked, and `## Now working on` in `tracking_log.md` says `waiting for <name> to confirm the result` | The result is already with the creator. Go to "Closing the ticket", Part 2, and ask the engineer for the reply. |
 | Every milestone is ticked | Nothing was sent yet. Go to "Closing the ticket", Part 1. |
@@ -405,8 +406,10 @@ In this order:
 
 ## Closing the ticket
 
-Every milestone is ticked. The ticket is done when the creator says the result solves their
-problem, or when the engineer tells you the ticket is done.
+The ticket is done when the creator says the result solves their problem (every milestone is
+ticked, Part 1 and Part 2 below), or when the engineer tells you the ticket is done. The
+engineer can close it at any stage: before the creator's yes, before a plan, or with
+milestones still open (a dropped ticket). Then go straight to "Close the ticket" below.
 
 **Part 1: show the creator.** Write a message for the engineer to paste. Short and plain:
 
@@ -438,7 +441,9 @@ there is no creator, so skip this question.
 
 **Close the ticket:**
 
-1. Add at the end of `requirements.md`. The Status line stays as it is.
+1. Add at the end of `requirements.md`. The Status line stays as it is. A ticket that was
+   reopened gets a new `## Closed` below its `## Reopened` line: never change or remove the
+   old ones. The newest of the two headings decides.
 
    ```markdown
    ## Closed
@@ -453,7 +458,7 @@ there is no creator, so skip this question.
    that something was checked or ruled out ("confirmed, no but") unless you asked it in this
    chat and the engineer answered. Then add their answer as a line of its own:
    `Asked about a "but": <the engineer's answer>`.
-2. In `tracking_log.md`: take out the PENDING line, write `Ticket closed` under
+2. In `tracking_log.md`: take out the PENDING line if there is one, write `Ticket closed` under
    `## Now working on` and `Nothing` under `## Next up`, and add under `## Last update`:
    `YYYY-MM-DD — ticket closed, confirmed by <name>`. When the engineer closed it, the line
    is `YYYY-MM-DD — ticket closed by <engineer>`.

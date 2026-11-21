@@ -11,7 +11,7 @@ The ticket-flow plugin runs them for you (ticket-flow/hooks/hooks.json, through 
 
 The gate: inside a ticket folder Claude can write notes only (.md files) until the creator said yes, then also
 PLAN.md, and code only with an approved plan and an open milestone. After a tick in the session, and in a
-closed ticket: notes only.
+closed ticket: notes only. A closed ticket opens again with a `## Reopened` heading under its `## Closed`.
 
 Milestone guard: one milestone per session. session-start writes a notepad in the ticket's .claude folder
 (which milestones in requirements.md were ticked at the start); a box ticked since then = this session's milestone.
@@ -89,6 +89,12 @@ For the rest of this session only notes (.md files, not PLAN.md) can be written 
 
 LOG_NOT_UPDATED = "{ids} ticked this session, but tracking_log.md is not updated yet: {todo}. Then tell the user what's next and stop."
 
+# A closed ticket: a fault is reopened, a new wish is a new ticket. Said at session start and with a stop.
+REOPEN_HOW = ("If the user says something broke or needs a small change (\"reopen: <what broke>\"), use the "
+              "ticket-flow:plan-milestones skill (\"Reopening the ticket\"). A new wish is a new ticket with its own "
+              "folder: the user makes it with + New project on the dashboard, and it starts there with the "
+              "ticket-flow:clear-ticket skill.")
+
 # Where a ticket stands (ticket_state) -> what comes next. Said at session start, and when the gate stops a write.
 STEPS = {
     "new": "{name} has no creator's yes yet. Next step: the ticket-flow:clear-ticket skill.",
@@ -100,8 +106,9 @@ STEPS = {
              "One milestone per session.",
     "done": "Every milestone of {name} is ticked. Next step: close the ticket with the ticket-flow:build-milestone "
             'skill ("Closing the ticket").',
-    "closed": "{name} is closed, and stays closed. A new wish is a new ticket with its own folder: the user makes "
-              "it with + New project on the dashboard, and it starts there with the ticket-flow:clear-ticket skill.",
+    "reopened": "{name} was reopened, and its fix milestone is not added yet. Next step: the "
+                'ticket-flow:plan-milestones skill ("Reopening the ticket", step 5).',
+    "closed": "{name} is closed. " + REOPEN_HOW,
 }
 
 OLD_TICKET_BOTH = """{name} was started before ticket-flow: its requirements.md has no Status line and no \
@@ -175,8 +182,9 @@ HOW = {
     "note": ANSWER_NOTE + " If the note needs a new milestone, propose the milestone line and its place (for example "
             "M2b or M4) and wait for the user's OK: the current milestone goes on, one milestone per session. "
             "If the note conflicts with the current milestone, stop and ask.",
-    "closed": ANSWER_NOTE + " Then tell the user that this ticket is closed: a new wish is a new ticket with its own "
-              "folder, made with + New project on the dashboard.",
+    "closed": ANSWER_NOTE + " Then tell the user that this ticket is closed: a fault or a small change can be "
+              "reopened (they say \"reopen: <what broke>\"), and a new wish is a new ticket with its own folder, made "
+              "with + New project on the dashboard.",
     "blocker": 'For the Blocker: after writing it, tell the user, and ask ONCE: "stop, or work on what the blocker '
                "does not touch?\" Write their answer on its own line under ## Last update, like " + BLOCKER_ANSWER +
                ": the next session follows it and does not ask again. "
@@ -606,7 +614,7 @@ def gate(event, settings):
         why, can = next_step(work, state), PLAN_ONLY
     elif ticked := ticked_now(work, event.get("session_id")):
         why, can = LOCKED.format(ids=", ".join(ticked)), LOCKED_CAN      # the plan too: the next milestone waits
-    elif state == "done":
+    elif state in ("done", "reopened"):
         if is_plan:
             return ""                                # a missing milestone is added to the plan first
         why, can = next_step(work, state), MILESTONE_FIRST
@@ -619,9 +627,10 @@ PLAN = "plan.md"            # not a note: it waits for the creator's yes
 # The Status line as the clear-ticket skill writes it: "**Status:** WAITING FOR CREATOR ..." or
 # "**Status:** CONFIRMED BY CREATOR ...", anywhere in requirements.md. Only these two count: an old
 # ticket's own "- Status: only open alarms" is a requirement, not our Status line.
-# The "## Closed" heading the build-milestone skill writes. Up to 3 spaces in front and a date after it still
-# count (Claude may copy the skill's indent); "## Closed questions" is another heading.
-CLOSED_HEADING = re.compile(r"^ {0,3}##[ \t]+closed(?![ \t]*[a-z])", re.I | re.M)
+# The "## Closed" and "## Reopened" headings the skills write (build-milestone, plan-milestones). Up to 3 spaces in front and a date
+# after them still count (Claude may copy the skill's indent); "## Closed questions" is another heading.
+# The newest one (lowest in the file) decides: a ticket can be closed, reopened and closed again.
+END_HEADING = re.compile(r"^ {0,3}##[ \t]+(closed|reopened)(?![ \t]*[a-z])", re.I | re.M)
 STATUS_LINE = re.compile(r"^[ \t>*-]*status\**[ \t]*:\**[ \t]*(waiting for|confirmed by)[ \t]+creator\b", re.I | re.M)
 
 
@@ -659,9 +668,31 @@ def without_comments(text):
     return re.sub(r"<!--.*?-->", "", text, flags=re.S)
 
 
-def has_closed_heading(text):
-    """True when requirements.md has a ## Closed section that is not inside a comment."""
-    return bool(CLOSED_HEADING.search(without_comments(text)))
+def is_closed(text):
+    """True when the newest ## Closed / ## Reopened heading of requirements.md (outside comments) is ## Closed.
+
+    The one answer for the gate and for the dashboard's ✓ Complete. It counts at every stage: a dropped ticket
+    can be closed before the creator's yes, and an old ticket (no Status line) too.
+    """
+    return newest_end(without_comments(text)) == "closed"
+
+
+def newest_end(text):
+    """"closed" or "reopened": the newest of those two headings in this text (comments already taken out), or ""."""
+    headings = END_HEADING.findall(text)
+    return headings[-1].casefold() if headings else ""
+
+
+def fix_milestone_missing(text):
+    """True when the ticket was reopened and no milestone line sits under its newest ## Reopened heading yet.
+
+    The fix milestone goes under that heading (plan-milestones, "Reopening the ticket"): a milestone above it
+    is an old one. Comments already taken out.
+    """
+    if newest_end(text) != "reopened":
+        return False
+    last = list(END_HEADING.finditer(text))[-1]
+    return not pn.read_milestones(text[last.end():])
 
 
 def state_of_text(text):
@@ -673,22 +704,25 @@ def state_of_text(text):
     "plan"     the creator said yes; no approved plan yet (no milestone lines, or no "Plan approved by" line)
     "build"    approved plan with an open milestone
     "done"     approved plan, every milestone ticked
-    "closed"   it has a ## Closed section (for good: a new wish is a new ticket in its own folder)
+    "reopened" like "done", but reopened and its fix milestone is not added yet (under the ## Reopened heading)
+    "closed"   its newest ## Closed / ## Reopened heading is ## Closed (this wins at every stage)
     """
     text = without_comments(text)
     if not text.strip():
         return "new"
+    if is_closed(text):
+        return "closed"
     said = {word.upper() for word in STATUS_LINE.findall(text)}
     if not said:
         return "old"
     if "CONFIRMED BY" not in said:                   # a waiting line left in next to the yes: the yes wins
         return "waiting"
-    if CLOSED_HEADING.search(text):
-        return "closed"
     milestones = pn.read_milestones(text)
     if not milestones or not re.search(r"^[ \t>*-]*plan approved by\b", text, re.I | re.M):
         return "plan"
-    return "done" if all(milestones.values()) else "build"
+    if not all(milestones.values()):
+        return "build"
+    return "reopened" if fix_milestone_missing(text) else "done"
 
 
 def next_step(work, state):

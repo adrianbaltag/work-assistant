@@ -51,7 +51,8 @@ Status line:
 
 | What you find | Go to |
 |---|---|
-| `requirements.md` has a `## Closed` section | Check this first. The ticket is closed, and stays closed. Say so, and stop. A new wish is a new ticket with its own folder: the engineer makes it (the dashboard's **+ New project** does it), and this skill starts there. |
+| The engineer says the ticket is done (dropped, or done another way) | Stop. It can close at any stage: the next step is `ticket-flow:build-milestone`, "Closing the ticket". |
+| `requirements.md` has a `## Closed` section | Check this first, and look at the newest of `## Closed` and `## Reopened`: if `## Reopened` is lower in the file, the ticket is open again, so take the next row that fits. Else the ticket is closed. Say so. If the engineer says something broke or needs a small change ("reopen: <what broke>"), the next step is `ticket-flow:plan-milestones`, "Reopening the ticket". A new wish is a new ticket with its own folder: the engineer makes it (the dashboard's **+ New project** does it), and this skill starts there. Else stop. |
 | No `requirements.md`, or it holds only empty template text | Step 1 |
 | `**Status:** WAITING FOR CREATOR` | Step 6 (ask for the creator's reply) |
 | `**Status:** CONFIRMED BY CREATOR` | This skill is done. Say so, and say the next step is planning the milestones, in a new session (or `/clear`). |

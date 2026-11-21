@@ -96,7 +96,8 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
 - **Tabs:** All open · Critical · Pending · Gone quiet · Completed. "Gone quiet" = nothing in the project's
   folder changed for 7 days or more (ideas never go quiet).
 - **The end of each row:** a grey **In progress** while the project's ticket is still open, a green
-  **✓ Complete** once Claude has closed it (`## Closed` in `requirements.md`). A card with no ticket
+  **✓ Complete** once Claude has closed it (`## Closed` in `requirements.md`; a later `## Reopened`
+  makes it grey again). A card with no ticket
   folder, a ticket folder with no `requirements.md` yet, or a ticket started before ticket-flow
   always shows **✓ Complete**: you decide.
   Every click asks "Move to Completed?" first. The card leaves the dashboard, and a ticket's work
@@ -109,7 +110,7 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
   so you can move the folder later. Delete that file to be asked again. A name already taken there
   gets the date added. If a program has a file open in the folder (VS Code, Claude Code, Excel), nothing
   moves: close it and click again.
-  A ticket you dropped: tell Claude "this ticket is done" so it closes it.
+  A ticket you dropped: tell Claude "this ticket is done" so it closes it, at any stage.
 - **Completed tab:** name, finished date and how it ended (Ticket closed, Completed, Moved to prod).
   The search box works there. **Restore** puts a card back on the dashboard and its folder back in
   `work_jira` under its own name. It never overwrites a folder already there. If the folder is gone,
@@ -404,7 +405,7 @@ that from `requirements.md`:
 | Approved plan with an open milestone | everything |
 | A milestone was ticked in this session | notes only, until you start a new session (or `/clear`) |
 | Every milestone is ticked | notes and `PLAN.md` (new code needs a new milestone first) |
-| The ticket is closed | notes only (a new wish is a new ticket, with its own folder) |
+| The ticket is closed | notes only (a fault: say `reopen: <what broke>`; a new wish is a new ticket, with its own folder) |
 
 A note is any `.md` file except `PLAN.md`, and `.gitignore`. When the gate stops a write, Claude gets a plain message
 that names the next step (which skill), and tells you.
@@ -412,8 +413,15 @@ that names the next step (which skill), and tells you.
 Good to know:
 
 - **Ticked a box by mistake?** Untick it. The gate opens again.
-- **A closed ticket stays closed.** A new wish from the creator is a new ticket: make it with
-  **+ New project**, so it gets its own folder. Claude can read the old folder's code from there.
+- **Closing a ticket.** It closes when the creator confirms the result. Tell Claude "this ticket
+  is done" and it closes at any stage (a dropped ticket, or one done another way).
+- **Reopening a ticket.** Something broke, or needs a small change, after it closed: tell Claude
+  `reopen: <what broke>`. Claude asks first if it is a fault (reopen) or a new wish. A reopen
+  adds `## Reopened (date): what broke` under `## Closed`, the gate opens, and the fix is a new
+  milestone you approve. It closes again as usual. Is the folder in your completed folder
+  (`PROD_SCRIPTS`)? **Restore** it on the Completed tab first.
+  A new wish from the creator is a new ticket: make it with **+ New project**, so it gets its
+  own folder. Claude can read the old folder's code from there.
 - **An older ticket** (no `Status` line) is closed too. Claude asks you everything in one message:
   did the creator confirm it, was there a "but", who is the creator, and do you approve the
   milestones. Your one answer opens it.
@@ -447,7 +455,7 @@ What Claude does with each kind:
   If the note needs a new milestone, Claude proposes the milestone line and where it goes, and
   waits for your OK. The milestone in work goes on. If the note goes against the current
   milestone, Claude stops and asks. On a closed ticket Claude still writes the note down, and
-  tells you that a new wish is a new ticket.
+  tells you that a fault can be reopened (`reopen: <what broke>`) and a new wish is a new ticket.
 - **Blocker.** Claude writes it down, tells you, and asks once: stop, or work on what the blocker
   does not touch? Claude writes your answer in `tracking_log.md` (`Blocker answer: ...`), so a
   later session follows it and does not ask again. Nothing is locked. Only your **Unblock** lifts

@@ -2,7 +2,8 @@
 
 Put the block below in `work_jira\CLAUDE.md`, in place of the older "Milestones" block.
 It has two parts: "Milestones" and "Dashboard messages". If you pasted an older copy
-(no "Dashboard messages" part, or no "A stop by the gate is final" line), paste this one over it.
+(no "Dashboard messages" part, no "A stop by the gate is final" line, or no "reopen" line),
+paste this one over it.
 The ticket-flow hooks (README, "Sync with work_jira") check part of it.
 
 ```markdown
@@ -34,6 +35,16 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
   "No answer yet" and "Open" in review-notes.md both say none.
 - No branches in a ticket folder: every commit goes straight on the
   main line.
+- Closing: the ticket closes when the creator confirms the result, or
+  at any stage when the user says "this ticket is done"
+  (ticket-flow:build-milestone, "Closing the ticket").
+- Reopening: something broke later, and the user says
+  `reopen: <what broke>`. ticket-flow:plan-milestones ("Reopening the
+  ticket") asks first: a fault or small change (reopen), or a new wish
+  (a new ticket with its own folder). A reopen adds
+  `## Reopened (<date>): <what broke>` under `## Closed`, and the fix
+  is a new milestone line under that heading. The newest of the two
+  headings decides.
 - End of milestone, in this order:
   1. prove it  2. tick it in requirements.md
   3. tracking_log.md: under ## Last update add
@@ -61,8 +72,9 @@ The ticket-flow hooks (README, "Sync with work_jira") check part of it.
   It needs a new milestone: propose the milestone line and its place
   (for example M2b or M4) and wait for the user's OK; the current
   milestone goes on. It conflicts with the current milestone: stop and
-  ask. The ticket is closed: write it down, then say that a new wish is
-  a new ticket with its own folder.
+  ask. The ticket is closed: write it down, then say that a fault can
+  be reopened (`reopen: <what broke>`) and a new wish is a new ticket
+  with its own folder.
 - Blocker: after writing it, tell the user and ask ONCE:
   "stop, or work on what the blocker does not touch?"
   Write their answer on its own line under ## Last update:

@@ -53,7 +53,7 @@ HALF_SENT = ("Your message is on the card (see History), but Claude did NOT get 
              "work folder ({}). Tell Claude yourself in its next session.")
 
 # ✓ Complete (api_complete): why a card can't move to Completed yet.
-NOT_CLOSED = ("{} is still in progress: its ticket has no ## Closed section yet. Finish it with Claude "
+NOT_CLOSED = ("{} is still in progress: its ticket is not closed yet (or it was reopened). Finish it with Claude "
               "(or tell Claude \"this ticket is done\"), then Complete it.")
 FOLDER_AWAY = ("Can't see the work folder of {} right now (moved, or the VPN is off). Connect it, "
                "then try Complete again.")
@@ -210,7 +210,8 @@ def ready_to_complete(project):
     """Can this dashboard row move to Completed, and why. The page shows "✓ Complete" for any of the first three.
 
     "no_ticket"        a card with no work folder: you decide when it is done
-    "closed"           its ticket's requirements.md has ## Closed (in any ticket, old ones too)
+    "closed"           its ticket is closed: the newest ## Closed / ## Reopened heading in requirements.md is
+                       ## Closed (in any ticket, old ones too)
     "no_requirements"  its work folder has no requirements.md (yet): you decide, the page asks first
     "old_ticket"       a ticket from before ticket-flow (no Status line): it never gets one, so you decide
     ""                 the ticket is still open: the grey "In progress" label
@@ -229,7 +230,7 @@ def ready_to_complete(project):
         notes.log_once(f"Complete check of {work}", f"can't read requirements.md ({err.strerror or err})")
         return "unreadable"
     notes.log_once(f"Complete check of {work}", None)
-    if work_jira_hooks.has_closed_heading(text):
+    if work_jira_hooks.is_closed(text):
         return "closed"
     return {"new": "no_requirements", "old": "old_ticket"}.get(work_jira_hooks.state_of_text(text), "")
 

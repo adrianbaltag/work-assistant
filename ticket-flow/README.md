@@ -38,10 +38,12 @@ file Claude is about to write:
 | Approved plan with an open milestone | everything |
 | A milestone was ticked in this session | notes only, until a new session (or `/clear`) |
 | Every milestone is ticked | notes and `PLAN.md` (new code needs a new milestone first) |
-| The ticket is closed | notes only (a new wish is a new ticket, with its own folder) |
+| The ticket is closed | notes only (a fault: say `reopen: <what broke>`; a new wish is a new ticket, with its own folder) |
 
-A note is any `.md` file except `PLAN.md`, and `.gitignore`. A closed ticket stays closed: a new
-wish is a new ticket with its own folder. Limits, and what to do when a write is stopped:
+A note is any `.md` file except `PLAN.md`, and `.gitignore`. Say "this ticket is done" and Claude
+closes it at any stage. Something broke after the close: say `reopen: <what broke>`; Claude adds
+`## Reopened` under `## Closed`, and the fix is a new milestone. A new wish is a new ticket with
+its own folder. Limits, and what to do when a write is stopped:
 the app's README.md, "The gate: no code before the yes".
 
 ## Messages from the dashboard
