@@ -31,7 +31,7 @@ function toast(message, seconds = 3) {
 
 async function fetchCard(id) {
   const response = await fetch(`/api/projects/${encodeURIComponent(id)}`);
-  if (!response.ok) throw new Error(response.status === 404 ? "this project is gone (moved or archived?)" : `server said ${response.status}`);
+  if (!response.ok) throw new Error(response.status === 404 ? "this project is gone (completed, or its folder moved?)" : `server said ${response.status}`);
   return response.json();
 }
 
@@ -41,8 +41,7 @@ async function fetchFile(dir, name) {
   return {...await response.json(), dir, name};
 }
 
-// toBox = true (the "+" on a dashboard row): the cursor starts in the Note / Blocker box.
-async function openCard(id, toBox = false) {
+async function openCard(id) {
   // inert = the page behind the card can't be clicked or reached with Tab, already while the card
   // loads (Enter on a row there would open another card and skip the "unsaved changes" question).
   document.querySelector(".app").inert = true;
@@ -60,7 +59,7 @@ async function openCard(id, toBox = false) {
   fitFields();        // only now: a hidden box has no height to measure
   $("m-view").scrollTop = 0;      // start at the top (the Note / Blocker box), not where the last card was left
   document.body.style.overflow = "hidden";
-  (toBox ? $("msg-text") : $("m-close")).focus();
+  $("m-close").focus();
 }
 
 function closeCard() {
@@ -68,7 +67,7 @@ function closeCard() {
 }
 
 function hideCard() {
-  const id = card && card.id;    // card = null: already closed (Esc while an archive was saving)
+  const id = card && card.id;    // card = null: already closed
   $("ov").hidden = true;
   document.body.style.overflow = "";
   document.querySelector(".app").inert = false;
@@ -228,7 +227,7 @@ function drawOverview() {
     <div class="row"><button class="btn sm" id="v-openfolder">Open notes folder</button><button class="btn sm" id="v-jira">Open in Jira</button></div>
     <div class="box"><h4>History</h4><div id="v-log"></div></div>
     <div class="savebar"><div id="v-alert"></div>
-    <div class="foot"><button class="btn primary" id="v-save">Save changes</button><span class="sp"></span><button class="btn danger" id="v-arch">Mark done & archive</button></div></div>`;
+    <div class="foot"><button class="btn primary" id="v-save">Save changes</button></div></div>`;
   card.drawn = boxValues();
   drawMessageState();
   drawLog();
@@ -590,19 +589,6 @@ const doDelete = () => {
   });
 };
 
-// Mark done & archive: Flask moves the whole folder to projects\_archive\ and sets status: done.
-const askArchive = () => showAlert(`<div class="alert bad"><b>Mark done and archive this project?</b> The whole folder moves to
-  <span class="mono">_archive\\</span>. Nothing is deleted: Restore on the Archive page brings it back.
-  <div class="row"><button class="btn danger solid sm" id="v-arch-yes">Yes, archive</button><button class="btn sm" id="v-arch-no">Cancel</button></div></div>`);
-const doArchive = () => {
-  if (!okToLeave()) return;
-  const title = card.project.title;
-  act("archive", {}, async () => {
-    hideCard();
-    toast(`${title} archived. Restore it from the Archive page.`);
-  });
-};
-
 // Upload button, drag-and-drop and pasted screenshots all end here. Flask saves them in raw\ and never overwrites.
 function upload(files, names = files.map(f => f.name)) {
   if (files.reduce((sum, f) => sum + f.size, 0) > UPLOAD_LIMIT_MB * 1024 * 1024) {
@@ -634,7 +620,6 @@ const ACTIONS = {
   "t-new": () => toggleNew(true), "nf-cancel": () => toggleNew(false), "nf-ok": createFile,
   "v-renamebtn": startRename, "v-rename-ok": doRename, "v-rename-no": cancelRename,
   "v-del": askDelete, "v-del-yes": doDelete, "v-del-no": cancelDelete,
-  "v-arch": askArchive, "v-arch-yes": doArchive, "v-arch-no": () => showAlert(""),
   "v-openfolder": openFolder, "v-jira": openJira,
 };
 
@@ -682,7 +667,6 @@ document.addEventListener("keydown", e => {
   else if (card.renaming) cancelRename();          // Esc closes the small thing first, then the card
   else if (card.confirmDel) cancelDelete();
   else if (card.newOpen) toggleNew(false);
-  else if ($("v-arch-yes")) showAlert("");
   else closeCard();
 });
 

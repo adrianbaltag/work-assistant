@@ -112,6 +112,13 @@ CASES = [
     ("gone-quiet time on a row", (".ago.q", "color"), [ROW]),
     ("gone-quiet time on a hovered row", (".ago.q", "color"), [HOVERED_ROW]),
     ("current page in the sidebar", ('.nav[aria-current="page"]', "color"), [('.nav[aria-current="page"]', "background")]),
+    ("In progress label on a row", (".pend .wait", "color"), [ROW]),
+    ("In progress label on a hovered row", (".pend .wait", "color"), [ROW, (".prow-wrap:hover", "background")]),
+    ("Complete button on a row", (".pend .go", "color"), [(".pend .go", "background")]),
+    ("Complete button on a row, hovered", (".pend .go", "color"), [("button.pend:hover .go", "background")]),
+    ("Move to Completed button", (".btn.complete", "color"), [(".btn.complete", "background")]),
+    ("Move to Completed button, hovered", (".btn.complete", "color"),
+     [(".btn.complete:not([disabled]):hover", "background")]),
 ]
 
 

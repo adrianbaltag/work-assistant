@@ -160,14 +160,15 @@ def test_dashboard_lists_a_note_saved_as_cp1252_with_a_plain_problem(tmp_path):
     assert "problem" not in rows["DEMO-1"]
 
 
-def test_archive_page_lists_a_bad_note_with_a_problem(tmp_path):
+def test_completed_tab_lists_a_bad_note_with_a_problem(tmp_path):
     make_project(tmp_path / "_archive", "OLD-1", CP1252_NOTE)
     make_project(tmp_path, "BAD-1", CP1252_NOTE)
     app = create_app(tmp_path)
     app.config.update(TESTING=True)
-    response = app.test_client().get("/api/archive")
+    response = app.test_client().get("/api/projects")
     assert response.status_code == 200
-    assert "UTF-8" in response.json["projects"][0]["problem"]
+    [done] = response.json["completed"]
+    assert "UTF-8" in done["problem"] and done["ended"] == "Completed"
 
 
 def test_opening_a_bad_note_gives_a_plain_error_not_a_crash(tmp_path):
@@ -277,11 +278,6 @@ def test_a_body_that_is_not_json_gives_a_plain_json_error(tmp_path, client, path
     assert response.is_json and response.json["error"]
 
 
-def test_restore_file_with_a_non_json_body_gives_a_plain_json_error(client):
-    response = client.post("/api/archive/files/restore", data="x", content_type="text/plain")
-    assert response.status_code == 400 and response.json["error"]
-
-
 def test_an_unexpected_crash_answers_json_in_plain_english(tmp_path, client, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("secret internals")
@@ -331,9 +327,9 @@ def test_restore_that_fails_while_marking_puts_the_folder_back(tmp_path):
     assert not (tmp_path / "DEMO-1").exists()
 
 
-def test_archive_with_a_locked_note_answers_plain_and_keeps_the_project_open(tmp_path, client, monkeypatch):
+def test_complete_with_a_locked_note_answers_plain_and_keeps_the_project_open(tmp_path, client, monkeypatch):
     monkeypatch.setattr(notes.os, "replace", locked)
-    response = client.post(f"{URL}/archive")
+    response = client.post(f"{URL}/complete")
     assert response.status_code == 400 and "open in another program" in response.json["error"]
     assert (tmp_path / "DEMO-1" / "note.md").is_file()
 
@@ -358,7 +354,7 @@ def test_add_history_on_a_note_without_a_final_newline_keeps_the_heading_on_its_
 
 def test_restore_gives_the_card_its_plain_id_back_not_the_time_suffix(tmp_path, client):
     make_project(tmp_path / "_archive", "DEMO-9 (2026-10-24 10-00)")
-    response = client.post("/api/archive/projects/DEMO-9 (2026-10-24 10-00)/restore")
+    response = client.post("/api/completed/DEMO-9 (2026-10-24 10-00)/restore")
     assert response.json == {"id": "DEMO-9"}
     assert (tmp_path / "DEMO-9" / "note.md").is_file()
 
@@ -366,6 +362,6 @@ def test_restore_gives_the_card_its_plain_id_back_not_the_time_suffix(tmp_path, 
 def test_restore_keeps_a_suffix_only_when_the_plain_id_is_taken(tmp_path, client):
     make_project(tmp_path, "DEMO-9")
     make_project(tmp_path / "_archive", "DEMO-9 (2026-10-24 10-00)")
-    new_id = client.post("/api/archive/projects/DEMO-9 (2026-10-24 10-00)/restore").json["id"]
+    new_id = client.post("/api/completed/DEMO-9 (2026-10-24 10-00)/restore").json["id"]
     assert new_id.startswith("DEMO-9 (")
     assert (tmp_path / "DEMO-9" / "note.md").is_file() and (tmp_path / new_id / "note.md").is_file()

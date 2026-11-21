@@ -171,8 +171,8 @@ def test_a_growing_box_stays_one_line_of_text(dash):
 WIDE = {"width": 1440, "height": 900}        # wide enough for the dashboard's "Blocked by" column
 
 
-def plus(page, project_id):
-    return page.locator(f'button.padd[data-add="{project_id}"]')
+def complete_button(page, project_id):
+    return page.locator(f'button.pend[data-complete="{project_id}"]')
 
 
 def close_card(page):
@@ -218,32 +218,100 @@ def test_a_blocker_blocks_the_card_and_the_row_by_you_and_unblock_clears_it(dash
     assert fields_of(folders, "DEMO-1")["my_blocker"] == ""
 
 
-def test_the_plus_on_a_row_opens_the_card_with_the_cursor_in_the_box(dash, folders):
-    plus(dash, "DEMO-1").click()
-    expect(dash.locator("#ov")).to_be_visible()
-    expect(dash.locator("#m-title")).to_have_text("Demo one")
-    expect(dash.locator("#msg-text")).to_be_focused()
-    dash.keyboard.type("typed straight away")                    # no click needed: the cursor is in the box
-    dash.keyboard.press("Tab")
-    expect(dash.locator("#msg-note")).to_be_focused()
-    dash.keyboard.press("Enter")
-    expect(dash.locator("#v-log li").first).to_contain_text("typed straight away")
+CLOSED = "**Status:** CONFIRMED BY CREATOR (2026-11-01)\n\n## Closed\n\nDone, creator said yes.\n"
+OPEN = "**Status:** CONFIRMED BY CREATOR (2026-11-01)\n\n## Milestones\n\n- [ ] M1: build it\n"
 
 
-def test_the_row_and_its_plus_both_work_from_the_keyboard(dash):
+def test_complete_asks_first_moves_the_card_to_completed_and_restore_brings_it_back(dash, folders):
+    complete_button(dash, "DEMO-1").click()
+    expect(dash.locator("#cp")).to_be_visible()
+    expect(dash.locator("#cp-text")).to_contain_text("Demo one")
+    expect(dash.locator("#cp-yes")).to_be_focused()
+    dash.locator("#cp-cancel").click()                           # Cancel changes nothing
+    expect(dash.locator("#cp")).to_be_hidden()
+    expect(complete_button(dash, "DEMO-1")).to_be_focused()
+    assert (folders[0] / "DEMO-1").is_dir()
+
+    complete_button(dash, "DEMO-1").click()
+    dash.locator("#cp-yes").click()
+    expect(dash.locator("#cp")).to_be_hidden()
+    expect(dash.locator("#toast")).to_contain_text("Demo one moved to Completed")
+    expect(row(dash, "DEMO-1")).to_have_count(0)
+    assert (folders[0] / "_archive" / "DEMO-1" / notes.NOTE_FILE).is_file()
+
+    dash.locator('[data-tab="completed"]').click()
+    expect(dash.locator('[data-tab="completed"] .n')).to_have_text("1")
+    done = dash.locator(".prow.cdone")
+    expect(done).to_have_count(1)
+    expect(done).to_contain_text("Demo one")
+    expect(done).to_contain_text("Completed")                    # how it ended
+    expect(dash.locator("#dash-status")).to_be_hidden()          # nothing to filter on but the search
+    expect(dash.locator("#dash-prio")).to_be_hidden()
+    dash.locator("#dash-q").fill("no such words")
+    expect(dash.locator(".nomatch")).to_be_visible()
+    dash.locator("#dash-q").fill("demo")
+    expect(done).to_have_count(1)
+
+    dash.locator('[data-restore="DEMO-1"]').click()
+    expect(dash.locator("#toast")).to_contain_text("Demo one is back on the dashboard")
+    expect(dash.locator(".prow.cdone")).to_have_count(0)
+    dash.locator('[data-tab="all"]').click()
+    expect(dash.locator("#dash-status")).to_be_visible()
+    expect(row(dash, "DEMO-1")).to_be_visible()
+
+
+def test_an_open_ticket_says_in_progress_and_a_closed_one_turns_into_complete(dash, folders):
+    requirements = folders[1] / "DEMO-42" / "requirements.md"
+    requirements.write_text(OPEN, encoding="utf-8")
+    dash.reload()
+    wait = dash.locator('.prow-wrap:has([data-open="DEMO-42"]) .pend .wait')
+    expect(wait).to_have_text("In progress")
+    expect(complete_button(dash, "DEMO-42")).to_have_count(0)
+    expect(dash.locator("#summary")).not_to_contain_text("ready to complete")
+
+    requirements.write_text(CLOSED, encoding="utf-8")
+    dash.reload()
+    expect(complete_button(dash, "DEMO-42")).to_have_text("✓ Complete")
+    expect(dash.locator("#summary")).to_contain_text("1 ready to complete")
+    complete_button(dash, "DEMO-42").click()
+    expect(dash.locator("#cp-text")).to_contain_text("its ticket is closed")
+    dash.locator("#cp-yes").click()
+    dash.locator('[data-tab="completed"]').click()
+    expect(dash.locator(".prow.cdone")).to_contain_text("Ticket closed")
+    assert (folders[1] / "DEMO-42").is_dir()                     # G2 moves the card, never the work folder
+
+
+def test_an_old_ticket_gets_complete_and_the_question_says_you_decide(dash, folders):
+    (folders[1] / "DEMO-42" / "requirements.md").write_text("# DEMO-42\n\n- [ ] M1: build it\n", encoding="utf-8")
+    dash.reload()
+    complete_button(dash, "DEMO-42").click()
+    expect(dash.locator("#cp-text")).to_contain_text("started before ticket-flow")
+    expect(dash.locator("#cp-text")).to_contain_text("You decide")
+
+
+def test_the_row_and_its_complete_button_both_work_from_the_keyboard(dash):
     assert dash.locator("button button").count() == 0            # never a button inside a button
-    expect(plus(dash, "BAD-1")).to_have_count(0)                 # a note that can't be read has no card to write in
+    expect(complete_button(dash, "BAD-1")).to_have_count(0)      # a note that can't be read: nothing to complete
     row(dash, "DEMO-1").focus()
-    dash.keyboard.press("Tab")                                   # Tab goes from the row to its "+"
-    expect(plus(dash, "DEMO-1")).to_be_focused()
+    dash.keyboard.press("Tab")                                   # Tab goes from the row to its "✓ Complete"
+    expect(complete_button(dash, "DEMO-1")).to_be_focused()
     dash.keyboard.press("Enter")
-    expect(dash.locator("#msg-text")).to_be_focused()
+    expect(dash.locator("#cp-yes")).to_be_focused()
     dash.keyboard.press("Escape")
-    expect(dash.locator("#ov")).to_be_hidden()
+    expect(dash.locator("#cp")).to_be_hidden()
+    expect(complete_button(dash, "DEMO-1")).to_be_focused()
     row(dash, "DEMO-1").focus()
     dash.keyboard.press("Enter")                                 # Enter on the row still opens the card, as before
     expect(dash.locator("#ov")).to_be_visible()
     expect(dash.locator("#m-close")).to_be_focused()
+
+
+def test_no_archive_page_no_mark_done_button_and_no_idea_in_new_project(dash):
+    expect(dash.locator('[data-page="archive"]')).to_have_count(0)
+    expect(dash.locator("#dash-status option")).to_have_text(["Any status", "Active", "Pending"])
+    expect(dash.locator("#np-status option")).to_have_text(["active", "pending"])
+    open_card(dash, "DEMO-1")
+    expect(dash.locator("#v-arch")).to_have_count(0)
 
 
 def test_a_linked_card_shows_the_four_values_as_text_and_waiting_for_claude_after_a_send(dash, folders):
@@ -342,7 +410,7 @@ def test_your_blocker_and_the_logs_blocker_both_show_with_their_labels(dash, fol
                    last="2026-11-17 — M1 ticked"), encoding="utf-8")
     dash.reload()
     expect(row(dash, "DEMO-42").locator(".by")).to_have_text(["log"])
-    plus(dash, "DEMO-42").click()
+    open_card(dash, "DEMO-42")
     dash.locator("#msg-text").fill("waiting for Dana")
     dash.locator("#msg-blocker").click()
     expect(dash.locator("#msg-blocked .by")).to_have_text(["you", "log"])

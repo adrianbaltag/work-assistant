@@ -291,7 +291,7 @@ def session_start(event, settings, now):
     sync_all(projects, work_jira, now)               # Stop does not run on Esc or a killed session: catch up here
     said = []
     if gone:
-        said.append(f"Dashboard: moved {', '.join(gone)} to the Archive page (folder no longer in work_jira).")
+        said.append(f"Dashboard: moved {', '.join(gone)} to the Completed tab (folder no longer in work_jira).")
     if added:
         start = "Added" if said else "Dashboard: added"
         said.append(f"{start} cards for {', '.join(added)} (folders in work_jira).")
@@ -650,7 +650,22 @@ def is_note(inside):
 
 
 def ticket_state(work):
-    """Where a ticket stands, read from its requirements.md:
+    """Where a ticket stands, read from its requirements.md (see state_of_text for the answers)."""
+    return state_of_text(pn.requirements_text(work))
+
+
+def without_comments(text):
+    """The text without its <!-- ... --> comments (a commented-out line does not count)."""
+    return re.sub(r"<!--.*?-->", "", text, flags=re.S)
+
+
+def has_closed_heading(text):
+    """True when requirements.md has a ## Closed section that is not inside a comment."""
+    return bool(CLOSED_HEADING.search(without_comments(text)))
+
+
+def state_of_text(text):
+    """Where a ticket stands, from the text of its requirements.md:
 
     "new"      no requirements.md, or nothing in it
     "old"      it has text but no Status line (a ticket from before ticket-flow)
@@ -660,7 +675,7 @@ def ticket_state(work):
     "done"     approved plan, every milestone ticked
     "closed"   it has a ## Closed section (for good: a new wish is a new ticket in its own folder)
     """
-    text = re.sub(r"<!--.*?-->", "", pn.requirements_text(work), flags=re.S)
+    text = without_comments(text)
     if not text.strip():
         return "new"
     said = {word.upper() for word in STATUS_LINE.findall(text)}

@@ -304,48 +304,31 @@ def test_locked_file_gives_a_clear_error(tmp_path, client, monkeypatch):
         assert response.status_code == 400 and "open in another program" in response.json["error"], path
 
 
-# ---------- slice 5: Archive page, Mark done & archive, Restore ----------
+# ---------- slice 5, now the Completed tab (G2): ✓ Complete, Restore ----------
 
-def test_archive_project_then_archive_page_then_restore(tmp_path, client):
+def test_complete_then_completed_list_then_restore(tmp_path, client):
     make_project(tmp_path, "DEMO-1111", {"title": "Old work", "status": "pending"})
 
-    assert client.post("/api/projects/DEMO-1111/archive").status_code == 200
+    assert client.post("/api/projects/DEMO-1111/complete").status_code == 200
     assert client.get("/api/projects").json["projects"] == []
     assert client.get("/api/projects/DEMO-1111").status_code == 404
-    [row] = client.get("/api/archive").json["projects"]
+    [row] = client.get("/api/projects").json["completed"]
     assert (row["id"], row["title"], row["status"]) == ("DEMO-1111", "Old work", "done")
 
-    restored = client.post("/api/archive/projects/DEMO-1111/restore")
+    restored = client.post("/api/completed/DEMO-1111/restore")
     assert restored.json == {"id": "DEMO-1111"}
     card = open_card(client)
     assert card["project"]["status"] == "active"
-    assert [h["text"] for h in card["history"]] == ["Restored from archive", "Marked done and archived"]
-    assert client.get("/api/archive").json["projects"] == []
-
-
-def test_archive_page_lists_and_restores_deleted_files(tmp_path, client):
-    make_project(tmp_path, "DEMO-1111", {"title": "P"})
-    make_file(tmp_path, "raw", "a.txt")
-    client.post(f"{URL}/raw/a.txt/delete")
-    [row] = client.get("/api/archive").json["files"]
-    assert (row["project"], row["title"], row["dir"], row["name"]) == ("DEMO-1111", "P", "raw", "a.txt")
-
-    restored = client.post("/api/archive/files/restore", json={"project": "DEMO-1111", "dir": "raw", "name": "a.txt"})
-    assert restored.json == {"where": "raw/a.txt"}
-    assert (tmp_path / "DEMO-1111" / "raw" / "a.txt").is_file()
-    assert client.get("/api/archive").json["files"] == []
+    assert [h["text"] for h in card["history"]] == ["Restored from archive", "Completed"]
+    assert client.get("/api/projects").json["completed"] == []
 
 
 def test_restore_unknown_or_unsafe_targets_is_404(tmp_path, client):
     make_project(tmp_path, "DEMO-1111", {"title": "P"})
-    assert client.post("/api/archive/projects/DEMO-1111/restore").status_code == 404   # open, not archived
-    assert client.post("/api/archive/projects/nope/restore").status_code == 404
-    assert client.post("/api/projects/nope/archive").status_code == 404
-    for body in [{"project": "DEMO-1111", "dir": "raw", "name": "missing.txt"},
-                 {"project": "DEMO-1111", "dir": "raw", "name": "../note.md"},
-                 {"project": "../x", "dir": "raw", "name": "a.txt"},
-                 {"project": "DEMO-1111", "dir": "junk", "name": "a.txt"}]:
-        assert client.post("/api/archive/files/restore", json=body).status_code == 404, body
+    assert client.post("/api/completed/DEMO-1111/restore").status_code == 404   # open, not completed
+    assert client.post("/api/completed/nope/restore").status_code == 404
+    assert client.post("/api/completed/..%2FDEMO-1111/restore").status_code == 404
+    assert client.post("/api/projects/nope/complete").status_code == 404
 
 
 def test_archive_and_restore_locked_give_a_clear_error(tmp_path, client, monkeypatch):
@@ -354,14 +337,14 @@ def test_archive_and_restore_locked_give_a_clear_error(tmp_path, client, monkeyp
     def locked(*args, **kwargs):
         raise PermissionError("in use")
     monkeypatch.setattr(notes.os, "rename", locked)
-    response = client.post("/api/projects/DEMO-1111/archive")
+    response = client.post("/api/projects/DEMO-1111/complete")
     assert response.status_code == 400 and "open in another program" in response.json["error"]
     assert client.get("/api/projects").json["projects"][0]["status"] == "active"
 
 
 def test_archive_requests_from_other_websites_are_refused(tmp_path, client):
     make_project(tmp_path, "DEMO-1111", {"title": "P"})
-    evil = client.post("/api/projects/DEMO-1111/archive", headers={"Origin": "https://evil.example"})
+    evil = client.post("/api/projects/DEMO-1111/complete", headers={"Origin": "https://evil.example"})
     assert evil.status_code == 403
     assert (tmp_path / "DEMO-1111" / "note.md").is_file()
 
@@ -431,10 +414,10 @@ def test_open_in_file_manager_uses_explorer_on_windows_and_open_on_mac(tmp_path,
 # ---------- + New project ----------
 
 def test_new_project_creates_it_and_cleans_the_name(tmp_path, client):
-    response = client.post("/api/projects", json={"id": "my idea", "title": "", "status": "idea"})
+    response = client.post("/api/projects", json={"id": "my idea", "title": "", "status": "pending"})
     assert response.json == {"id": "my_idea"}
     card = client.get("/api/projects/my_idea").json["project"]
-    assert (card["title"], card["status"], card["priority"], card["jira"]) == ("my_idea", "idea", "normal", "")
+    assert (card["title"], card["status"], card["priority"], card["jira"]) == ("my_idea", "pending", "normal", "")
 
 
 def test_new_project_fills_jira_for_ticket_ids(client):
@@ -498,11 +481,11 @@ def test_new_work_project_with_a_lowercase_ticket_id_uses_capitals_everywhere(tm
 
 
 def test_new_personal_project_name_is_never_capitalised(work_client):
-    assert work_client.post("/api/projects", json={"id": "phase-2", "status": "idea"}).json == {"id": "phase-2"}
+    assert work_client.post("/api/projects", json={"id": "phase-2", "status": "active"}).json == {"id": "phase-2"}
 
 
 def test_new_personal_project_stays_out_of_work_jira(tmp_path, work_client):
-    work_client.post("/api/projects", json={"id": "my idea", "status": "idea", "work": False})
+    work_client.post("/api/projects", json={"id": "my idea", "status": "active", "work": False})
     assert list((tmp_path / "work_jira").iterdir()) == []
     assert "source" not in work_client.get("/api/projects/my_idea").json["project"]
 

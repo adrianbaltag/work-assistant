@@ -21,6 +21,7 @@ import project_note
 import slack_inbox
 import slack_live
 import todos
+import work_jira_hooks
 
 SETTINGS_FILE = notes.SETTINGS_FILE
 load_settings = notes.load_settings     # lives in notes.py so helper scripts can read settings without Flask
@@ -49,6 +50,14 @@ NOT_SENT = ("Not sent: the message could not be left in the work folder ({}). No
             "Check that the folder is there and that you may write to it, then send it again.")
 HALF_SENT = ("Your message is on the card (see History), but Claude did NOT get it: it could not be left in the "
              "work folder ({}). Tell Claude yourself in its next session.")
+
+# ✓ Complete (api_complete): why a card can't move to Completed yet.
+NOT_CLOSED = ("{} is still in progress: its ticket has no ## Closed section yet. Finish it with Claude "
+              "(or tell Claude \"this ticket is done\"), then Complete it.")
+FOLDER_AWAY = ("Can't see the work folder of {} right now (moved, or the VPN is off). Connect it, "
+               "then try Complete again.")
+TICKET_UNREADABLE = ("Can't read requirements.md of {}. Is it open in another program? Close it, "
+                     "then try Complete again.")
 
 
 class Refused(Exception):
@@ -173,6 +182,41 @@ def read_jira_url(value):
     return value
 
 
+def ready_to_complete(project):
+    """Can this dashboard row move to Completed, and why. The page shows "✓ Complete" for any of the first three.
+
+    "no_ticket"        a card with no work folder: you decide when it is done
+    "closed"           its ticket's requirements.md has ## Closed (in any ticket, old ones too)
+    "no_requirements"  its work folder has no requirements.md (yet): you decide, the page asks first
+    "old_ticket"       a ticket from before ticket-flow (no Status line): it never gets one, so you decide
+    ""                 the ticket is still open: the grey "In progress" label
+    "away"             the work folder can't be seen right now (moved, VPN off): also grey
+    "unreadable"       its requirements.md can't be read (open in another program?): also grey, logged
+    Runs for every row on every refresh, so one bad folder never raises: it greys only its own row.
+    """
+    work = notes.linked_folder(project)
+    if not work:
+        return "no_ticket"
+    if not Path(work).is_dir():
+        return "away"
+    try:
+        text = project_note.requirements_text(work)
+    except OSError as err:
+        notes.log_once(f"Complete check of {work}", f"can't read requirements.md ({err.strerror or err})")
+        return "unreadable"
+    notes.log_once(f"Complete check of {work}", None)
+    if work_jira_hooks.has_closed_heading(text):
+        return "closed"
+    return {"new": "no_requirements", "old": "old_ticket"}.get(work_jira_hooks.state_of_text(text), "")
+
+
+def move_problem(err):
+    """Plain words for a project folder that could not be moved (✓ Complete, Restore)."""
+    if isinstance(err, PermissionError):
+        return LOCKED.format("the project folder")
+    return FILE_PROBLEM.format("the project folder", err.strerror or err)
+
+
 def open_in_file_manager(path):
     """Show a folder in Windows Explorer (Finder on a Mac). Tests swap this for a fake."""
     if sys.platform == "win32":
@@ -291,7 +335,9 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         rows = notes.dashboard(projects, now)
         for row in rows:
             del row["body"]
-        return jsonify(today=now.strftime("%Y-%m-%d"), projects=rows)
+            row["ready"] = ready_to_complete(row)
+        completed = project_note.list_completed(projects_folder)     # never raises: a bad card is left out
+        return jsonify(today=now.strftime("%Y-%m-%d"), projects=rows, completed=completed)
 
     @app.post("/api/projects")
     def api_new_project():
@@ -306,7 +352,7 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         status = str(data.get("status") or "active")
         if not project_id:
             return jsonify(error="Type a ticket ID or a short name (letters, digits, - or _)."), 400
-        if status not in CHOICES["status"]:
+        if status not in notes.NEW_STATUSES:
             return jsonify(error=f"Unknown status: {status}."), 400
         work = data.get("work") is True
         key = project_note.ticket_key(project_id)      # the same rule as the import of a work_jira folder
@@ -711,22 +757,29 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
             return jsonify(error=LOCKED.format(f"the {notes.UPLOAD_DIR} folder")), 400
         return jsonify(names=names)
 
-    # ---------- Archive page: Mark done & archive, Restore ----------
+    # ---------- Completed tab: ✓ Complete, Restore ----------
 
-    @app.post("/api/projects/<project_id>/archive")
-    def api_archive_project(project_id):
+    @app.post("/api/projects/<project_id>/complete")
+    def api_complete(project_id):
+        """✓ Complete: move the card to _archive (the Completed tab). Its work folder stays where it is."""
         folder = folder_or_404(project_id)
+        project = notes.read_or_problem(folder)
+        ready = ready_to_complete(project)
+        if ready == "away":
+            return jsonify(error=FOLDER_AWAY.format(project_id)), 400
+        if ready == "unreadable":
+            return jsonify(error=TICKET_UNREADABLE.format(project_id)), 400
+        if not ready:
+            return jsonify(error=NOT_CLOSED.format(project_id)), 400
+        said = project_note.COMPLETED_CLOSED if ready == "closed" else notes.COMPLETED
         try:
-            notes.archive_project(projects_folder, folder, datetime.now())
-        except OSError:
-            return jsonify(error=LOCKED.format("the project folder")), 400
+            notes.archive_project(projects_folder, folder, datetime.now(), said=said)
+        except OSError as err:
+            app.logger.error("Complete of %s failed: could not move its folder", project_id, exc_info=err)
+            return jsonify(error=move_problem(err)), 400
         return jsonify(ok=True)
 
-    @app.get("/api/archive")
-    def api_archive():
-        return jsonify(notes.list_archive(projects_folder))
-
-    @app.post("/api/archive/projects/<project_id>/restore")
+    @app.post("/api/completed/<project_id>/restore")
     def api_restore_project(project_id):
         archived = notes.find_archived(projects_folder, project_id)
         if archived is None:
@@ -734,24 +787,10 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         try:
             new_id = notes.restore_project(projects_folder, archived, datetime.now(),
                                            name=notes.archived_name(archived.name))
-        except OSError:
-            return jsonify(error=LOCKED.format("the project folder")), 400
+        except OSError as err:
+            app.logger.error("Restore of %s failed: could not move its folder", project_id, exc_info=err)
+            return jsonify(error=move_problem(err)), 400
         return jsonify(id=new_id)
-
-    @app.post("/api/archive/files/restore")
-    def api_restore_file():
-        """JSON body {project, dir, name}: dir can be "" (old note.md copies), which a URL can't hold."""
-        data = page_json()
-        folder = folder_or_404(str(data.get("project", "")))
-        dir, name = str(data.get("dir", "")), str(data.get("name", ""))
-        path = notes.archived_file_path(folder, dir, name)
-        if path is None or not path.is_file():
-            abort(404)
-        try:
-            where = notes.restore_file(folder, dir, name, datetime.now())
-        except OSError:
-            return jsonify(error=LOCKED.format(path.name)), 400
-        return jsonify(where=where)
 
     # ----- To do page -----
 

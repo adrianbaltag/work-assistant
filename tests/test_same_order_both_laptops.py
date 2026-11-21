@@ -42,19 +42,8 @@ def test_archived_cards_are_named_a_to_z_ignoring_capitals(tmp_path):
     assert archived == ["boss_rpa", "DEMO-1", "Zeta-1"]
 
 
-def test_deleted_files_are_listed_z_to_a_ignoring_capitals(tmp_path):
-    """Newest name first (the names start with a date), so the order is Z to A."""
-    project = make_project(tmp_path, "P")
-    deleted = project / notes.FILE_ARCHIVE / "raw"
-    deleted.mkdir(parents=True)
-    for name in ("a.txt", "C.txt", "b.txt"):
-        (deleted / name).write_text("x", encoding="utf-8")
-    names = [f["name"] for f in notes.list_archive(tmp_path)["files"]]
-    assert names == ["C.txt", "b.txt", "a.txt"]
-
-
 def test_a_projects_files_are_listed_z_to_a_ignoring_capitals(tmp_path):
-    """The same order as on the Archive page, so a file keeps its place when it is deleted."""
+    """Newest name first (the names start with a date), so the order is Z to A."""
     project = make_project(tmp_path, "P")
     (project / "raw").mkdir()
     for name in ("a.txt", "C.txt", "b.txt"):

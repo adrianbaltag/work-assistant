@@ -29,14 +29,17 @@ const blockedBy = p => {
   return lines.join("") || '<span class="none">—</span>';
 };
 
+// The 5 tiles. The first four pick from the open projects; Completed shows the finished ones (completed.js).
 const TABS = {
-  all:      {label: "All open",   c: "var(--text)",    keep: p => true},
-  critical: {label: "Critical",   c: "var(--critical)",  keep: p => p.priority === "critical"},
-  pending:  {label: "Pending",    c: "var(--pending)",  keep: p => p.shown_status === "pending"},
-  quiet:    {label: "Gone quiet", c: "var(--quiet)", keep: p => p.quiet},
+  all:       {label: "All open",   c: "var(--text)",    keep: p => true},
+  critical:  {label: "Critical",   c: "var(--critical)",  keep: p => p.priority === "critical"},
+  pending:   {label: "Pending",    c: "var(--pending)",  keep: p => p.shown_status === "pending"},
+  quiet:     {label: "Gone quiet", c: "var(--quiet)", keep: p => p.quiet},
+  completed: {label: "Completed",  c: "var(--active)", keep: p => true},
 };
 let tab = "all";
 let projects = [];
+let completed = [];     // finished projects (projects\_archive\), newest first
 // Search box + the two dropdowns. Kept while you move between sidebar pages; F5 starts clean.
 const filters = {q: "", status: "", prio: ""};
 let page = 1;
@@ -65,6 +68,7 @@ async function load(animate = false, focusId = null) {
     if (number < onScreen) return;       // a newer read already drew (e.g. the card you just saved)
     onScreen = number;
     projects = data.projects;
+    completed = data.completed;
     readOk = true;
     drawHeader(data.today);
     draw(animate, focusAfter && focusAfter.id);
@@ -87,8 +91,11 @@ const longDate = day => day.toLocaleDateString("en-GB", {weekday: "long"}) + " �
 function drawHeader(today) {
   $("date").textContent = longDate(new Date(today + "T12:00:00"));
   const n = k => projects.filter(TABS[k].keep).length;
+  // "ready to complete" = tickets Claude has closed: their row ends in a green "✓ Complete" waiting for you.
+  const ready = projects.filter(p => p.ready === "closed" && !p.problem).length;
   $("summary").innerHTML = `${projects.length} open · <b style="color:var(--critical-text)">${n("critical")} critical</b>`
-    + ` · <b style="color:var(--pending)">${n("pending")} pending</b> · <b style="color:var(--quiet-text)">${n("quiet")} gone quiet</b>`;
+    + ` · <b style="color:var(--pending)">${n("pending")} pending</b> · <b style="color:var(--quiet-text)">${n("quiet")} gone quiet</b>`
+    + (ready ? ` · <b style="color:var(--active)">${ready} ready to complete</b>` : "");
 }
 
 // How many rows fit between the top of the list and the bottom of the window, so the page never
@@ -129,7 +136,8 @@ function focusedInList() {
   if (!el || !($("list").contains(el) || $("tabs").contains(el))) return null;
   if (el.dataset.tab) return `[data-tab="${el.dataset.tab}"]`;
   if (el.dataset.open) return `[data-open="${CSS.escape(el.dataset.open)}"]`;
-  if (el.dataset.add) return `[data-add="${CSS.escape(el.dataset.add)}"]`;
+  if (el.dataset.complete) return `[data-complete="${CSS.escape(el.dataset.complete)}"]`;
+  if (el.dataset.restore) return `[data-restore="${CSS.escape(el.dataset.restore)}"]`;
   if (el.dataset.arrow) return `[data-arrow="${el.dataset.arrow}"]`;
   if (el.dataset.go) return `[data-go="${el.dataset.go}"]:not([data-arrow])`;
   return null;
@@ -148,27 +156,35 @@ function refocus(selector) {
 
 function draw(animate = false, focusId = null) {
   const keep = focusId ? `[data-open="${CSS.escape(focusId)}"]` : focusedInList();
-  const filtering = filtersOn(filters);
+  const done = tab === "completed";
+  // Completed has no status or priority to filter on: only the search box counts there.
+  const shownFilters = done ? {q: filters.q, status: "", prio: ""} : filters;
+  const filtering = filtersOn(shownFilters);
   const passed = filterProjects(projects, filters);
+  const passedDone = filterProjects(completed, {q: filters.q, status: "", prio: ""});
   const tilesDrew = put($("tabs"), Object.entries(TABS).map(([k, t]) => {
-    const n = passed.filter(t.keep).length;
+    const n = k === "completed" ? passedDone.length : passed.filter(t.keep).length;
     return `<button role="tab" data-tab="${k}" aria-selected="${k === tab}" class="${n ? "" : "zero"}" style="--c:${t.c}">`
       + `<span class="tl">${k === "all" ? "" : `<span class="dot" style="--c:${t.c}"></span>`}${t.label}</span><span class="n">${n}</span></button>`;
   }).join(""));
   $("dash-clear").hidden = !filtering;
+  $("dash-status").hidden = $("dash-prio").hidden = done;
   $("dash-q").classList.toggle("on", Boolean(filters.q.trim()));
   $("dash-status").classList.toggle("on", Boolean(filters.status));
   $("dash-prio").classList.toggle("on", Boolean(filters.prio));
 
-  const rows = passed.filter(TABS[tab].keep);
-  const head = `<div class="prow head">${["Project", "Status", "Priority", "Working on", "Next step", "Blocked by", "Updated"]
-    .map(h => `<span class="c lbl">${h}</span>`).join("")}</div>`;
-  const empty = emptyMessage(passed.length, rows.length, filtering);
+  const rows = done ? passedDone : passed.filter(TABS[tab].keep);
+  const labels = done ? ["Project", "Finished", "How it ended"]
+    : ["Project", "Status", "Priority", "Working on", "Next step", "Blocked by", "Updated"];
+  const head = `<div class="prow head${done ? " done" : ""}">${labels.map(h => `<span class="c lbl">${h}</span>`).join("")}</div>`;
+  const empty = emptyMessage(done ? passedDone.length : passed.length, rows.length, filtering);
+  const nothing = done ? "<b>Nothing here.</b>Projects you complete land here. Restore brings one back."
+    : "<b>Nothing here.</b>No open project matches this tab.";
   const html = empty === "nomatch"
     ? `<div class="plist">${head}<div class="nomatch"><b>No projects match these filters.</b>`
       + `<button class="btn primary" data-clear>Clear filters</button></div></div>`
-    : empty ? `<div class="empty"><b>Nothing here.</b>No open project matches this tab.</div>`
-    : listHtml(rows, head, filtering, focusId);
+    : empty ? `<div class="empty">${nothing}</div>`
+    : listHtml(rows, head, filtering, focusId, done);
   const slide = animate && !empty;
   const drew = put($("list"), html, slide);
   // The slide-in class is added after, so the next refresh compares the same HTML and leaves it alone.
@@ -178,7 +194,7 @@ function draw(animate = false, focusId = null) {
 
 // One page of rows + the footer (count and page buttons). focusId = the card you just closed:
 // its project may have moved (saving puts it at the top), so show the page that holds it.
-function listHtml(rows, head, filtering, focusId) {
+function listHtml(rows, head, filtering, focusId, done = false) {
   fitRows();
   const at = focusId ? rows.findIndex(p => p.id === focusId) : -1;
   if (at >= 0) page = pageHolding(at, perPage);
@@ -186,17 +202,17 @@ function listHtml(rows, head, filtering, focusId) {
   page = Math.min(Math.max(page, 1), pages);    // the list shrank (refresh, card closed): last page
   const from = (page - 1) * perPage;
   const shown = rows.slice(from, from + perPage);
-  const count = footerText(from, shown.length, rows.length, projects.length, filtering);
+  const count = footerText(from, shown.length, rows.length, done ? completed.length : projects.length, filtering);
   const pager = pages < 2 ? "" : `<nav class="pager" aria-label="Pages">`
     + `<button data-go="${page - 1}" data-arrow="prev" ${page === 1 ? "disabled" : ""}>‹ Prev</button>`
     + pageList(pages, page).map(n => n === "…" ? '<span class="gap">…</span>'
       : `<button data-go="${n}" ${n === page ? 'aria-current="page"' : ""}>${n}</button>`).join("")
     + `<button data-go="${page + 1}" data-arrow="next" ${page === pages ? "disabled" : ""}>Next ›</button></nav>`;
 
-  // One list line = two buttons side by side (a button can't sit inside a button):
-  // the row itself (click or Enter opens that project's card) and a small "+" after it
-  // (opens the same card with the cursor already in its Note / Blocker box). Tab reaches both.
-  // A row whose note can't be read (p.problem) has no "+": there is no card to write in.
+  // One list line = the row button (click or Enter opens that project's card) and, after it, the row end:
+  // a grey "In progress" label or a green "✓ Complete" button (rowEnd). Two buttons side by side,
+  // because a button can't sit inside a button. Tab reaches both. Completed rows: completed.js.
+  if (done) return `<div class="plist">${head}${shown.map(doneRow).join("")}<div class="pfoot"><span>${count}</span>${pager}</div></div>`;
   return `<div class="plist">${head}${shown.map((p, i) => `
     <div class="prow-wrap" style="animation-delay:${i * 40}ms">
     <button type="button" class="prow" data-open="${esc(p.id)}" style="--stripe:${stripe(p)}">
@@ -207,8 +223,7 @@ function listHtml(rows, head, filtering, focusId) {
       <span class="c next">${step(p.next)}</span>
       <span class="c">${blockedBy(p)}</span>
       <span class="c"><span class="ago ${p.quiet ? "q" : ""}">${ago(p.days_ago)}</span></span>
-    </button>${p.problem ? '<span class="padd"></span>'
-      : `<button type="button" class="padd" data-add="${esc(p.id)}" title="Add a note or blocker" aria-label="Add a note or blocker to ${esc(p.title)}"><span aria-hidden="true">+</span></button>`}
+    </button>${rowEnd(p)}
     </div>`).join("")}<div class="pfoot"><span>${count}</span>${pager}</div></div>`;
 }
 
@@ -221,6 +236,7 @@ $("tabs").addEventListener("click", e => {
   if (!button) return;
   tab = button.dataset.tab;
   page = 1;
+  $("dash-alert").innerHTML = "";     // an old "Could not restore" belongs to the tab it came from
   load(true);
 });
 
@@ -254,7 +270,7 @@ window.addEventListener("resize", () => {
 // changes height, so count the rows again.
 document.fonts.addEventListener("loadingdone", redraw);
 
-// Sidebar: Dashboard / To do / Ask Claude / Archive (and the dashboard's Ask Claude button). Each switch re-reads from disk.
+// Sidebar: Dashboard / To do / Ask Claude (and the dashboard's Ask Claude button). Each switch re-reads from disk.
 document.querySelector(".app").addEventListener("click", e => {
   const button = e.target.closest("[data-page]");
   if (button) showPage(button.dataset.page);
@@ -267,11 +283,9 @@ function showPage(page) {
   $("page-dash").hidden = page !== "dash";
   $("page-todo").hidden = page !== "todo";
   $("page-ask").hidden = page !== "ask";
-  $("page-archive").hidden = page !== "archive";
   if (page === "dash") load();
   else if (page === "todo") loadTodos();      // todo.js
   else if (page === "ask") askAll();
-  else loadArchive();
 }
 
 // Global Ask Claude: answers only. Opening the page starts a fresh chat (decided): an old one
@@ -292,11 +306,13 @@ function askAll() {
   });
 }
 
-// Click a row = open that project's card (card.js). Click its "+" = open the card with the cursor
-// in the Note / Blocker box. Also the page buttons and "Clear filters".
+// Click a row = open that project's card (card.js). "✓ Complete" and "Restore": completed.js.
+// Also the page buttons and "Clear filters".
 $("list").addEventListener("click", e => {
-  const add = e.target.closest("[data-add]");
-  if (add) return openCard(add.dataset.add, true);
+  const complete = e.target.closest("[data-complete]");
+  if (complete) return askComplete(complete.dataset.complete);
+  const back = e.target.closest("[data-restore]");
+  if (back) return restoreProject(back.dataset.restore);
   const row = e.target.closest("[data-open]");
   // You dragged over the text to copy it (mouse only: Enter has e.detail 0 and always opens).
   if (row && e.detail && String(window.getSelection())) return;

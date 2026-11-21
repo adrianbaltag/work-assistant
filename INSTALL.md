@@ -319,8 +319,9 @@ You need `work_jira_folder=` in `settings.ini` and the ticket-flow plugin instal
    `tracking_log.md`, then stops. The dashboard card updates by itself.
 6. **After the last milestone:** Claude writes a short message for the creator. Their yes closes
    the ticket. A new wish later on is a new ticket: start again at step 1, with a new ID.
-7. **Finished?** Move the folder out of `work_jira`. Next time Claude starts, the card moves to the
-   Archive page by itself.
+7. **Finished?** Once the ticket is closed, its dashboard row shows a green **✓ Complete**: click it
+   to move the card to the Completed tab. Moving the folder out of `work_jira` also moves the card
+   there, the next time Claude starts.
 
 ---
 

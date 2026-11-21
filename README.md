@@ -4,8 +4,8 @@
 
 A small web page that runs on your own laptop and shows your work projects in one place:
 
-- **Dashboard** of every project, critical ones first, with tabs for Critical, Pending and Gone quiet.
-- **Project cards** where you edit the notes, fields and files of a project (nothing is ever deleted: it goes to the Archive).
+- **Dashboard** of every project, critical ones first, with tabs for Critical, Pending, Gone quiet and Completed.
+- **Project cards** where you edit the notes, fields and files of a project (nothing is ever deleted: it goes to an archive folder).
 - **Ask Claude** about one project, or about all of them ("What should I work on this morning?").
   Claude can *suggest* changes; nothing is saved until you click Approve.
 - **Slack button** (optional) that glows when you have unread mentions or direct messages.
@@ -68,7 +68,7 @@ Stop the false alarms on the north sites.
 | Field | What it means |
 |---|---|
 | `title` | The project's name on the dashboard. |
-| `status` | `active` (working on it), `pending` (waiting on something) or `idea` (not started). Finished = Archive it. |
+| `status` | `active` (working on it), `pending` (waiting on something) or `idea` (not started). Finished = **✓ Complete** on its dashboard row. |
 | `priority` | `critical`, `high` or `normal`. **Only you set it**: Claude never changes it. |
 | `working_on` | What you're doing right now. |
 | `next` | Your next step, after that. |
@@ -93,8 +93,17 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
 
 ### The dashboard
 
-- **Tabs:** All open · Critical · Pending · Gone quiet. "Gone quiet" = nothing in the project's
+- **Tabs:** All open · Critical · Pending · Gone quiet · Completed. "Gone quiet" = nothing in the project's
   folder changed for 7 days or more (ideas never go quiet).
+- **The end of each row:** a grey **In progress** while the project's ticket is still open, a green
+  **✓ Complete** once Claude has closed it (`## Closed` in `requirements.md`). A card with no ticket
+  folder, a ticket folder with no `requirements.md` yet, or a ticket started before ticket-flow
+  always shows **✓ Complete**: you decide.
+  Every click asks "Move to Completed?" first. The card leaves the dashboard; its work folder stays
+  where it is. The line under the title counts the closed tickets waiting: "N ready to complete".
+  A ticket you dropped: tell Claude "this ticket is done" so it closes it.
+- **Completed tab:** name, finished date and how it ended (Ticket closed, Completed, Moved to prod).
+  The search box works there. **Restore** puts a card back on the dashboard.
 - **Order:** critical projects first, then the ones untouched the longest.
 - **Click a project** to open its card. There you can edit the fields, the full note.md,
   the files in `sessions\` and `raw\` (new, edit, rename, upload, paste),
@@ -102,7 +111,6 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
 - **One box at the top of every card,** with three buttons. **Note** adds a History line.
   **Blocker** marks the project as blocked by you, with your reason. **Unblock** clears it
   (it shows only while your blocker is on). A sent message can't be edited.
-  The **+** at the end of a dashboard row opens that card with the cursor already in the box.
 - **Two blockers.** A project shows as pending while either blocker is on: yours (tag `you`)
   or the tracking log's PENDING (tag `log`). It is active again only when both are gone.
   Your blocker is its own line in note.md (`my_blocker:`); the sync never touches it.
@@ -110,8 +118,9 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
   (see "Messages from the dashboard to Claude"). Status, Working on, Next step and Blocked by
   are shown as text under *Filled in by Claude's files*: change them in `tracking_log.md` or
   `requirements.md`. **Save changes** only writes the boxes you changed.
-- **Nothing is ever deleted.** Deleting a file or a project moves it to an archive folder;
-  the **Archive** page puts it back with **Restore**.
+- **Nothing is ever deleted.** A deleted file moves to the card's own `archive\` folder (put it
+  back by hand there). A completed project moves to `projects\_archive\`; **Restore** on the
+  Completed tab puts it back.
 - If a file changed on disk while you were editing it in the app (for example Claude Code saved it),
   the app warns you instead of overwriting it.
 
@@ -356,17 +365,17 @@ With this set up, the dashboard follows that work by itself:
 | Claude ticked a milestone but did not update `tracking_log.md` | After Claude's reply, a hook asks Claude once to add today's *Last update* line and move the next milestone up. | a few |
 | You send a **Note**, a **Blocker** or an **Unblock** from a project's card | A hook hands it to Claude when a session starts in that project, or with your next message in a running session. Claude writes it into `tracking_log.md`. See [Messages from the dashboard to Claude](#messages-from-the-dashboard-to-claude) below. | ~200 once per message |
 | You close the session | A hook deletes the session's small notepad file in the project's `.claude` folder (it remembers which milestones were ticked when the session started). Left-over notepads older than 2 days are deleted at a later start. | none |
-| You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Archive page. **Restore** brings it back. | none |
+| You move a finished folder out of `work_jira` (for example to your prod folder) | The next time Claude Code starts, a hook moves the card to the Completed tab (how it ended: Moved to prod). **Restore** brings it back. | none |
 
-Only cards made this way (they have `source: work_jira`) are ever archived by the hook. Your other
+Only cards made this way (they have `source: work_jira`) are ever moved to Completed by the hook. Your other
 cards and ideas are never touched. Nothing ever changes `priority`.
 
-- A card the hook archived comes back by itself when its folder comes back to `work_jira`.
-- A card you archived yourself (**Mark done & archive**) stays archived, even if its folder is still there.
+- A card the hook moved comes back by itself when its folder comes back to `work_jira`.
+- A card you completed yourself (**✓ Complete**) stays on the Completed tab, even if its folder is still there.
 - A card you bring back with **Restore** stays, even if its folder is gone. Once Claude works in that
   folder again, the normal rules apply again.
-- Every folder in `work_jira` has a card, on the Dashboard or on the Archive page. A card you delete by
-  hand comes back at the next start while its folder is still there: archive it instead, or move the folder out.
+- Every folder in `work_jira` has a card, on the Dashboard or on the Completed tab. A card you delete by
+  hand comes back at the next start while its folder is still there: complete it instead, or move the folder out.
 
 > **Open the project folder, not the whole `work_jira`.** In VS Code: File → Open Folder →
 > `work_jira\ABC-123`. The hooks know the project from the folder you opened. If you open all of

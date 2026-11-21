@@ -18,8 +18,6 @@
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.6 8.2l1.7 1.7 3.2-3.5"/></svg>To do<span class="nbadge" id="todo-n" hidden></span></button>
       <button class="nav claude" data-page="ask">
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6"/></svg>Ask Claude</button>
-      <button class="nav" data-page="archive">
-        <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="3.5" rx="1"/><path d="M3 6v6.5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6M6.5 8.75h3"/></svg>Archive</button>
       <div class="slack-wrap"><button class="nav slack" id="nav-slack" aria-haspopup="true" aria-expanded="false" aria-controls="slack-dd">
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.3 2.5l-1.1 11M10.8 2.5l-1.1 11M2.8 6h11M2.2 10h11"/></svg><span id="slack-label">Slack</span><span class="badge" id="slack-n" hidden></span></button>
         <div class="slack-dd" id="slack-dd" hidden></div></div>
@@ -53,7 +51,7 @@
         </label>
         <select id="dash-status" autocomplete="off" aria-label="Status filter">
           <option value="">Any status</option><option value="active">Active</option>
-          <option value="pending">Pending</option><option value="idea">Idea</option>
+          <option value="pending">Pending</option>
         </select>
         <select id="dash-prio" autocomplete="off" aria-label="Priority filter">
           <option value="">Any priority</option><option value="critical">Critical</option>
@@ -61,6 +59,7 @@
         </select>
         <button class="linkbtn" id="dash-clear" hidden>Clear filters</button>
       </div>
+      <div id="dash-alert"></div>
       <div id="list"></div>
     </section>
 
@@ -93,17 +92,6 @@
       <div class="ask-box" id="ask-chat"></div>
     </section>
 
-    <section class="content" id="page-archive" hidden>
-      <div class="dash-head">
-        <div>
-          <div class="date">Nothing is ever deleted</div>
-          <h2>Archive</h2>
-          <p class="summary">Finished projects and deleted files. Restore brings any of them back.</p>
-        </div>
-      </div>
-      <div id="arch-alert"></div>
-      <div id="arch-list"></div>
-    </section>
     </main>
   </div>
 
@@ -127,10 +115,10 @@
         <label>Project name <span class="hint">Optional. Empty = same as the ID. You can change it later.</span>
           <input id="np-title" autocomplete="off"></label>
         <label>Status
-          <select id="np-status"><option>active</option><option>pending</option><option>idea</option></select></label>
+          <select id="np-status"><option>active</option><option>pending</option></select></label>
         <label class="np-check"><input type="checkbox" id="np-work" {{ "checked" if work_jira else "disabled" }}>
           <span>Work project
-          <span class="hint">{% if work_jira %}Also makes work_jira\&lt;ID&gt;\ so Claude sets it up and keeps this card in sync. Untick for personal ideas.{% else %}Greyed: {{ work_jira_problem }}{% endif %}</span></span></label>
+          <span class="hint">{% if work_jira %}Also makes work_jira\&lt;ID&gt;\ so Claude sets it up and keeps this card in sync. Untick for personal projects.{% else %}Greyed: {{ work_jira_problem }}{% endif %}</span></span></label>
         <div class="np-work-fields" id="np-work-fields"{% if not work_jira %} hidden{% endif %}>
           <label>Created by <span class="hint">Optional. Who opened the ticket.</span>
             <input id="np-by" autocomplete="off"></label>
@@ -142,6 +130,19 @@
       </div>
     </form>
   </div>
+  <!-- ✓ Complete asks first (completed.js fills in the words) -->
+  <div class="overlay" id="cp" hidden>
+    <div class="modal small" role="alertdialog" aria-modal="true" aria-labelledby="cp-title" aria-describedby="cp-text">
+      <header class="m-head"><div class="t"><h2 id="cp-title">Move to Completed?</h2></div>
+        <button type="button" class="x" id="cp-cancel-x" aria-label="Close">×</button></header>
+      <div class="np-body">
+        <p id="cp-text"></p>
+        <div id="cp-alert"></div>
+        <div class="row"><button type="button" class="btn complete" id="cp-yes">✓ Move to Completed</button>
+          <button type="button" class="btn" id="cp-cancel">Cancel</button></div>
+      </div>
+    </div>
+  </div>
   <div class="toast" id="toast" hidden role="status"></div>
 
   <script src="{{ url_for('static', filename='paging.js') }}"></script>
@@ -149,7 +150,7 @@
   <script src="{{ url_for('static', filename='chat.js') }}"></script>
   <script src="{{ url_for('static', filename='card.js') }}"></script>
   <script src="{{ url_for('static', filename='todo.js') }}"></script>
-  <script src="{{ url_for('static', filename='archive.js') }}"></script>
+  <script src="{{ url_for('static', filename='completed.js') }}"></script>
   <script src="{{ url_for('static', filename='newproject.js') }}"></script>
   <script src="{{ url_for('static', filename='slack.js') }}"></script>
 </body>

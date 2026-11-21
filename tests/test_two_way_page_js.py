@@ -81,13 +81,16 @@ def test_save_sends_only_changed_fields_and_never_a_synced_one_on_a_linked_card(
     assert "Filled in by Claude's files" in card
 
 
-def test_a_row_is_a_button_with_a_sibling_plus_button_never_a_button_inside_a_button():
-    """The HTML app.js builds for one list line: the "+" button comes after the row button has closed."""
+def test_a_row_is_a_button_with_a_sibling_row_end_never_a_button_inside_a_button():
+    """The HTML app.js builds for one list line: the row end ("✓ Complete") comes after the row button has closed."""
     app = text_of("app.js")
     line = app[app.index('<div class="prow-wrap"'):]
     line = line[:line.index("</div>`")]
-    assert line.index("</button>") < line.index("data-add=")          # the row button closes first
-    assert len(re.findall(r"<button\b", line)) == 2 and len(re.findall(r"</button>", line)) == 2
+    assert line.index("</button>") < line.index("${rowEnd(p)}")       # the row button closes first
+    assert len(re.findall(r"<button\b", line)) == 1 and len(re.findall(r"</button>", line)) == 1
+    done = text_of("completed.js")
+    end = done[done.index("function rowEnd"):done.index("// One row on the Completed tab")]
+    assert len(re.findall(r"<button\b", end)) == len(re.findall(r"</button>", end)) == 1   # one whole button
 
 
 def test_every_new_colour_is_a_token_from_root():

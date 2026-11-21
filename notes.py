@@ -24,6 +24,8 @@ ARCHIVE_FOLDER = "_archive"     # archived projects, inside the projects folder
 FILE_ARCHIVE = "archive"        # archived files, inside one project folder
 DEFAULTS = {"status": "active", "priority": "normal"}
 STATUSES = ("active", "pending", "idea")     # "done" = archived, not a status
+NEW_STATUSES = ("active", "pending")         # + New project: ideas get their own page (G5)
+COMPLETED = "Completed"      # History line when ✓ Complete moves a card to _archive
 QUIET_DAYS = 7               # untouched this long = "gone quiet"
 IGNORED_FILES = {"desktop.ini", "thumbs.db"}     # the system makes these: they are no change of yours (lower case)
 WORK_FOLDER_DEPTH = 2        # a work card's days-ago also looks this many folder levels into its work folder
@@ -568,7 +570,7 @@ def new_project(projects_folder, project_id, title="", status="active"):
     return folder
 
 
-# ---------- Archive page: archived projects, deleted files, restore (slice 5) ----------
+# ---------- Completed tab: complete (= move the card to _archive) and restore ----------
 
 def mark(folder, status, said, now):
     """Set the project's status and add a history line, e.g. when it is archived or restored."""
@@ -577,8 +579,8 @@ def mark(folder, status, said, now):
     safe_write(note, add_history(text, said, now.strftime("%Y-%m-%d")))
 
 
-def archive_project(projects_folder, folder, now, said="Marked done and archived"):
-    """"Mark done & archive": move the whole project folder into _archive, then mark it done.
+def archive_project(projects_folder, folder, now, said=COMPLETED):
+    """"✓ Complete": move the whole project folder into _archive, then mark it done.
 
     Moved first, so a locked folder (a file open in Excel on Windows) changes nothing at all.
     """
@@ -621,46 +623,3 @@ def find_archived(projects_folder, project_id):
         return None
     folder = Path(projects_folder) / ARCHIVE_FOLDER / project_id
     return folder if (folder / NOTE_FILE).is_file() else None
-
-
-def archived_file_path(folder, dir, name):
-    """folder/archive/dir/name, or None. dir "" = the archive folder itself (old note.md copies)."""
-    if dir not in ("",) + FILE_DIRS or not plain_name(name):
-        return None
-    return Path(folder) / FILE_ARCHIVE / dir / name
-
-
-def restore_file(folder, dir, name, now):
-    """Move an archived file back. Returns where it went, e.g. "raw/a.txt".
-
-    An old note.md copy goes to raw\\, so it never replaces the live note.md. A taken name gets a suffix.
-    """
-    back = dir or UPLOAD_DIR
-    target_dir = Path(folder) / back
-    target_dir.mkdir(exist_ok=True)
-    target = free_name(target_dir, name, now)
-    os.rename(Path(folder) / FILE_ARCHIVE / dir / name, target)
-    return f"{back}/{target.name}"
-
-
-def list_archive(projects_folder):
-    """What the Archive page shows: archived projects (last finished first) and the deleted files of open projects."""
-    projects = []
-    archive = Path(projects_folder) / ARCHIVE_FOLDER
-    for folder in sorted(archive.iterdir(), key=by_name) if archive.is_dir() else []:
-        if folder.is_dir() and plain_name(folder.name) and (folder / NOTE_FILE).is_file():
-            project = read_or_problem(folder)
-            del project["body"]
-            project["finished"] = datetime.fromtimestamp(project["updated"]).strftime("%Y-%m-%d")
-            project["files"] = sum(len(files) for _, _, files in os.walk(folder))
-            projects.append(project)
-
-    files = []
-    for project in list_projects(projects_folder):
-        for dir in ("",) + FILE_DIRS:
-            path = Path(projects_folder) / project["id"] / FILE_ARCHIVE / dir
-            found = sorted(path.iterdir(), key=by_name, reverse=True) if path.is_dir() else []
-            files += [{"project": project["id"], "title": project["title"], "dir": dir,
-                       "name": f.name, "size": f.stat().st_size}
-                      for f in found if f.is_file() and plain_name(f.name)]
-    return {"projects": sorted(projects, key=lambda p: -p["updated"]), "files": files}

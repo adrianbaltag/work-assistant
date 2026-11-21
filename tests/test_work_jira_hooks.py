@@ -165,7 +165,7 @@ def test_session_start_archives_cards_whose_folder_left(tmp_path):
     pn.create(projects, gone, "", "", NOW)
     os.rename(gone, tmp_path / "prod")
     context, for_user = start(settings, tmp_path)
-    assert "DEMO-2" in for_user and "Archive" in for_user
+    assert "DEMO-2" in for_user and "Completed tab" in for_user
     assert notes.find_archived(projects, "DEMO-2") and history_of(notes.find_archived(projects, "DEMO-2"))[0]["text"] == pn.MOVED_TO_PROD
 
 
@@ -186,7 +186,7 @@ def test_session_start_can_archive_and_add_in_one_go(tmp_path):
     os.rename(gone, tmp_path / "prod")
     work_project(tmp_path, "DEMO-3")
     _, for_user = start(settings, tmp_path)
-    assert for_user == ("Dashboard: moved DEMO-2 to the Archive page (folder no longer in work_jira). "
+    assert for_user == ("Dashboard: moved DEMO-2 to the Completed tab (folder no longer in work_jira). "
                         "Added cards for DEMO-3 (folders in work_jira).")
 
 

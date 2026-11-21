@@ -74,9 +74,9 @@ def test_a_file_error_caught_by_the_last_net_says_why_and_is_logged(tmp_path, mo
 
     def disk_full(*args, **kwargs):
         raise OSError(28, "No space left on device", str(tmp_path / "DEMO-1" / "note.md"))
-    monkeypatch.setattr(notes, "list_archive", disk_full)
+    monkeypatch.setattr(notes, "find_archived", disk_full)
     with caplog.at_level(logging.ERROR):
-        response = client_for(tmp_path).get("/api/archive")
+        response = client_for(tmp_path).post("/api/completed/DEMO-1/restore")
     assert response.status_code == 400
     assert "No space left on device" in response.json["error"] and "note.md" in response.json["error"]
     assert "open in another program" not in response.json["error"]     # that would be a guess, and a wrong one
@@ -88,9 +88,9 @@ def test_a_locked_file_caught_by_the_last_net_keeps_the_locked_message(tmp_path,
 
     def locked(*args, **kwargs):
         raise notes.Locked(notes.LOCKED.format("note.md"))
-    monkeypatch.setattr(notes, "list_archive", locked)
+    monkeypatch.setattr(notes, "find_archived", locked)
     with caplog.at_level(logging.ERROR):
-        response = client_for(tmp_path).get("/api/archive")
+        response = client_for(tmp_path).post("/api/completed/DEMO-1/restore")
     assert response.status_code == 400 and response.json["error"] == notes.LOCKED.format("note.md")
     assert caplog.records
 
@@ -100,9 +100,9 @@ def test_a_bad_encoding_caught_by_the_last_net_is_logged(tmp_path, monkeypatch, 
 
     def not_utf8(*args, **kwargs):
         return b"\xe9".decode("utf-8")
-    monkeypatch.setattr(notes, "list_archive", not_utf8)
+    monkeypatch.setattr(notes, "find_archived", not_utf8)
     with caplog.at_level(logging.ERROR):
-        response = client_for(tmp_path).get("/api/archive")
+        response = client_for(tmp_path).post("/api/completed/DEMO-1/restore")
     assert response.status_code == 400 and "UTF-8" in response.json["error"]
     assert any(record.exc_info for record in caplog.records)
 

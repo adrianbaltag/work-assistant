@@ -18,6 +18,8 @@
   --text-off:#6A6684;      /* disabled items and "—" dashes only */
   /* the one accent: chosen tab and main button, white text on it (10:1) */
   --accent:#3A10C8; --accent-hover:#4A10E0; --on-accent:#FFFFFF;
+  /* "✓ Complete": filled green, white text (4.8:1; your #008A40 was 4.46, a hair under the rule) */
+  --complete:#00843D; --complete-hover:#00753A; --on-complete:#FFFFFF;
   /* meaning colours */
   --critical:#FF3355; --high:#EE6E7C; --pending:#E8A93A; --active:#10D068; --idea:#A09CB5;
   --quiet:#4F8FF7; --slack:#A78BFA; --claude:#E9875B;
@@ -35,7 +37,7 @@
   --radius:18px; --radius-sm:12px; --radius-xs:8px; --pill:999px;
   /* dashboard list heights: app.js reads these to count how many rows fit in the window */
   --row-h:46px; --head-h:38px; --foot-h:54px;
-  --add-w:44px;            /* the "+" button at the end of each dashboard row */
+  --end-w:132px;           /* the row end: "In progress" or "✓ Complete" (Restore on the Completed tab) */
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}   /* .overlay sets display:flex, which would beat the plain hidden attribute */
@@ -265,15 +267,24 @@ textarea.editor{font-family:var(--mono);font-size:.82rem;min-height:340px;flex:1
 .btn.danger:not([disabled]):hover{background:var(--critical-bg);border-color:var(--critical)}
 .mono{font-family:var(--mono)}
 
-/* Two-way: Note / Blocker / Unblock from the dashboard to Claude */
-/* Dashboard: one list line = the row button + a "+" button after it. The header row leaves the same room. */
-.prow-wrap{display:grid;grid-template-columns:minmax(0,1fr) var(--add-w);transition:background .15s}
+/* Dashboard: one list line = the row button + the row end after it. The header row leaves the same room. */
+.prow-wrap{display:grid;grid-template-columns:minmax(0,1fr) var(--end-w);transition:background .15s}
 .prow-wrap:hover{background:var(--hover)}
-.prow.head{padding-right:var(--add-w)}
-.padd{height:var(--row-h);padding:0;border:0;border-top:1px solid var(--border);background:none;display:grid;place-items:center;color:var(--text-muted)}
-.padd span{width:26px;height:26px;border:1px solid var(--border-strong);border-radius:50%;display:grid;place-items:center;font-size:16px;line-height:1;transition:background .15s,border-color .15s,color .15s}
-button.padd:hover span{background:var(--raised);border-color:var(--border-focus);color:var(--text)}
-.padd:focus-visible{outline-offset:-2px}
+.prow.head{padding-right:var(--end-w)}
+/* Row end: grey "In progress" label (does nothing) or green "✓ Complete" button (completed.js) */
+.pend{height:var(--row-h);padding:0 14px 0 0;border:0;border-top:1px solid var(--border);background:none;display:flex;align-items:center;justify-content:flex-end}
+.pend .go,.pend .wait{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:var(--pill);font-size:12.5px;font-weight:600;white-space:nowrap}
+.pend .go{background:var(--complete);color:var(--on-complete);transition:background .15s}
+button.pend:hover .go{background:var(--complete-hover)}
+.pend .wait{color:var(--text-muted);border:1px solid var(--border-strong);cursor:default}
+.pend:focus-visible{outline-offset:-2px}
+.btn.complete{background:var(--complete);border-color:var(--complete);color:var(--on-complete);font-weight:600}
+.btn.complete:not([disabled]):hover{background:var(--complete-hover);border-color:var(--complete-hover)}
+/* Completed tab: shorter rows (name, finished, how it ended) that open nothing */
+.prow.cdone,.prow.head.done{grid-template-columns:minmax(0,3fr) 140px minmax(0,2fr)}
+.prow.cdone{cursor:default}
+#dash-alert:empty{display:none}   /* an empty box must not add a gap above the list */
+/* Two-way: Note / Blocker / Unblock from the dashboard to Claude */
 /* Who set a blocker: "you" or "log". Same look as the name tags in the History list. */
 .by{font-family:var(--mono);font-size:.66rem;padding:1px 7px;margin-right:6px;border-radius:var(--pill);background:var(--raised-hover);color:var(--text)}
 /* Card: the message box at the top */

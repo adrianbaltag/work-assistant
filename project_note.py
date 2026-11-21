@@ -35,7 +35,12 @@ STAMP_FIELD = "sync_stamp"  # card field: mtime_ns-size of tracking_log.md and r
 MOVED_TO_PROD = "Folder left work_jira (moved to prod): archived automatically"
 BACK_FROM_PROD = "Folder back in work_jira: restored automatically"
 RESTORED_BY_HAND = "Restored from archive"          # the app's Restore button (notes.restore_project)
-CARD_EVENTS = {MOVED_TO_PROD, BACK_FROM_PROD, RESTORED_BY_HAND, "Marked done and archived"}
+COMPLETED_CLOSED = "Completed: ticket closed"       # ✓ Complete on a card whose ticket has ## Closed
+MARKED_DONE = "Marked done and archived"            # the old "Mark done & archive" button (before the Completed tab)
+CARD_EVENTS = {MOVED_TO_PROD, BACK_FROM_PROD, RESTORED_BY_HAND, MARKED_DONE, notes.COMPLETED, COMPLETED_CLOSED}
+# "How it ended" on the Completed tab, from the card's newest event line. Anything else = "Completed".
+ENDED = {COMPLETED_CLOSED: "Ticket closed", notes.COMPLETED: "Completed", MARKED_DONE: "Marked done",
+         MOVED_TO_PROD: "Moved to prod"}
 SECTIONS = {"now working on": "now", "next up": "next", "last update": "last"}
 HEADINGS = {"now": "## Now working on", "next": "## Next up", "last": "## Last update"}
 
@@ -389,7 +394,7 @@ def create(projects_folder, work_folder, title, goal, now):
     """Make sure the work_jira project has a filled dashboard card. Returns (card folder, what happened).
 
     what = "exists"   (it had one: just synced)
-           "restored" (its card was in the Archive, e.g. the folder came back from prod)
+           "restored" (its card was on the Completed tab, e.g. the folder came back from prod)
            "created"  (a new card, made by the same code as the app's + New project)
     """
     name = Path(work_folder).name
@@ -495,9 +500,67 @@ def last_event(note_file):
 
     A sync line from Claude newer than it counts as an event too ("" back): the folder was worked on since.
     """
-    history = notes.read_history(Path(note_file).read_text(encoding="utf-8-sig"))
+    return newest_event(notes.read_history(Path(note_file).read_text(encoding="utf-8-sig")))
+
+
+def newest_event(history):
+    """last_event, for History lines already read (newest first)."""
     return next((h["text"] if h["text"] in CARD_EVENTS else "" for h in history
                  if h["text"] in CARD_EVENTS or h["who"] == WHO), "")
+
+
+# ---------- the Completed tab: the cards in _archive ----------
+
+def day(timestamp):
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+
+
+def list_completed(projects_folder):
+    """The Completed tab: every card in _archive, last finished first.
+
+    Read on every dashboard refresh, so it reads only each note.md (never walks a project's files).
+    A card that can't be read at all is left out and logged: one bad card must not blank the dashboard.
+    """
+    archive = Path(projects_folder) / notes.ARCHIVE_FOLDER
+    try:
+        folders = sorted(archive.iterdir(), key=notes.by_name) if archive.is_dir() else []
+        notes.log_once(f"Completed tab: {archive}", None)
+    except OSError as err:
+        notes.log_once(f"Completed tab: {archive}", f"can't open it, the tab shows nothing ({err.strerror or err})")
+        return []
+    found = []
+    for folder in folders:
+        note = folder / notes.NOTE_FILE
+        try:
+            if not (folder.is_dir() and notes.plain_name(folder.name) and note.is_file()):
+                continue
+            found.append(completed_row(folder))
+            notes.log_once(f"Completed tab: {note}", None)
+        except OSError as err:
+            notes.log_once(f"Completed tab: {note}", f"left out, can't read it ({err.strerror or err})")
+    return sorted(found, key=lambda p: (p["finished"], p["updated"]), reverse=True)
+
+
+def completed_row(folder):
+    """One Completed row: the card's fields, plus
+    ended    = how it ended, from its newest event line ("Ticket closed", "Moved to prod" ...)
+    finished = the date on that line; a card without one = note.md's own date.
+    A note that isn't UTF-8 still gets a row, with a plain "problem" (as on the dashboard).
+    """
+    note = Path(folder) / notes.NOTE_FILE
+    updated = note.stat().st_mtime
+    base = {**notes.DEFAULTS, "title": folder.name}
+    try:
+        text = note.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        problem = notes.NOT_UTF8.format(f"{folder.name}\\{notes.NOTE_FILE}")
+        return {**base, "id": folder.name, "updated": updated, "problem": problem,
+                "ended": ENDED[notes.COMPLETED], "finished": day(updated)}
+    history = notes.read_history(text)
+    event = newest_event(history)
+    when = next((h["date"] for h in history if h["text"] == event), "") if event in ENDED else ""
+    return {**base, **notes.parse_note(text)[0], "id": folder.name, "updated": updated,
+            "ended": ENDED.get(event, ENDED[notes.COMPLETED]), "finished": when or day(updated)}
 
 
 def newest_archived(projects_folder, name):
@@ -556,7 +619,7 @@ def archive_gone(projects_folder, work_jira_folder, now):
 def import_missing(projects_folder, work_jira_folder, now):
     """Make a card for every work_jira project folder that has none. Returns their IDs, A-Z.
 
-    Rule: every folder in work_jira has a card, on the Dashboard or on the Archive page.
+    Rule: every folder in work_jira has a card, on the Dashboard or on the Completed tab.
     A card you archived yourself stays archived; one archived because the folder left (prod) comes back.
     No tracking_log.md yet = a bare card (title = folder name), filled in once Claude works in the folder.
     A card that can't be made (a stray file has the name, a file is open) is skipped: tried again next session.
@@ -622,7 +685,7 @@ def main(argv, settings_path=notes.SETTINGS_FILE, now=None):
         if args.action == "create":
             card, what = create(projects_folder, work, args.title, args.goal, now)
             print({"created": f"Dashboard card {args.name} created and filled from {TRACKING_LOG}.",
-                   "restored": f"Dashboard card {args.name} brought back from the Archive and updated.",
+                   "restored": f"Dashboard card {args.name} brought back from the Completed tab and updated.",
                    "exists": f"Dashboard card {args.name} already existed: updated it."}[what])
         else:
             sync(projects_folder, work, now)
