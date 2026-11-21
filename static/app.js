@@ -87,8 +87,8 @@ const longDate = day => day.toLocaleDateString("en-GB", {weekday: "long"}) + " �
 function drawHeader(today) {
   $("date").textContent = longDate(new Date(today + "T12:00:00"));
   const n = k => projects.filter(TABS[k].keep).length;
-  $("summary").innerHTML = `${projects.length} open · <b style="color:var(--critical)">${n("critical")} critical</b>`
-    + ` · <b style="color:var(--pending)">${n("pending")} pending</b> · <b style="color:var(--quiet)">${n("quiet")} gone quiet</b>`;
+  $("summary").innerHTML = `${projects.length} open · <b style="color:var(--critical-text)">${n("critical")} critical</b>`
+    + ` · <b style="color:var(--pending)">${n("pending")} pending</b> · <b style="color:var(--quiet-text)">${n("quiet")} gone quiet</b>`;
 }
 
 // How many rows fit between the top of the list and the bottom of the window, so the page never

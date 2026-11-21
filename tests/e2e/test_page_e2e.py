@@ -147,7 +147,7 @@ def test_a_long_next_step_shows_whole_in_a_box_that_grows(dash):
     sizes = box.evaluate("b => ({scroll: b.scrollHeight, client: b.clientHeight})")
     assert sizes["scroll"] <= sizes["client"] + 1            # nothing is hidden: all the text is on screen
     assert box.bounding_box()["height"] > short.bounding_box()["height"] * 1.5      # it wraps: taller than a one-line box
-    assert abs(short.bounding_box()["height"] - dash.locator("#f-jira").bounding_box()["height"]) <= 2    # one line looks like a plain box
+    assert abs(short.bounding_box()["height"] - dash.locator("#f-jira").bounding_box()["height"]) <= 0.5    # one line looks exactly like a plain box
 
 
 def test_a_growing_box_stays_one_line_of_text(dash):
