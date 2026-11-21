@@ -354,6 +354,10 @@ button.pend:hover .go{background:var(--complete-hover)}
 .imgprev img{max-width:100%;max-height:520px;object-fit:contain}
 .alert.bad{background:var(--critical-bg);border-color:var(--critical-line)}
 .alert.bad b{color:var(--critical-text)}
+.alert.has-x{display:flex;align-items:flex-start;gap:12px}      /* a note you close yourself (after Restore) */
+.alert.has-x>span{flex:1;min-width:0}
+.alert+.alert{margin-top:8px}
+.x.sm{width:28px;height:28px;font-size:1rem;flex:none}
 .btn.danger.solid{background:var(--critical);color:var(--bg);border-color:var(--critical);font-weight:600}
 .btn.danger.solid:not([disabled]):hover{background:var(--high);border-color:var(--high)}
 

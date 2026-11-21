@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 import claude_chat
 import dashboard_inbox
 import notes
+import prod_folder
 import project_note
 import slack_inbox
 import slack_live
@@ -58,6 +59,29 @@ FOLDER_AWAY = ("Can't see the work folder of {} right now (moved, or the VPN is 
                "then try Complete again.")
 TICKET_UNREADABLE = ("Can't read requirements.md of {}. Is it open in another program? Close it, "
                      "then try Complete again.")
+# G3: ✓ Complete moves a ticket folder from work_jira to PROD_SCRIPTS, Restore moves it back. Nothing half done.
+NEED_FOLDER = "Choose the folder for completed projects first."
+FOLDER_LOCKED = ("Could not move the folder {}: a program has a file open in it (VS Code, Claude Code, Excel ...). "
+                 "Close that program, then try again. Nothing moved.")
+OTHER_DRIVE = ("Could not move the folder {}: your folder for completed projects is on another drive. Delete the "
+               "hidden .work-assistant-completed file in it, click ✓ Complete again and pick a folder on the same "
+               "drive as {}. Nothing moved.")
+CANT_MAKE = ("Could not make the folder {} or its small hidden file ({}). Type another folder in the box, or check "
+             "that you may save files there. Nothing moved.")
+NOT_IN_WORK_JIRA = ("The folder of {} is at {}, not in your work_jira folder ({}), so nothing moved. Move the folder "
+                    "into work_jira (or fix work_jira_folder= in settings.ini and restart the app), then click "
+                    "✓ Complete again.")
+ODD_PROD_FOLDER = ("The card says its folder is at {}, which is not a place the app moves folders from (your user "
+                   "folder, or work_jira's drive). Nothing moved. Fix or empty the prod_folder: line in the card's "
+                   "note.md (in projects\\_archive), then click Restore again.")
+STUCK = ("Could not finish the move of {}: its folder is now at {} and could not be put back. Close any program "
+         "using it and move it back yourself, then try again.")
+RESTORE_CLASH = ("{1} already has a folder named {0}. Restore never overwrites it: rename or move that folder, "
+                 "then click Restore again. Nothing moved.")
+NO_WORK_JIRA = ("Can't put the folder back from {}: the app can't find your work_jira folder (work_jira_folder= "
+                "in settings.ini, or the drive is away). Fix that, restart the app, then click Restore again. "
+                "Nothing moved.")
+FOLDER_MISSING = "The card is back, but its folder was not at {} (moved or deleted?), so only the card came back."
 
 
 class Refused(Exception):
@@ -217,6 +241,15 @@ def move_problem(err):
     return FILE_PROBLEM.format("the project folder", err.strerror or err)
 
 
+def folder_problem(err, name, work_jira):
+    """Plain words for a ticket folder that could not move between work_jira and PROD_SCRIPTS."""
+    if isinstance(err, PermissionError):
+        return FOLDER_LOCKED.format(name)
+    if prod_folder.other_drive(err):
+        return OTHER_DRIVE.format(name, work_jira)
+    return FILE_PROBLEM.format(f"the folder {name}", err.strerror or err)
+
+
 def open_in_file_manager(path):
     """Show a folder in Windows Explorer (Finder on a Mac). Tests swap this for a fake."""
     if sys.platform == "win32":
@@ -226,13 +259,14 @@ def open_in_file_manager(path):
 
 
 def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client, model="", text_limit="",
-               slack=None, work_jira_folder=""):
+               slack=None, work_jira_folder="", home=None):
     """Build the Flask app. No folder given = a real run: read it (and jira_url, model, text_limit,
     the slack_ lines) from settings.ini, and start the Slack part.
 
     claude = a function that returns the Claude client; tests pass one that returns a fake.
     slack = the running Slack part (slack_live.Live); tests pass a fake, or none = "not connected".
     work_jira_folder = where + New project also makes a folder when "Work project" is ticked ("" = box greyed).
+    home = the user folder, where PROD_SCRIPTS is searched for and must be (tests pass a fake one).
     """
     slack_settings = None
     if projects_folder is None:
@@ -248,6 +282,10 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         work_jira_folder = settings.get("work_jira_folder", "")
     model = model.strip() or claude_chat.DEFAULT_MODEL
     work_jira_folder = work_jira_folder.strip()
+    user_home = Path(home) if home else Path.home()     # (a route below is called home)
+    # work_jira on another drive (D:): PROD_SCRIPTS may be on that drive too, as a move between drives fails
+    work_root, work_near = prod_folder.work_drive(user_home, work_jira_folder)
+    prod_roots = [work_root] if work_root else []
     text_limit = read_text_limit(text_limit)
     jira_url = read_jira_url(jira_url)
     if slack_settings is not None:      # last: a bad setting above stops the app with no Slack threads running
@@ -759,9 +797,22 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
 
     # ---------- Completed tab: ✓ Complete, Restore ----------
 
+    def not_here():
+        """Folders PROD_SCRIPTS must never be in."""
+        return [f for f in (work_jira_folder, str(projects_folder)) if f]
+
+    @app.get("/api/prod-folder")
+    def api_prod_folder():
+        """Where ✓ Complete would move a ticket folder: the tagged folder, or None (the page then asks once)."""
+        found = prod_folder.find(user_home, not_here(), work_near, prod_roots)
+        return jsonify(folder=str(found) if found else None, suggest=prod_folder.suggestion(user_home, work_near))
+
     @app.post("/api/projects/<project_id>/complete")
     def api_complete(project_id):
-        """✓ Complete: move the card to _archive (the Completed tab). Its work folder stays where it is."""
+        """✓ Complete: move the card to _archive (the Completed tab). A ticket card also moves its work folder
+        from work_jira to PROD_SCRIPTS first; both move or neither does. JSON {"prod_folder": path} = the
+        one-time box's answer; without it the tagged folder is used.
+        """
         folder = folder_or_404(project_id)
         project = notes.read_or_problem(folder)
         ready = ready_to_complete(project)
@@ -772,25 +823,131 @@ def create_app(projects_folder=None, jira_url="", claude=claude_chat.make_client
         if not ready:
             return jsonify(error=NOT_CLOSED.format(project_id)), 400
         said = project_note.COMPLETED_CLOSED if ready == "closed" else notes.COMPLETED
+        now = datetime.now()
+        work = notes.linked_folder(project)
+        moved = None
+        if work:
+            moved = move_ticket_out(project_id, Path(work), now)
+            if not isinstance(moved, Path):
+                return moved                                    # an error answer: nothing moved
         try:
-            notes.archive_project(projects_folder, folder, datetime.now(), said=said)
+            notes.archive_project(projects_folder, folder, now, said=said,
+                                  fields={"prod_folder": str(moved)} if moved else None)
         except OSError as err:
-            app.logger.error("Complete of %s failed: could not move its folder", project_id, exc_info=err)
+            app.logger.error("Complete of %s failed: could not move its card", project_id, exc_info=err)
+            if moved:
+                stuck = move_back(project_id, moved, Path(work))
+                if stuck:
+                    return stuck
             return jsonify(error=move_problem(err)), 400
         return jsonify(ok=True)
 
+    def move_ticket_out(project_id, work, now):
+        """Move a ticket folder into PROD_SCRIPTS. Returns where it went, or an error answer (nothing moved)."""
+        if not work_jira_folder or not project_note.same_folder(work.parent, Path(work_jira_folder)):
+            app.logger.warning("Complete of %s refused: its folder %s is not in work_jira", project_id, work)
+            return jsonify(error=NOT_IN_WORK_JIRA.format(project_id, work, work_jira_folder or "not set")), 400
+        data = request.get_json(silent=True)
+        typed = data.get("prod_folder") if isinstance(data, dict) else None
+        if typed is None:
+            prod = prod_folder.find(user_home, not_here(), work_near, prod_roots)
+            if prod is None:
+                app.logger.warning("Complete of %s waits: no folder for completed projects yet (asked)", project_id)
+                return jsonify(error=NEED_FOLDER, need_folder=True,
+                               suggest=prod_folder.suggestion(user_home, work_near)), 400
+        elif not isinstance(typed, str):
+            app.logger.warning("Complete of %s refused: the folder sent was not text", project_id)
+            return jsonify(error=TODO_ODD), 400
+        else:
+            prod, why = prod_folder.check_choice(typed, user_home, not_here(), prod_roots)
+            if prod is None:
+                app.logger.warning("Complete of %s refused: bad folder for completed projects (%s)", project_id, why)
+                return jsonify(error=why), 400
+        try:
+            prod_folder.make(prod)
+        except OSError as err:
+            app.logger.error("Complete of %s failed: could not make %s or its tag file", project_id, prod, exc_info=err)
+            return jsonify(error=CANT_MAKE.format(prod, err.strerror or err)), 400
+        try:
+            return prod_folder.move_out(work, prod, now)
+        except OSError as err:
+            app.logger.error("Complete of %s failed: could not move %s to %s", project_id, work, prod, exc_info=err)
+            return jsonify(error=folder_problem(err, work.name, work_jira_folder)), 400
+
+    def move_back(project_id, moved, to):
+        """Undo a ticket folder move after its card could not move. Returns an error answer if that fails too."""
+        try:
+            os.rename(moved, to)
+            return None
+        except OSError as err:
+            app.logger.error("Could not put %s back to %s for %s", moved, to, project_id, exc_info=err)
+            return jsonify(error=STUCK.format(project_id, moved)), 400
+
     @app.post("/api/completed/<project_id>/restore")
     def api_restore_project(project_id):
+        """Restore: the ticket folder (if Complete moved one) goes back to work_jira under its own name, then the
+        card comes back. Answers {id, warning?, still_closed?}: still_closed = its ticket has ## Closed.
+        """
         archived = notes.find_archived(projects_folder, project_id)
         if archived is None:
             abort(404)
         try:
+            card_fields = notes.parse_note((archived / notes.NOTE_FILE).read_text(encoding="utf-8-sig"))[0]
+        except (OSError, UnicodeDecodeError) as err:
+            app.logger.error("Restore of %s failed: could not read its card", project_id, exc_info=err)
+            return jsonify(error=UNREADABLE.format(f"the card of {project_id}")), 400
+        # The real path, once: a hand-edited line like "...\PROD_SCRIPTS\.." must not pass the checks below as
+        # PROD_SCRIPTS and then move Documents (Windows tidies ".." away when it renames).
+        stored = card_fields.get("prod_folder", "").strip()
+        moved = Path(stored).resolve() if stored else None
+        back, extra, warning = None, None, ""
+        if moved:
+            name = Path(notes.linked_folder(card_fields) or notes.archived_name(archived.name)).name
+            extra = {"prod_folder": ""}
+            if not moved.is_dir():          # you moved PROD_SCRIPTS since? Look in the one the tag file marks now
+                now_at = prod_folder.find(user_home, not_here(), work_near, prod_roots)
+                if now_at and (now_at / moved.name).is_dir():
+                    app.logger.info("Restore of %s: %s not there, found it in %s", project_id, moved, now_at)
+                    moved = now_at / moved.name
+            if not moved.is_dir():          # nothing to move: only the card comes back, whatever else is true
+                app.logger.warning("Restore of %s: its folder %s is gone, only the card comes back", project_id, moved)
+                warning = FOLDER_MISSING.format(moved)
+            elif (prod_folder.check_choice(moved, user_home, not_here(), prod_roots)[0] is None
+                  or not prod_folder.has_tag(moved.parent)):           # only from a tagged folder, as Complete does
+                app.logger.warning("Restore of %s refused: its prod_folder %s is outside the allowed places",
+                                   project_id, moved)
+                return jsonify(error=ODD_PROD_FOLDER.format(moved)), 400
+            elif not work_jira_folder or not Path(work_jira_folder).is_dir():
+                app.logger.warning("Restore of %s refused: work_jira folder not found", project_id)
+                return jsonify(error=NO_WORK_JIRA.format(moved)), 400
+            elif os.path.lexists(Path(work_jira_folder) / name):
+                app.logger.warning("Restore of %s refused: %s already in work_jira", project_id, name)
+                return jsonify(error=RESTORE_CLASH.format(name, work_jira_folder)), 400
+            else:
+                back = Path(work_jira_folder) / name
+                try:
+                    os.rename(moved, back)
+                except OSError as err:
+                    app.logger.error("Restore of %s failed: could not move %s back", project_id, moved, exc_info=err)
+                    return jsonify(error=folder_problem(err, name, work_jira_folder)), 400
+                if str(back) != notes.linked_folder(card_fields):     # work_jira moved since: point the card there
+                    extra["folder"] = str(back)                        # (not always: note lines keep single spaces)
+        try:
             new_id = notes.restore_project(projects_folder, archived, datetime.now(),
-                                           name=notes.archived_name(archived.name))
+                                           name=notes.archived_name(archived.name), fields=extra)
         except OSError as err:
-            app.logger.error("Restore of %s failed: could not move its folder", project_id, exc_info=err)
+            app.logger.error("Restore of %s failed: could not move its card", project_id, exc_info=err)
+            if back:
+                stuck = move_back(project_id, back, moved)
+                if stuck:
+                    return stuck
             return jsonify(error=move_problem(err)), 400
-        return jsonify(id=new_id)
+        answer = {"id": new_id}
+        if warning:
+            answer["warning"] = warning
+        if ready_to_complete(notes.read_or_problem(Path(projects_folder) / new_id)) == "closed":
+            answer["still_closed"] = True
+        return jsonify(answer)
 
     # ----- To do page -----
 

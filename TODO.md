@@ -38,6 +38,10 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   (`project_note.fill_jira`); an old card gets it the next time `project_note.py create` runs for its
   folder. Sync and Import never touch `jira:` on an existing card: add `fill_jira` to `sync_all` if
   that matters.
+- **A work folder name with two spaces in a row ("ABC-1  hotfix") shows as "away".** Found 2026-11-21 (G3
+  review). Every card line is saved with single spaces (`notes.set_fields`), and the sync writes the card's
+  `folder:` line on each run (`project_note.sync`, `link_card`), so the card points at "ABC-1 hotfix", which
+  does not exist. Use single spaces in folder names, or keep path fields as they are in `set_fields`.
 - **Import and Stop each hold a copy of the "archived by you vs moved to prod" rule**
   (`import_missing`, `stop`). If one changes, change both, or move it into one helper.
 - **The gate's stop still shows in red, with "Error:".** Tried 2026-11-16: Claude Code shows every

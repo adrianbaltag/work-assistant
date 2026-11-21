@@ -99,11 +99,22 @@ The app doesn't connect to Jira or copy anything from it. The link is only the t
   **✓ Complete** once Claude has closed it (`## Closed` in `requirements.md`). A card with no ticket
   folder, a ticket folder with no `requirements.md` yet, or a ticket started before ticket-flow
   always shows **✓ Complete**: you decide.
-  Every click asks "Move to Completed?" first. The card leaves the dashboard; its work folder stays
-  where it is. The line under the title counts the closed tickets waiting: "N ready to complete".
+  Every click asks "Move to Completed?" first. The card leaves the dashboard, and a ticket's work
+  folder moves from `work_jira` to your folder for completed projects (both move, or neither does).
+  The line under the title counts the closed tickets waiting: "N ready to complete".
+- **Folder for completed projects:** the first time, the pop-up asks where it is (it starts with
+  `Documents\PROD_SCRIPTS\` and makes it if it is missing). It must be inside your user folder (or on work_jira's drive, if
+  work_jira is on another drive). The app
+  puts a small hidden file in it (`.work-assistant-completed`) and finds it by that file from then on,
+  so you can move the folder later. Delete that file to be asked again. A name already taken there
+  gets the date added. If a program has a file open in the folder (VS Code, Claude Code, Excel), nothing
+  moves: close it and click again.
   A ticket you dropped: tell Claude "this ticket is done" so it closes it.
 - **Completed tab:** name, finished date and how it ended (Ticket closed, Completed, Moved to prod).
-  The search box works there. **Restore** puts a card back on the dashboard.
+  The search box works there. **Restore** puts a card back on the dashboard and its folder back in
+  `work_jira` under its own name. It never overwrites a folder already there. If the folder is gone,
+  only the card comes back (and a note says so). If the ticket is still closed, a note above the
+  list says how to reopen it; it stays until you close it with its X.
 - **Order:** critical projects first, then the ones untouched the longest.
 - **Click a project** to open its card. There you can edit the fields, the full note.md,
   the files in `sessions\` and `raw\` (new, edit, rename, upload, paste),

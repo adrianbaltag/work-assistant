@@ -572,40 +572,42 @@ def new_project(projects_folder, project_id, title="", status="active"):
 
 # ---------- Completed tab: complete (= move the card to _archive) and restore ----------
 
-def mark(folder, status, said, now):
-    """Set the project's status and add a history line, e.g. when it is archived or restored."""
+def mark(folder, status, said, now, fields=None):
+    """Set the project's status (and these other fields) and add a history line, e.g. when archived or restored."""
     note = Path(folder) / NOTE_FILE
-    text = set_fields(note.read_text(encoding="utf-8-sig"), {"status": status})
+    text = set_fields(note.read_text(encoding="utf-8-sig"), {"status": status, **(fields or {})})
     safe_write(note, add_history(text, said, now.strftime("%Y-%m-%d")))
 
 
-def archive_project(projects_folder, folder, now, said=COMPLETED):
+def archive_project(projects_folder, folder, now, said=COMPLETED, fields=None):
     """"✓ Complete": move the whole project folder into _archive, then mark it done.
 
     Moved first, so a locked folder (a file open in Excel on Windows) changes nothing at all.
+    fields: other card fields to set at the same time (e.g. prod_folder: where its ticket folder went).
     """
     archive = Path(projects_folder) / ARCHIVE_FOLDER
     archive.mkdir(exist_ok=True)
     target = free_name(archive, Path(folder).name, now, folder=True)
     os.rename(folder, target)
     try:
-        mark(target, "done", said, now)
+        mark(target, "done", said, now, fields)
     except Exception:
         os.rename(target, folder)       # not half done: the project stays open, as it was
         raise
     return target
 
 
-def restore_project(projects_folder, archived, now, name=None, said="Restored from archive"):
+def restore_project(projects_folder, archived, now, name=None, said="Restored from archive", fields=None):
     """Move an archived project back to the projects folder as active. Returns its (maybe suffixed) ID.
 
     name: the ID to restore it as (e.g. without the archive's time suffix). Default = its archived name.
     said: the history line (the work_jira hooks use their own, so a hand Restore can be told apart).
+    fields: other card fields to set at the same time ("" empties one).
     """
     target = free_name(projects_folder, name or Path(archived).name, now, folder=True)
     os.rename(archived, target)
     try:
-        mark(target, "active", said, now)
+        mark(target, "active", said, now, fields)
     except Exception:
         os.rename(target, archived)     # not half done: the project stays in the archive, as it was
         raise

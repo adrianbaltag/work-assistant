@@ -7,6 +7,7 @@ browser may only talk to this one local server.
 import threading
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from werkzeug.serving import make_server
@@ -64,7 +65,8 @@ def serve(projects, work_jira):
         claude_calls.append("called")
         raise AssertionError("a browser test must never call Claude")
 
-    app = create_app(projects, work_jira_folder=str(work_jira), claude=no_claude)
+    # home = the made-up folder too: ✓ Complete must never look for (or make) PROD_SCRIPTS in your real Documents
+    app = create_app(projects, work_jira_folder=str(work_jira), claude=no_claude, home=Path(projects).parent)
     server = make_server("127.0.0.1", 0, app, threaded=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

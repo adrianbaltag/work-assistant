@@ -137,6 +137,10 @@
         <button type="button" class="x" id="cp-cancel-x" aria-label="Close">×</button></header>
       <div class="np-body">
         <p id="cp-text"></p>
+        <label id="cp-where" hidden>Folder for completed projects
+          <input id="cp-folder" type="text" spellcheck="false" autocomplete="off">
+          <span class="hint">Asked only once. The app puts a small hidden file in it and finds it from then on.
+            Made if it is not there yet.</span></label>
         <div id="cp-alert"></div>
         <div class="row"><button type="button" class="btn complete" id="cp-yes">✓ Move to Completed</button>
           <button type="button" class="btn" id="cp-cancel">Cancel</button></div>

@@ -33,11 +33,16 @@ const doneRow = (p, i) => `
 // ---------- "Move to Completed?" ----------
 
 let completing = null;      // the project the pop-up asks about
+let prodFolder = null;      // where its ticket folder goes: the folder found by its tag, or null = ask (the box)
 
-function askComplete(id) {
+// The folder's own name (the last part of its path), e.g. "ABC-1" from C:\Users\me\Desktop\work_jira\ABC-1.
+const lastPart = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || "";
+
+async function askComplete(id) {
   const p = projects.find(x => x.id === id);
   if (!p) return;
   completing = p;
+  prodFolder = null;
   const name = `<b>${esc(p.title)}</b>`;
   const lead = p.ready === "closed" ? `${name}: its ticket is closed.`
     : p.ready === "no_requirements" ? `${name}: its work folder has no requirements.md, so the app can't tell `
@@ -45,11 +50,40 @@ function askComplete(id) {
     : p.ready === "old_ticket" ? `${name} was started before ticket-flow, so the app can't tell `
       + "if the ticket is done. You decide."
     : `${name} has no ticket folder. You decide when it is done.`;
-  $("cp-text").innerHTML = `${lead} The card leaves the dashboard and shows on the Completed tab. `
-    + "Restore there brings it back.";
+  $("cp-where").hidden = true;
   $("cp-alert").innerHTML = "";
+  if (p.ready === "no_ticket") {
+    $("cp-text").innerHTML = `${lead} The card leaves the dashboard and shows on the Completed tab. `
+      + "Restore there brings it back.";
+  } else {
+    // A ticket card: its work folder moves too. Ask Flask where to (the folder with the hidden tag file).
+    let where;
+    try {
+      const response = await fetch("/api/prod-folder");
+      where = await response.json();
+    } catch (err) {
+      if (completing === p) completing = null;
+      toast(REACH_ERROR);
+      return;
+    }
+    // Another row was clicked while we waited: its pop-up is the one that counts, drop this late answer.
+    if (completing !== p) return;
+    prodFolder = where.folder;
+    const folder = `<b>${esc(lastPart(p.folder) || p.id)}</b>`;
+    $("cp-text").innerHTML = `${lead} The card moves to the Completed tab, and the folder ${folder} moves `
+      + `from work_jira to ${prodFolder ? `<b>${esc(prodFolder)}</b>` : "the folder below"}. `
+      + "Restore brings both back.";
+    if (!prodFolder) showWhere(where.suggest);
+  }
   $("cp").hidden = false;
   $("cp-yes").focus();
+}
+
+// The one-time box: where completed ticket folders go. Shown only while no folder has the tag file.
+function showWhere(suggest) {
+  prodFolder = null;
+  $("cp-folder").value = suggest || "";
+  $("cp-where").hidden = false;
 }
 
 // Close the pop-up. back = put the focus on that row's Complete button again (Cancel, Esc).
@@ -64,10 +98,17 @@ async function doComplete() {
   if (button.disabled || !completing) return;     // a double click would send a second "complete"
   button.disabled = true;
   const p = completing;
+  // A ticket card sends where its folder goes (the found folder, or what is in the box). A plain card sends nothing.
+  const options = {method: "POST"};
+  if (p.ready !== "no_ticket") {
+    options.headers = {"Content-Type": "application/json"};
+    options.body = JSON.stringify({prod_folder: prodFolder || $("cp-folder").value});
+  }
   try {
-    const response = await fetch(`/api/projects/${encodeURIComponent(p.id)}/complete`, {method: "POST"});
+    const response = await fetch(`/api/projects/${encodeURIComponent(p.id)}/complete`, options);
     const data = await response.json().catch(() => ({error: response.status === 404
       ? "This project is gone (completed already, or its folder moved?). Reload the page (F5)." : `server said ${response.status}`}));
+    if (data.need_folder) showWhere(data.suggest);      // the tag file went missing since the pop-up opened
     if (!response.ok) throw new Error(data.error);
     closeComplete(false);
     toast(`${p.title} moved to Completed.`);
@@ -82,6 +123,7 @@ async function doComplete() {
 }
 
 $("cp-yes").addEventListener("click", doComplete);
+$("cp-folder").addEventListener("keydown", e => { if (e.key === "Enter") doComplete(); });
 $("cp-cancel").addEventListener("click", () => closeComplete());
 $("cp-cancel-x").addEventListener("click", () => closeComplete());
 $("cp").addEventListener("click", e => { if (e.target === $("cp")) closeComplete(); });   // click outside
@@ -89,20 +131,39 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("cp").h
 
 // ---------- Restore ----------
 
-// Flask moves the card back (with a time suffix only if the name is taken now). Errors stay above the list.
+// A note above the list that stays (also when you change tabs) until you click its X.
+function dashNote(html) {
+  $("dash-alert").insertAdjacentHTML("beforeend", `<div class="alert warn has-x" role="status"><span>${html}</span>`
+    + '<button type="button" class="x sm" data-close-note aria-label="Close this message">×</button></div>');
+}
+
+$("dash-alert").addEventListener("click", e => {
+  const x = e.target.closest("[data-close-note]");
+  if (x) x.closest(".alert").remove();
+});
+
+// Flask moves the ticket folder back (if Complete moved one), then the card (with a time suffix only if the
+// name is taken now). Errors stay above the list until the next try; notes stay until their X.
 async function restoreProject(id) {
   const p = completed.find(x => x.id === id);
   if (!p) return;
-  $("dash-alert").innerHTML = "";
+  $("dash-alert").querySelectorAll(".alert.bad").forEach(a => a.remove());
   try {
     const response = await fetch(`/api/completed/${encodeURIComponent(id)}/restore`, {method: "POST"});
     const data = await response.json().catch(() => ({error: response.status === 404
       ? "It is gone (restored already?). Reload the page (F5)." : `server said ${response.status}`}));
     if (!response.ok) throw new Error(data.error);
-    toast(`${p.title} is back on the dashboard${data.id !== id ? ` as ${data.id}` : ""}.`);
+    const shownAs = data.id !== id ? ` as ${data.id}` : "";
+    toast(`${p.title} is back on the dashboard${shownAs}.`);
+    if (data.warning) dashNote(`<b>${esc(p.title)}:</b> ${esc(data.warning)}`);
+    if (data.still_closed) {
+      dashNote(`<b>${esc(p.title)} is back, but its ticket is still closed.</b> If something broke, open Claude `
+        + "in its folder and say <b>reopen: what broke</b>.");
+    }
   } catch (err) {
     const words = err instanceof TypeError ? REACH_ERROR : err.message;
-    $("dash-alert").innerHTML = `<div class="alert bad"><b>Could not restore.</b> ${esc(words)}</div>`;
+    $("dash-alert").insertAdjacentHTML("afterbegin",
+      `<div class="alert bad"><b>Could not restore.</b> ${esc(words)}</div>`);
   }
   await load();
   refocus("[data-restore]");      // its row may be gone: the focus goes to the next Restore button

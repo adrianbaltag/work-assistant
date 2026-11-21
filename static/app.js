@@ -236,7 +236,8 @@ $("tabs").addEventListener("click", e => {
   if (!button) return;
   tab = button.dataset.tab;
   page = 1;
-  $("dash-alert").innerHTML = "";     // an old "Could not restore" belongs to the tab it came from
+  // An old "Could not restore" belongs to the tab it came from. Notes with an X stay until you close them.
+  $("dash-alert").querySelectorAll(".alert.bad").forEach(a => a.remove());
   load(true);
 });
 

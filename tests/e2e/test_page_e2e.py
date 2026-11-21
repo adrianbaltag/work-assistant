@@ -278,7 +278,42 @@ def test_an_open_ticket_says_in_progress_and_a_closed_one_turns_into_complete(da
     dash.locator("#cp-yes").click()
     dash.locator('[data-tab="completed"]').click()
     expect(dash.locator(".prow.cdone")).to_contain_text("Ticket closed")
-    assert (folders[1] / "DEMO-42").is_dir()                     # G2 moves the card, never the work folder
+    assert (folders[0].parent / "Documents" / "PROD_SCRIPTS" / "DEMO-42").is_dir()     # G3: the folder moved too
+
+
+def test_the_first_complete_asks_where_once_and_restore_brings_the_folder_back(dash, folders):
+    projects, work = folders
+    prod = projects.parent / "Documents" / "PROD_SCRIPTS"
+    (work / "DEMO-42" / "requirements.md").write_text(CLOSED, encoding="utf-8")
+    dash.reload()
+
+    complete_button(dash, "DEMO-42").click()                     # no PROD_SCRIPTS yet: the one-time box
+    expect(dash.locator("#cp-text")).to_contain_text("moves from work_jira to the folder below")
+    expect(dash.locator("#cp-where")).to_be_visible()
+    expect(dash.locator("#cp-folder")).to_have_value(str(prod))
+    dash.locator("#cp-folder").fill("PROD_SCRIPTS")              # not a whole path: refused, nothing moves
+    dash.locator("#cp-yes").click()
+    expect(dash.locator("#cp-alert")).to_contain_text("whole path")
+    assert (work / "DEMO-42").is_dir()
+    dash.locator("#cp-folder").fill(str(prod))
+    dash.locator("#cp-yes").click()
+    expect(dash.locator("#toast")).to_contain_text("moved to Completed")
+    assert (prod / "DEMO-42" / "requirements.md").is_file() and not (work / "DEMO-42").exists()
+
+    dash.locator('[data-tab="completed"]').click()
+    dash.locator('[data-restore="DEMO-42"]').click()             # back: folder too, and the ticket is still closed
+    note = dash.locator("#dash-alert .alert.has-x")
+    expect(note).to_contain_text("still closed")
+    expect(note).to_contain_text("reopen: what broke")
+    assert (work / "DEMO-42" / "requirements.md").is_file() and not (prod / "DEMO-42").exists()
+    dash.locator('[data-tab="all"]').click()
+    expect(note).to_be_visible()                                 # stays when the tab changes ...
+    note.locator("[data-close-note]").click()
+    expect(note).to_have_count(0)                                # ... until its X
+
+    complete_button(dash, "DEMO-42").click()                     # second time: no box, the found folder is named
+    expect(dash.locator("#cp-where")).to_be_hidden()
+    expect(dash.locator("#cp-text")).to_contain_text(str(prod))
 
 
 def test_an_old_ticket_gets_complete_and_the_question_says_you_decide(dash, folders):
@@ -444,3 +479,21 @@ def test_the_hint_under_the_box_says_when_claude_gets_the_message(dash):
     close_card(dash)
     open_card(dash, "DEMO-1")                                    # a personal card: nobody to hand it to
     expect(dash.locator("#msg .hint")).to_have_text("Goes into the History.")
+
+
+def test_a_slow_folder_answer_never_puts_the_wrong_project_in_the_pop_up(dash, folders):
+    (folders[1] / "DEMO-42" / "requirements.md").write_text(CLOSED, encoding="utf-8")
+    dash.reload()
+    held = []
+    dash.route("**/api/prod-folder", lambda route: held.append(route))     # hold the answer back
+
+    complete_button(dash, "DEMO-42").click()                     # waits for where its folder goes ...
+    dash.wait_for_timeout(200)
+    complete_button(dash, "DEMO-1").click()                      # ... meanwhile a plain card's pop-up opens
+    expect(dash.locator("#cp-text")).to_contain_text("Demo one")
+    assert held
+    held[0].fulfill(json={"folder": None, "suggest": "x"})       # the late answer for DEMO-42 arrives
+    dash.wait_for_timeout(300)
+
+    expect(dash.locator("#cp-text")).to_contain_text("Demo one")
+    expect(dash.locator("#cp-where")).to_be_hidden()
