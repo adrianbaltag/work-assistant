@@ -200,9 +200,11 @@ tbody tr:last-child td{border-bottom:0}
   @keyframes fade{from{opacity:0}}
   @keyframes pop{from{opacity:0;transform:scale(.94) translateY(12px)}}
 }
-.modal.small{width:min(480px,100%);height:auto}     /* + New project form */
-@media (max-width:700px){.modal.small{height:auto;border-radius:22px;margin:16px}}
-.np-body{padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+.modal.small{width:min(480px,100%);height:auto;max-height:100%}     /* + New project form: never taller than the window */
+@media (max-width:700px){.modal.small{height:auto;max-height:calc(100% - 32px);border-radius:22px;margin:16px}}
+.np-body{padding:20px 22px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;min-height:0}  /* the fields scroll */
+#np .np-body{padding-bottom:14px}  /* New project: .np-foot below adds the rest of the gap above Create */
+.np-foot{padding:0 22px 20px;display:flex;flex-direction:column;gap:14px}  /* error + Create, always in view */
 .np-check{flex-direction:row;align-items:flex-start;gap:10px;font-size:.82rem;color:var(--text)}
 .np-check input{width:auto;margin-top:2px;accent-color:var(--active)}
 .np-check .hint{display:block;margin-top:3px}

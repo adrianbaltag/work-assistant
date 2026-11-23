@@ -341,6 +341,19 @@ def test_the_row_and_its_complete_button_both_work_from_the_keyboard(dash):
     expect(dash.locator("#m-close")).to_be_focused()
 
 
+def test_in_a_short_window_new_project_keeps_its_title_and_create_in_view(dash):
+    dash.set_viewport_size({"width": 1280, "height": 560})          # a laptop window, browser bars taken off
+    dash.locator("#new-project").click()
+    expect(dash.locator("#np")).to_be_visible()
+    dash.wait_for_timeout(400)                                       # the pop-in animation ends
+    title = dash.locator("#np-title-h").bounding_box()
+    create = dash.locator("#np-create").bounding_box()
+    assert title["y"] >= 0, "the form's title is cut off at the top"
+    assert create["y"] + create["height"] <= 560, "Create is below the bottom of the window"
+    dash.locator("#np-desc").scroll_into_view_if_needed()            # the fields in between scroll
+    expect(dash.locator("#np-desc")).to_be_in_viewport()
+
+
 def test_no_archive_page_no_mark_done_button_and_no_idea_in_new_project(dash):
     expect(dash.locator('[data-page="archive"]')).to_have_count(0)
     expect(dash.locator("#dash-status option")).to_have_text(["Any status", "Active", "Pending"])
