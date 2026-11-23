@@ -1,6 +1,9 @@
 """G3: finding and checking the PROD_SCRIPTS folder (where ✓ Complete moves a ticket folder).
 Fake home folders only (tmp_path), never the real one."""
 import errno
+import os
+import stat
+import sys
 from datetime import datetime
 
 import pytest
@@ -123,10 +126,19 @@ def test_make_creates_the_folder_and_the_tag_once(home):
     prod_folder.make(target)
     tag = target / prod_folder.TAG
     assert tag.is_file() and "Work Assistant" in tag.read_text(encoding="utf-8")
+    tag.unlink()                                    # Windows won't overwrite a hidden file, so delete it first
     tag.write_text("kept", encoding="utf-8")
     prod_folder.make(target)                                                # second time: tag left alone
     assert tag.read_text(encoding="utf-8") == "kept"
     assert prod_folder.find(home) == target
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the hidden mark exists only on Windows")
+def test_make_hides_the_tag_on_windows(home):
+    target = home / "Documents" / "PROD_SCRIPTS"
+    prod_folder.make(target)
+    attributes = os.stat(target / prod_folder.TAG).st_file_attributes
+    assert attributes & stat.FILE_ATTRIBUTE_HIDDEN
 
 
 def test_move_out_keeps_the_name_or_adds_the_date_when_taken(home, tmp_path):
