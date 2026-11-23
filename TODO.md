@@ -110,3 +110,12 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
   old `_templates` (no Status line, one placeholder milestone line) makes the hook ask the
   old-ticket questions plus "approve these milestones", though there are none. Seen at work
   2026-11-23: Claude noticed and skipped that question. Fix: treat an untouched template as "new".
+- **A `<word>` in a real milestone line hides it.** `milestone_lines` skips any line with `<...>`
+  as template text, even inside a `code` quote (a quoted error message like `'<ticket> NOT closed'`).
+  Seen at work 2026-11-23 on an old ticket: card said "M5 of 8" instead of 9. New lines are safe
+  (plan-milestones forbids angle brackets), old tickets are not. Fix: ignore `<...>` inside backticks.
+- **`/clear` in an old window gave no ticket-flow start message.** Seen at work 2026-11-23: the
+  SessionStart hook is listed in `/hooks` (matcher "all"), but after `/clear` in a window opened
+  earlier Claude got only another plugin's message. `/exit` then `claude` in the same folder worked.
+  Cause not found yet (old window, or `/clear` itself). Until then: start fresh, never `/clear`,
+  and the skills' "new session (or /clear)" wording may need to change.
