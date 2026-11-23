@@ -106,3 +106,7 @@ Known things, found in reviews and real tests, that are parked on purpose. Each 
 - **Read in place, the recorded version can be old.** On the work laptop the plugin is read from the
   app folder, so new files are used right after `git pull`, but check_setup.py may still warn about
   the version until `claude plugin update` is run. Check this in the live try.
+- **A blank template reads as an old ticket with milestones.** A `requirements.md` copied from the
+  old `_templates` (no Status line, one placeholder milestone line) makes the hook ask the
+  old-ticket questions plus "approve these milestones", though there are none. Seen at work
+  2026-11-23: Claude noticed and skipped that question. Fix: treat an untouched template as "new".
